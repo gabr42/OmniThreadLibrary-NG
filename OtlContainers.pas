@@ -436,22 +436,6 @@ begin
     Result := TOmniValueQueueCS.Create(ThresholdForFull)
 end; { CreateOmniValueQueue }
 
-{$IFDEF MSWINDOWS}
-{$IFDEF CPUX64}
-procedure AsmInt3;
-asm
-  .noframe
-  int 3
-end; { AsmInt3 }
-
-procedure AsmPause;
-asm
-  .noframe
-  pause;
-end; { AsmPause }
-{$ENDIF CPUX64}
-{$ENDIF MSWINDOWS}
-
 function RoundUpTo(value: pointer; granularity: integer): pointer;
 begin
   Result := pointer((((NativeInt(value) - 1) div granularity) + 1) * granularity);
@@ -1335,7 +1319,7 @@ end; { TOmniBaseQueue.AllocateBlock }
 procedure TOmniBaseQueue.Assert(condition: boolean);
 begin
   if not condition then
-    {$IFDEF CPUX64}AsmInt3;{$ELSE}asm int 3; end;{$ENDIF CPUX64}
+    raise EAssertionFailed.Create('TOmniBaseQueue: assertion failed');
 end; { TOmniBaseQueue.Assert }
 {$ENDIF DEBUG_OMNI_QUEUE}
 
@@ -1383,7 +1367,7 @@ begin
       then
         break //repeat
       else // very temporary condition, retry quickly
-        {$IFNDEF OTL_HaveCmpx16b}TThread.Yield;{$ELSE}{$IFDEF CPUX64}AsmPause;{$ELSE}asm pause; end;{$ENDIF}{$ENDIF}
+        TThread.SpinWait(1);
     until false;
     {$IFDEF DEBUG_OMNI_QUEUE} Assert(head = obcHeadPointer.Slot); {$ENDIF}
     if obcHeadPointer.Tag = tagAllocating then begin // enqueueing
@@ -1480,7 +1464,7 @@ begin
           break; //repeat
         end
         else
-          {$IFNDEF OTL_HaveCmpx16b}TThread.Yield;{$ELSE}{$IFDEF CPUX64}AsmPause;{$ELSE}asm pause; end;{$ENDIF}{$ENDIF}
+          TThread.SpinWait(1);
       until false;
       {$IFDEF DEBUG_OMNI_QUEUE} Assert(tail = obcTailPointer.Slot); {$ENDIF}
       header := tail;
@@ -1602,7 +1586,7 @@ begin
           break; //repeat
         end
         else
-          {$IFNDEF MSWINDOWS}TThread.Yield;{$ELSE}{$IFDEF CPUX64}AsmPause;{$ELSE}asm pause; end;{$ENDIF ~CPUX64}{$ENDIF}
+          TThread.SpinWait(1);
       until false;
       if Result then begin // dequeueing
         {$IFDEF DEBUG_OMNI_QUEUE} Assert(tail = obcTailPointer.Slot); {$ENDIF}
