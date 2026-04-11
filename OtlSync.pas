@@ -553,25 +553,11 @@ type
   end; { TOmniLockManager<K> }
   {$IFEND}
 
-  {$IF Defined(MSWINDOWS) and not Defined(Otl_PlatformIndependent)}
-  ///<summary>Waits on any/all from any number of handles.</summary>
-  ///  Don't use it to wait on mutexes!
-  ///  http://joeduffyblog.com/2007/05/13/registerwaitforsingleobject-and-mutexes-dont-mix/
+  ///<summary>Waits on any/all from any number of synchro objects such as Events
+  ///  and CountDownEvents. Uses condition variables internally for cross-platform
+  ///  compatibility. On Windows, also supports THandle-based construction and
+  ///  MsgWaitAny for message loop integration.</summary>
   TWaitFor = class
-  private type
-    TWaitMode = (wmSmart, wmForceWFM, wmForceRWFS);
-  protected type //must be visible from the callback
-    TWaiter = class
-    strict private
-      FIdxHandle: integer;
-      FOwner    : TWaitFor;
-      FSignalled: boolean;
-    public
-      constructor Create(owner: TWaitFor; idxHandle: integer);
-      procedure Awaited;
-      property Index: integer read FIdxHandle;
-      property Signalled: boolean read FSignalled write FSignalled;
-    end;
   public type
     TWaitForResult = (
       waAwaited,      // WAIT_OBJECT_0 .. WAIT_OBJECT_n
@@ -584,58 +570,17 @@ type
       Index: integer;
     end;
     THandles = array of THandleInfo;
+    {$IFDEF MSWINDOWS}
     THandleArr = array of THandle;
-  strict private
-    FAwaitedLock     : TOmniCS;
-    FHandles         : array of THandle;
-    FIdxSignalled    : integer;
-    FResourceCount   : IOmniResourceCount;
-    FSignal          : TDSiEventHandle;
-    FSignalledHandles: THandles;
-    FWaitHandles     : TGpInt64ObjectList;
-    FWaitMode        : TWaitMode; // for testing
-  strict protected
-    function  GetWaitHandles: THandleArr;
-    function  MapToHandle(winResult: cardinal; isMsgWait: boolean): cardinal;
-    function  MapToResult(winResult: cardinal): TWaitForResult;
-    procedure RegisterWaitHandles(extraFlags: cardinal);
-    procedure UnregisterWaitHandles;
-  protected //must be visible from the callback
-    procedure Awaited_Asy(idxHandle: integer);
-  public
-    constructor Create; overload;
-    constructor Create(const handles: array of THandle); overload;
-    constructor Create(const handles: array of IOmniSynchro); overload;
-    destructor  Destroy; override;
-    function  MsgWaitAny(timeout_ms, wakeMask, flags: cardinal): TWaitForResult;
-    procedure SetHandles(const handles: array of THandle);
-    function  WaitAll(timeout_ms: cardinal): TWaitForResult;
-    function  WaitAny(timeout_ms: cardinal; alertable: boolean = false): TWaitForResult;
-    property Signalled: THandles read FSignalledHandles;
-    property WaitHandles: THandleArr read GetWaitHandles;
-  end; { TWaitFor }
-  {$ELSE ~MSWINDOWS}
-  ///<summary>Waits on any/all from any number of synchroobjects such as Events and CountDownEvents.</summary>
-  TSynchroWaitFor = class
-  public type
-    TWaitForResult = (
-      waAwaited,      // WAIT_OBJECT_0 .. WAIT_OBJECT_n
-      waTimeout,      // WAIT_TIMEOUT
-      waFailed,       // WAIT_FAILED
-      waIOCompletion, // WAIT_IO_COMPLETION
-      waMessage       // message or wake event (WAIT_OBJECT_n+1)
-    );
-    THandleInfo = record //TODO: not integrated yet (maybe will even be removed at the end but currently OtlTaskControl expects it)
-      Index: integer;
-    end;
+    {$ENDIF MSWINDOWS}
   strict private type
     TSynchroList = class(TList<IOmniSynchro>) end;
     ISynchroClientEx = interface ['{A4D963B3-88CD-466A-9885-3C66E605E32E}']
       procedure Deref;
-    end; { ISyncroClientEx }
+    end; { ISynchroClientEx }
     TSynchroClient = class(TInterfacedObject, IOmniSynchroObserver, ISynchroClientEx)
     strict private
-      FController: TSynchroWaitFor;
+      FController: TWaitFor;
       procedure EnterGate;
       procedure LeaveGate;
       procedure DereferenceSynchObj(const SynchObj: TObject; AllowInterface: boolean);
@@ -643,42 +588,56 @@ type
       procedure AfterSignal(const Signaller: TObject; var Data: TObject);
       procedure Deref;
     public
-      constructor Create(AController: TSynchroWaitFor);
+      constructor Create(AController: TWaitFor);
     end; { TSynchroClient }
   protected type
     TCondition = class
     protected
       FCondVar   : TConditionVariableCS;
-      FController: TSynchroWaitFor;
+      FController: TWaitFor;
     public
-      constructor Create(AController: TSynchroWaitFor);
+      constructor Create(AController: TWaitFor);
       destructor  Destroy; override;
       function  Wait(timeout_ms: cardinal; var Signaller: IOmniSynchro): TWaitResult;
       function  Test(var Signaller: IOmniSynchro): boolean; virtual; abstract;
-//      function  IsWaitAll: boolean; virtual; abstract;
     end;
   strict private
-    FAllSignalled: TCondition;
-    FGate        : IOmniCriticalSection;
-    FOneSignalled: TCondition;
-    FSynchObjects: TSynchroList;
-    FSynchClient : IOmniSynchroObserver;
+    FAllSignalled    : TCondition;
+    FGate            : IOmniCriticalSection;
+    FOneSignalled    : TCondition;
+    FSignalledHandles: THandles;
+    FSynchObjects    : TSynchroList;
+    FSynchClient     : IOmniSynchroObserver;
+  strict protected
+    {$IFDEF MSWINDOWS}
+    function  GetWaitHandles: THandleArr;
+    {$ENDIF MSWINDOWS}
   protected
     function  MapResult(waitResult: TWaitResult): TWaitForResult;
+    procedure PopulateSignalled(const signaller: IOmniSynchro; waitAll: boolean);
     property Gate: IOmniCriticalSection read FGate;
     property SynchClient: IOmniSynchroObserver read FSynchClient;
     property SynchObjects: TSynchroList read FSynchObjects;
   public
-    constructor Create(const SynchObjects: array of IOmniSynchro; const AShareLock: IOmniCriticalSection = nil);
+    constructor Create(const synchObjects: array of IOmniSynchro; const AShareLock: IOmniCriticalSection = nil); overload;
+    {$IFDEF MSWINDOWS}
+    constructor Create; overload;
+    constructor Create(const handles: array of THandle); overload;
+    {$ENDIF MSWINDOWS}
     destructor  Destroy; override;
+    {$IFDEF MSWINDOWS}
+    function  MsgWaitAny(timeout_ms, wakeMask, flags: cardinal): TWaitForResult;
+    procedure SetHandles(const handles: array of THandle);
+    {$ENDIF MSWINDOWS}
     function  WaitAll(timeout_ms: cardinal): TWaitForResult; overload; inline;
     function  WaitAll(timeout_ms: cardinal; var Signaller: IOmniSynchro): TWaitForResult; overload;
     function  WaitAny(timeout_ms: cardinal): TWaitForResult; overload; inline;
     function  WaitAny(timeout_ms: cardinal; var Signaller: IOmniSynchro): TWaitForResult; overload;
-  end; { TSynchroWaitFor }
-
-  TWaitFor = TSynchroWaitFor;
-  {$IFEND}
+    property Signalled: THandles read FSignalledHandles;
+    {$IFDEF MSWINDOWS}
+    property WaitHandles: THandleArr read GetWaitHandles;
+    {$ENDIF MSWINDOWS}
+  end; { TWaitFor }
 
   TOmniSingleThreadUseChecker = record
   private
@@ -882,18 +841,14 @@ type
     function  IsSignalled: boolean; override;
   end; { TOmniEvent }
 
-  {$IFDEF OTL_MobileSupport}
-  {$IF not Defined(MSWINDOWS) or Defined(OTL_PlatformIndependent)}
-  TOneCondition = class(TSynchroWaitFor.TCondition)
+  TOneCondition = class(TWaitFor.TCondition)
   public
     function  Test(var Signaller: IOmniSynchro): boolean; override;
-//    function  IsWaitAll: boolean; override;
   end; { TOneCondition }
 
-  TAllCondition = class(TSynchroWaitFor.TCondition)
+  TAllCondition = class(TWaitFor.TCondition)
   public
     function  Test(var Signaller: IOmniSynchro): boolean; override;
-//    function  IsWaitAll: boolean; override;
   end; { TAllCondition }
 
   TPreSignalData = class
@@ -901,9 +856,7 @@ type
     OneSignalled: boolean;
     AllSignalled: boolean;
     constructor Create(AOneSignalled, AllSignalled: boolean);
-  end; { TPreSignaData }
-  {$IFEND}
-  {$ENDIF OTL_MobileSupport}
+  end; { TPreSignalData }
 
 var
   GOmniCSInitializer: TOmniCriticalSection;
@@ -1173,14 +1126,10 @@ function WaitForAllObjects(const handles: array of THandle; timeout_ms: cardinal
 var
   waiter: TWaitFor;
 begin
-  {$IFDEF OTL_PlatformIndependent}
-  raise Exception.Create('Not implemented');
-  {$ELSE}
   waiter := TWaitFor.Create(handles);
   try
     Result := (waiter.WaitAll(timeout_ms) = waAwaited);
   finally FreeAndNil(waiter); end;
-  {$ENDIF}
 end; { WaitForAllObjects }
 {$ENDIF MSWINDOWS}
 
@@ -2085,259 +2034,39 @@ end; { TOmniLockManager<K>.Unlock }
 
 {$IFEND}
 
-{$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
+{ TWaitFor.TSynchroClient }
 
-{ TWaitFor.TWaiter }
-
-constructor TWaitFor.TWaiter.Create(owner: TWaitFor; idxHandle: integer);
-begin
-  inherited Create;
-  FOwner := owner;
-  FIdxHandle := idxHandle;
-end; { TWaitFor.TWaiter.Create }
-
-procedure TWaitFor.TWaiter.Awaited;
-begin
-  FOwner.Awaited_Asy(FIdxHandle);
-end; { TWaitFor.TWaiter.Awaited }
-
-{ TWaitFor }
-
-constructor TWaitFor.Create(const handles: array of THandle);
-begin
-  Create;
-  SetHandles(handles);
-end; { TWaitFor.Create }
-
-constructor TWaitFor.Create;
-begin
-  inherited;
-  FSignal := CreateEvent(nil, false, false, nil);
-  FWaitMode := wmSmart;
-  FWaitHandles := TGpInt64ObjectList.Create;
-end; { TWaitFor.Create }
-
-constructor TWaitFor.Create(const handles: array of IOmniSynchro);
-var
-  hhandles: array of THandle;
-  i: integer;
-begin
-  SetLength(hhandles, Length(handles));
-  for i := Low(handles) to High(handles) do
-    hhandles[i] := handles[i].Handle;
-  Create(hhandles);
-end; { TWaitFor.Create }
-
-destructor TWaitFor.Destroy;
-begin
-  FreeAndNil(FWaitHandles);
-  DSiCloseHandleAndNull(FSignal);
-  inherited;
-end; { TWaitFor.Destroy }
-
-procedure TWaitFor.Awaited_Asy(idxHandle: integer);
-var
-  waiter: TWaiter;
-begin
-  FAwaitedLock.Acquire;
-  try
-    waiter := TWaiter(FWaitHandles.Objects[idxHandle]);
-    waiter.Signalled := true;
-    if assigned(FResourceCount) then
-      FResourceCount.Allocate
-    else
-      SetEvent(FSignal);
-  finally FAwaitedLock.Release; end;
-end; { TWaitFor.Awaited_Asy }
-
-function TWaitFor.MsgWaitAny(timeout_ms, wakeMask, flags: cardinal): TWaitForResult;
-var
-  winResult: cardinal;
-begin
-  if (FWaitMode = wmForceWFM) or ((FWaitMode = wmSmart) and (Length(FHandles) < 64)) then
-    winResult := MapToHandle(MsgWaitForMultipleObjectsEx(Length(FHandles), FHandles[0], timeout_ms, wakeMask, flags), true)
-  else begin
-    FIdxSignalled := -1;
-    RegisterWaitHandles(0);
-    try
-      winResult := MsgWaitForMultipleObjectsEx(1, FSignal, timeout_ms, wakeMask, flags);
-    finally UnregisterWaitHandles; end;
-  end;
-  Result := MapToResult(winResult);
-end; { TWaitFor.MsgWaitAny }
-
-procedure WaitForCallback(Context: Pointer; TimerOrWaitFired: Boolean); stdcall;
-begin
-  if not TimerOrWaitFired then
-    TWaitFor.TWaiter(Context).Awaited;
-end; { WaitForCallback }
-
-function TWaitFor.GetWaitHandles: THandleArr;
-begin
-  SetLength(Result, Length(FHandles));
-  if Length(Result) > 0 then
-    Move(FHandles[Low(FHandles)], Result[Low(Result)], Length(Result) * SizeOf(Result[Low(Result)]));
-end; { TWaitFor.GetWaitHandles }
-
-function TWaitFor.MapToHandle(winResult: cardinal; isMsgWait: boolean): cardinal;
-begin
-  if isMsgWait and (winResult = (WAIT_OBJECT_0 + cardinal(Length(FHandles)))) then begin
-    SetLength(FSignalledHandles, 0);
-    Result := WAIT_OBJECT_0 + 64; //unused value in Windows API
-  end
-  else if {(winResult >= WAIT_OBJECT_0) and }
-     (winResult < (WAIT_OBJECT_0 + cardinal(Length(FHandles)))) then
-  begin
-    SetLength(FSignalledHandles, 1);
-    FSignalledHandles[0].Index := winResult - WAIT_OBJECT_0;
-    Result := WAIT_OBJECT_0;
-  end
-  else begin
-    SetLength(FSignalledHandles, 0);
-    Result := winResult;
-  end;
-end; { TWaitFor.MapToHandle }
-
-function TWaitFor.MapToResult(winResult: cardinal): TWaitForResult;
-begin
-  if winResult = WAIT_OBJECT_0 then
-    Result := waAwaited
-  else if winResult = WAIT_TIMEOUT then
-    Result := waTimeout
-  else if winResult = WAIT_IO_COMPLETION then
-    Result := waIOCompletion
-  else if winResult = (WAIT_OBJECT_0 + 64) then
-    Result := waMessage
-  else
-    Result := waFailed;
-end; { TWaitFor.MapToResult }
-
-procedure TWaitFor.RegisterWaitHandles(extraFlags: cardinal);
-var
-  idxWait      : integer;
-  iHandle      : integer;
-  newWaitObject: THandle;
-  waiter       : TWaiter;
-begin
-  FWaitHandles.Clear;
-  for iHandle := Low(FHandles) to High(FHandles) do begin
-    waiter := TWaiter.Create(Self, iHandle);
-    idxWait := FWaitHandles.AddObject(0 {placeholder}, waiter);
-    if iHandle <> idxWait then
-      raise Exception.Create('TWaitFor.RegisterWaitHandles: Indexes out of sync');
-{$WARN SYMBOL_PLATFORM OFF}
-    Win32Check(RegisterWaitForSingleObject(newWaitObject, FHandles[iHandle], WaitForCallback,
-                                           pointer(waiter), INFINITE,
-                                           extraFlags OR WT_EXECUTEINPERSISTENTTHREAD));
-{$WARN SYMBOL_PLATFORM ON}
-    FWaitHandles[idxWait] := newWaitObject;
-  end;
-  SetLength(FSignalledHandles, 0);
-end; { TWaitFor.RegisterWaitHandles }
-
-procedure TWaitFor.SetHandles(const handles: array of THandle);
-var
-  iHandle: integer;
-begin
-  SetLength(FHandles, Length(handles));
-  for iHandle := Low(handles) to High(handles) do
-    FHandles[iHandle] := handles[iHandle];
-end; { TWaitFor.SetHandles }
-
-procedure TWaitFor.UnregisterWaitHandles;
-var
-  countSignalled: integer;
-  i             : integer;
-  waiter        : TWaiter;
-begin
-  for i := 0 to FWaitHandles.Count - 1 do
-    UnregisterWait(THandle(FWaitHandles[i]));
-
-  SetLength(FSignalledHandles, FWaitHandles.Count);
-  countSignalled := 0;
-  for i := 0 to FWaitHandles.Count - 1 do begin
-    waiter := TWaiter(FWaitHandles.Objects[i]);
-    if waiter.Signalled then begin
-      FSignalledHandles[countSignalled].Index := waiter.Index;
-      Inc(countSignalled);
-    end;
-  end;
-  SetLength(FSignalledHandles, countSignalled);
-  FWaitHandles.Clear;
-end; { TWaitFor.UnregisterWaitHandles }
-
-function TWaitFor.WaitAll(timeout_ms: cardinal): TWaitForResult;
-var
-  winResult: cardinal;
-begin
-  if (FWaitMode = wmForceWFM) or ((FWaitMode = wmSmart) and (Length(FHandles) <= 64)) then
-    winResult := MapToHandle(WaitForMultipleObjects(Length(FHandles), @(FHandles[0]), true, timeout_ms), false)
-  else begin
-    FResourceCount := CreateResourceCount(Length(FHandles));
-    try
-      RegisterWaitHandles(WT_EXECUTEONLYONCE);
-      try
-        winResult := WaitForSingleObject(FResourceCount.Handle, timeout_ms);
-      finally UnregisterWaitHandles; end;
-    finally FResourceCount := nil; end;
-  end;
-  Result := MapToResult(winResult);
-end; { TWaitFor.WaitAll }
-
-function TWaitFor.WaitAny(timeout_ms: cardinal; alertable: boolean = false):
-  TWaitForResult;
-var
-  winResult: cardinal;
-begin
-  if (FWaitMode = wmForceWFM) or ((FWaitMode = wmSmart) and (Length(FHandles) <= 64)) then
-    winResult := MapToHandle(WaitForMultipleObjectsEx(Length(FHandles), @(FHandles[0]), false, timeout_ms, alertable), false)
-  else begin
-    FIdxSignalled := -1;
-    RegisterWaitHandles(0);
-    try
-      winResult := WaitForMultipleObjectsEx(1, @FSignal, false, timeout_ms, alertable);
-    finally UnregisterWaitHandles; end;
-  end;
-  Result := MapToResult(winResult);
-end; { TWaitFor.WaitAny }
-
-{$ELSE ~MSWINDOWS}
-{$IFDEF OTL_MobileSupport}
-
-{ TSynchroWaitFor.TSynchroClient }
-
-constructor TSynchroWaitFor.TSynchroClient.Create(AController: TSynchroWaitFor);
+constructor TWaitFor.TSynchroClient.Create(AController: TWaitFor);
 begin
   FController := AController;
   FController.FSynchClient := Self;
-end; { TSynchroWaitFor.TSynchroClient.Create }
+end; { TWaitFor.TSynchroClient.Create }
 
-procedure TSynchroWaitFor.TSynchroClient.EnterGate;
+procedure TWaitFor.TSynchroClient.EnterGate;
 begin
   if assigned(FController) then
     FController.FGate.Acquire;
-end; { TSynchroWaitFor.TSynchroClient.EnterGate }
+end; { TWaitFor.TSynchroClient.EnterGate }
 
-procedure TSynchroWaitFor.TSynchroClient.LeaveGate;
+procedure TWaitFor.TSynchroClient.LeaveGate;
 begin
   if assigned(FController) then
     FController.FGate.Release;
-end; { TSynchroWaitFor.TSynchroClient.LeaveGate }
+end; { TWaitFor.TSynchroClient.LeaveGate }
 
-procedure TSynchroWaitFor.TSynchroClient.Deref;
+procedure TWaitFor.TSynchroClient.Deref;
 begin
   FController := nil;
-end; { TSynchroWaitFor.TSynchroClient.Deref }
+end; { TWaitFor.TSynchroClient.Deref }
 
-procedure TSynchroWaitFor.TSynchroClient.DereferenceSynchObj(const SynchObj: TObject;
+procedure TWaitFor.TSynchroClient.DereferenceSynchObj(const SynchObj: TObject;
   AllowInterface: boolean);
 begin
   if not assigned(FController) then
     Exit;
-  { TODO : Is there something mising? }
-end; { TSynchroWaitFor.TSynchroClient.DereferenceSynchObj }
+end; { TWaitFor.TSynchroClient.DereferenceSynchObj }
 
-procedure TSynchroWaitFor.TSynchroClient.BeforeSignal(const Signaller: TObject; var Data: TObject);
+procedure TWaitFor.TSynchroClient.BeforeSignal(const Signaller: TObject; var Data: TObject);
 var
   Dummy: IOmniSynchro;
 begin
@@ -2345,9 +2074,9 @@ begin
     Data := TPreSignalData.Create(
       FController.FOneSignalled.Test(Dummy),
       FController.FAllSignalled.Test(Dummy));
-end; { TSynchroWaitFor.TSynchroClient.BeforeSignal }
+end; { TWaitFor.TSynchroClient.BeforeSignal }
 
-procedure TSynchroWaitFor.TSynchroClient.AfterSignal(const Signaller: TObject; var Data: TObject);
+procedure TWaitFor.TSynchroClient.AfterSignal(const Signaller: TObject; var Data: TObject);
 var
   Dummy: IOmniSynchro;
 begin
@@ -2363,24 +2092,24 @@ begin
     then
       FController.FAllSignalled.FCondVar.Release;
   finally FreeAndNil(Data); end;
-end; { TSynchroWaitFor.TSynchroClient.AfterSignal }
+end; { TWaitFor.TSynchroClient.AfterSignal }
 
-{ TSynchroWaitFor.TCondition }
+{ TWaitFor.TCondition }
 
-constructor TSynchroWaitFor.TCondition.Create(AController: TSynchroWaitFor);
+constructor TWaitFor.TCondition.Create(AController: TWaitFor);
 begin
   inherited Create;
   FCondVar := TConditionVariableCS.Create;
   FController := AController;
-end; { TSynchroWaitFor.TCondition.Create }
+end; { TWaitFor.TCondition.Create }
 
-destructor TSynchroWaitFor.TCondition.Destroy;
+destructor TWaitFor.TCondition.Destroy;
 begin
   FreeAndNil(FCondVar);
   inherited;
-end; { TSynchroWaitFor.TCondition.Destroy }
+end; { TWaitFor.TCondition.Destroy }
 
-function TSynchroWaitFor.TCondition.Wait(timeout_ms: cardinal;
+function TWaitFor.TCondition.Wait(timeout_ms: cardinal;
   var Signaller: IOmniSynchro): TWaitResult;
 var
   elapsed   : int64;
@@ -2442,14 +2171,14 @@ begin
       Signaller := signaller1;
     end;
   finally FController.FGate.Release; end;
-end; { TSynchroWaitFor.TCondition.Wait }
+end; { TWaitFor.TCondition.Wait }
 
-{ TSynchroWaitFor }
+{ TWaitFor }
 
-constructor TSynchroWaitFor.Create(const SynchObjects: array of IOmniSynchro;
+constructor TWaitFor.Create(const synchObjects: array of IOmniSynchro;
   const AShareLock: IOmniCriticalSection = nil);
 var
-  Member: IOmniSynchro;
+  member: IOmniSynchro;
 begin
   if assigned(AShareLock) then
     FGate := AShareLock
@@ -2459,12 +2188,32 @@ begin
   FSynchObjects := TSynchroList.Create;
   FOneSignalled := TOneCondition.Create(self);
   FAllSignalled := TAllCondition.Create(self);
-  FSynchClient := TSynchroClient.Create(self); // TODO 1 -oPrimoz Gabrijelcic : ??? used at all ???
-  for Member in SynchObjects do
-    FSynchObjects.Add(Member);
-end; { TSynchroWaitFor.Create }
+  FSynchClient := TSynchroClient.Create(self);
+  for member in synchObjects do
+    FSynchObjects.Add(member);
+end; { TWaitFor.Create }
 
-destructor TSynchroWaitFor.Destroy;
+{$IFDEF MSWINDOWS}
+constructor TWaitFor.Create;
+var
+  emptySynchros: array of IOmniSynchro;
+begin
+  Create(emptySynchros);
+end; { TWaitFor.Create }
+
+constructor TWaitFor.Create(const handles: array of THandle);
+var
+  synchros: array of IOmniSynchro;
+  i       : integer;
+begin
+  SetLength(synchros, Length(handles));
+  for i := Low(handles) to High(handles) do
+    synchros[i] := CreateOmniEvent(handles[i], false);
+  Create(synchros);
+end; { TWaitFor.Create }
+{$ENDIF MSWINDOWS}
+
+destructor TWaitFor.Destroy;
 var
   SynchClientEx: ISynchroClientEx;
 begin
@@ -2477,9 +2226,66 @@ begin
     SynchClientEx.Deref;
   FSynchClient := nil;
   inherited;
-end; { TSynchroWaitFor.Destroy }
+end; { TWaitFor.Destroy }
 
-function TSynchroWaitFor.MapResult(waitResult: TWaitResult): TWaitForResult;
+{$IFDEF MSWINDOWS}
+function TWaitFor.GetWaitHandles: THandleArr;
+var
+  i: integer;
+begin
+  SetLength(Result, FSynchObjects.Count);
+  for i := 0 to FSynchObjects.Count - 1 do
+    Result[i] := FSynchObjects[i].Handle;
+end; { TWaitFor.GetWaitHandles }
+
+function TWaitFor.MsgWaitAny(timeout_ms, wakeMask, flags: cardinal): TWaitForResult;
+var
+  handles  : array of THandle;
+  i        : integer;
+  winResult: cardinal;
+begin
+  SetLength(handles, FSynchObjects.Count);
+  for i := 0 to FSynchObjects.Count - 1 do
+    handles[i] := FSynchObjects[i].Handle;
+  if Length(handles) = 0 then begin
+    winResult := MsgWaitForMultipleObjectsEx(0, handles, timeout_ms, wakeMask, flags);
+  end
+  else
+    winResult := MsgWaitForMultipleObjectsEx(Length(handles), handles[0], timeout_ms, wakeMask, flags);
+  if winResult = (WAIT_OBJECT_0 + cardinal(Length(handles))) then begin
+    SetLength(FSignalledHandles, 0);
+    Result := waMessage;
+  end
+  else if winResult < (WAIT_OBJECT_0 + cardinal(Length(handles))) then begin
+    SetLength(FSignalledHandles, 1);
+    FSignalledHandles[0].Index := winResult - WAIT_OBJECT_0;
+    Result := waAwaited;
+  end
+  else if winResult = WAIT_TIMEOUT then begin
+    SetLength(FSignalledHandles, 0);
+    Result := waTimeout;
+  end
+  else if winResult = WAIT_IO_COMPLETION then begin
+    SetLength(FSignalledHandles, 0);
+    Result := waIOCompletion;
+  end
+  else begin
+    SetLength(FSignalledHandles, 0);
+    Result := waFailed;
+  end;
+end; { TWaitFor.MsgWaitAny }
+
+procedure TWaitFor.SetHandles(const handles: array of THandle);
+var
+  i: integer;
+begin
+  FSynchObjects.Clear;
+  for i := Low(handles) to High(handles) do
+    FSynchObjects.Add(CreateOmniEvent(handles[i], false));
+end; { TWaitFor.SetHandles }
+{$ENDIF MSWINDOWS}
+
+function TWaitFor.MapResult(waitResult: TWaitResult): TWaitForResult;
 begin
   case waitResult of
     wrSignaled:     Result := waAwaited;
@@ -2489,31 +2295,64 @@ begin
     wrIOCompletion: Result := waIOCompletion;
     else raise Exception.Create('Unexpected value: ' + Ord(waitResult).ToString);
   end;
-end; { TSynchroWaitFor.MapResult }
+end; { TWaitFor.MapResult }
 
-function TSynchroWaitFor.WaitAll(timeout_ms: cardinal): TWaitForResult;
+procedure TWaitFor.PopulateSignalled(const signaller: IOmniSynchro; waitAll: boolean);
 var
-  Signaller: IOmniSynchro;
+  countSignalled: integer;
+  i             : integer;
 begin
-  Result := WaitAll(timeout_ms, Signaller);
-end; { TSynchroWaitFor.WaitAll }
+  if waitAll then begin
+    // For WaitAll, all objects are signalled
+    SetLength(FSignalledHandles, FSynchObjects.Count);
+    for i := 0 to FSynchObjects.Count - 1 do
+      FSignalledHandles[i].Index := i;
+  end
+  else begin
+    // For WaitAny, find all currently signalled objects
+    SetLength(FSignalledHandles, FSynchObjects.Count);
+    countSignalled := 0;
+    for i := 0 to FSynchObjects.Count - 1 do begin
+      if (FSynchObjects[i] = signaller) or FSynchObjects[i].IsSignalled then begin
+        FSignalledHandles[countSignalled].Index := i;
+        Inc(countSignalled);
+      end;
+    end;
+    SetLength(FSignalledHandles, countSignalled);
+  end;
+end; { TWaitFor.PopulateSignalled }
 
-function TSynchroWaitFor.WaitAll(timeout_ms: cardinal; var Signaller: IOmniSynchro): TWaitForResult;
+function TWaitFor.WaitAll(timeout_ms: cardinal): TWaitForResult;
+var
+  signaller: IOmniSynchro;
+begin
+  Result := WaitAll(timeout_ms, signaller);
+end; { TWaitFor.WaitAll }
+
+function TWaitFor.WaitAll(timeout_ms: cardinal; var Signaller: IOmniSynchro): TWaitForResult;
 begin
   Result := MapResult(FAllSignalled.Wait(timeout_ms, Signaller));
-end; { TSynchroWaitFor.WaitAll }
+  if Result = waAwaited then
+    PopulateSignalled(Signaller, true)
+  else
+    SetLength(FSignalledHandles, 0);
+end; { TWaitFor.WaitAll }
 
-function TSynchroWaitFor.WaitAny(timeout_ms: cardinal): TWaitForResult;
+function TWaitFor.WaitAny(timeout_ms: cardinal): TWaitForResult;
 var
-  Signaller: IOmniSynchro;
+  signaller: IOmniSynchro;
 begin
-  Result := WaitAny(timeout_ms, Signaller);
-end; { TSynchroWaitFor.WaitAny }
+  Result := WaitAny(timeout_ms, signaller);
+end; { TWaitFor.WaitAny }
 
-function TSynchroWaitFor.WaitAny(timeout_ms: cardinal; var Signaller: IOmniSynchro): TWaitForResult;
+function TWaitFor.WaitAny(timeout_ms: cardinal; var Signaller: IOmniSynchro): TWaitForResult;
 begin
   Result := MapResult(FOneSignalled.Wait(timeout_ms, Signaller));
-end; { TSynchroWaitFor.WaitAny }
+  if Result = waAwaited then
+    PopulateSignalled(Signaller, false)
+  else
+    SetLength(FSignalledHandles, 0);
+end; { TWaitFor.WaitAny }
 
 { TOneCondition }
 
@@ -2534,11 +2373,6 @@ begin
     end; //for
   finally FController.Gate.Release; end
 end; { TOneCondition.Test }
-
-//function TOneCondition.IsWaitAll: boolean;
-//begin
-//  Result := False;
-//end; { TOneCondition.IsWaitAll }
 
 { TAllCondition }
 
@@ -2561,13 +2395,6 @@ begin
     end; //for
   finally FController.Gate.Release; end;
 end; { TAllCondition.Test }
-
-//function TAllCondition.IsWaitAll: boolean;
-//begin
-//  Result := True;
-//end; { TAllCondition.IsWaitAll }
-{$ENDIF OTL_MobileSupport}
-{$IFEND}
 
 { TOmniSingleThreadUseChecker }
 
@@ -2934,8 +2761,6 @@ begin
     FState := False;
 end; { TOmniEvent.WaitFor }
 
-{$IF not Defined(MSWINDOWS) or Defined(OTL_PlatformIndependent)}
-
 { TPreSignalData }
 
 constructor TPreSignalData.Create(AOneSignalled, AllSignalled: boolean);
@@ -2943,8 +2768,6 @@ begin
   OneSignalled := AOneSignalled;
   AllSignalled := AllSignalled;
 end; { TPreSignalData.Create }
-
-{$IFEND}
 
 { TInterlockedEx }
 
