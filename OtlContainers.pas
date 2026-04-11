@@ -150,7 +150,6 @@ type
     function  IsFull: boolean;
   end; { IOmniQueue }
 
-  {$IFDEF OTL_MobileSupport}
   IOmniValueQueue = interface ['{3399B817-0502-4837-B1D7-BA167E8E03A7}']
     function  GetContainerSubject: TOmniContainerSubject;
     function  IsEmpty: boolean;
@@ -159,7 +158,6 @@ type
     function  TryDequeue(var value: TOmniValue): boolean;
     property  ContainerSubject: TOmniContainerSubject read GetContainerSubject;
   end; { IOmniValueQueue }
-  {$ENDIF OTL_MobileSupport}
 
   PReferencedPtr = ^TReferencedPtr;
   TReferencedPtr = record
@@ -369,23 +367,18 @@ type
     property ContainerSubject: TOmniContainerSubject read ocContainerSubject;
   end; { TOmniQueue }
 
-{$IFDEF OTL_MobileSupport}
 /// <param name="UseBusLocking">Set to true to use a spinlock. Otherwise synchronisation is achieved by a critical section.</param>
 /// <param name="ThresholdForFull">The count of OmniValues to which if the queue reaches or exceeds, it is considered full.
 ///   Use a a value of -1 to indicate there is no threshold (and hence events like coiNotifyOnAlmostFull will never fire).</param>
 function CreateOmniValueQueue(UseBusLocking: boolean; ThresholdForFull: integer = -1): IOmniValueQueue;
-{$ENDIF OTL_MobileSupport}
 
 implementation
 
 uses
   System.SysUtils,
-  {$IFDEF OTL_MobileSupport}
   System.Generics.Collections,
-  {$ENDIF OTL_MobileSupport}
   OtlPlatform;
 
-{$IFDEF OTL_MobileSupport}
 type
   TInterestSet = set of TOmniContainerObserverInterest;
 
@@ -442,7 +435,6 @@ begin
   else
     Result := TOmniValueQueueCS.Create(ThresholdForFull)
 end; { CreateOmniValueQueue }
-{$ENDIF OTL_MobileSupport}
 
 {$IFDEF MSWINDOWS}
 {$IFDEF CPUX64}
@@ -1698,8 +1690,6 @@ begin
     ContainerSubject.Notify(coiNotifyOnAllRemoves);
 end; { TOmniQueue.TryDequeue }
 
-{$IFDEF OTL_MobileSupport}
-
 { TOmniValueQueue }
 
 constructor TOmniValueQueue.Create(AThresholdForFull: integer);
@@ -1872,8 +1862,6 @@ procedure TOmniValueQueueCS.LeaveCriticalSection;
 begin
   FCritSect.Leave;
 end; { TOmniValueQueueCS.LeaveCriticalSection }
-
-{$ENDIF OTL_MobileSupport}
 
 initialization
   Assert(SizeOf(pointer) = SizeOf(NativeInt));
