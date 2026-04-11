@@ -116,10 +116,14 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 ### 1.4 OtlCollections.pas — Blocking collection
 **Files**: `OtlCollections.pas`
 
-- [ ] `TOmniBlockingCollection`: Replace `WaitForMultipleObjects` with condition-variable wait
-- [ ] Replace `THandle` arrays with `IOmniEvent` arrays
-- [ ] Lock-free internals: keep lock-free if possible on all platforms; if not feasible, use lock-free on Windows x86/x64 and mutex-protected on others
-- [ ] Replace `SetEvent`/`ResetEvent` with `IOmniEvent.SetEvent`/`ResetEvent`
+- [x] `TOmniBlockingCollection`: Replace `WaitForMultipleObjects` with `TWaitFor.WaitAny` (condition-variable-based)
+- [x] Replace `THandle` arrays with `IOmniEvent`-based `TWaitFor` (persistent `FTakeWaiter` and `FCompletedWaiter` fields)
+- [x] Lock-free internals: collection uses `TOmniQueue` (lock-free on Windows via OTL_HaveCmpx16b, CS fallback elsewhere — unchanged from Step 1.3)
+- [x] Replace `DSiWaitForTwoObjects` in TryAdd with `FCompletedWaiter.WaitAny`
+- [x] Switch from `TOmniContainerWindowsEventObserver` to `TOmniContainerEventObserver` (returns `IOmniEvent`)
+- [x] Remove `DSiWin32`, `GpStuff`, `Winapi.Windows`, `OtlPlatform` dependencies
+- [x] Replace `asm pause` with `TThread.SpinWait(1)`
+- [x] Fixed non-Windows TryTake bug: observer event was omitted from waiter, preventing wake-up on enqueue
 
 ### 1.5 OtlContainerObserver.pas — Observer pattern
 **Files**: `OtlContainerObserver.pas`

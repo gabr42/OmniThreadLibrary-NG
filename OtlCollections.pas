@@ -35,10 +35,17 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin
 ///   Creation date     : 2009-12-27
-///   Last modification : 2021-01-21
-///   Version           : 2.01a
+///   Last modification : 2026-04-11
+///   Version           : 2.02
 ///</para><para>
 ///   History:
+///     2.02: 2026-04-11
+///       - OTL NG: Platform abstraction — removed DSiWin32, GpStuff, Winapi.Windows,
+///         OtlPlatform dependencies; replaced WaitForMultipleObjects/DSiWaitForTwoObjects
+///         with TWaitFor (condition-variable-based); unified TryTake and TryAdd to single
+///         cross-platform implementation; replaced asm pause with TThread.SpinWait;
+///         switched from TOmniContainerWindowsEventObserver to TOmniContainerEventObserver;
+///         fixed non-Windows TryTake bug where observer event was omitted from waiter.
 ///     2.01a: 2021-01-21
 ///       - Better TryTake implementation for non-Windows platforms.
 ///     2.01: 2018-06-14
