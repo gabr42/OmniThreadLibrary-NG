@@ -36,10 +36,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin
 ///   Creation date     : 2009-02-19
-///   Last modification : 2017-01-22
-///   Version           : 1.06
+///   Last modification : 2026-04-11
+///   Version           : 1.07
 ///</para><para>
 ///   History:
+///     1.07: 2026-04-11
+///       - Removed DSiWin32 dependency.
+///       - Removed OTL_PlatformIndependent guards (always platform-independent now).
+///       - Removed OTL_RaiseLastOSErrorHasAdditionalInfo guard (always available).
 ///     1.06: 2017-01-22
 ///        - TOmniContainerWindowsMessageObserverImpl.Notify and .Send handle
 ///          ERROR_NOT_ENOUGH_QUOTA (1816) error.
@@ -152,20 +156,17 @@ type
   function CreateContainerPlatformObserver(notify: IOmniEventMonitorNotify;
     objectID: int64): TOmniContainerPlatformObserver;
 
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
+  {$IFDEF MSWINDOWS}
   function CreateContainerWindowsEventObserver(externalEvent: THandle = 0):
     TOmniContainerWindowsEventObserver;
   function CreateContainerWindowsMessageObserver(hWindow: THandle; msg: cardinal;
     wParam: WPARAM; lParam: LPARAM): TOmniContainerWindowsMessageObserver;
-  {$IFEND}
+  {$ENDIF MSWINDOWS}
 
 implementation
 
 uses
   System.Types,
-  {$IFDEF MSWINDOWS}
-  DSiWin32,
-  {$ENDIF MSWINDOWS}
   System.SysUtils;
 
 type
@@ -189,7 +190,7 @@ type
     procedure Notify; override;
   end; { TOmniContainerPlatformObserverImpl }
 
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
+  {$IFDEF MSWINDOWS}
   TOmniContainerWindowsEventObserverImpl = class(TOmniContainerWindowsEventObserver)
   strict private
     cweoEvent          : THandle;
@@ -215,7 +216,7 @@ type
     procedure Send(aMessage: cardinal; wParam: WPARAM; lParam: LPARAM); override;
     procedure Notify; override;
   end; { TOmniContainerWindowsMessageObserver }
-  {$IFEND}
+  {$ENDIF MSWINDOWS}
 
 { exports }
 
@@ -231,7 +232,7 @@ begin
   Result := TOmniContainerPlatformObserverImpl.Create(notify, objectID);
 end; { CreateContainerPlatformObserver }
 
-{$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
+{$IFDEF MSWINDOWS}
 function CreateContainerWindowsEventObserver(externalEvent: THandle):
   TOmniContainerWindowsEventObserver;
 begin
@@ -244,7 +245,7 @@ function CreateContainerWindowsMessageObserver(hWindow: THandle; msg: cardinal;
 begin
   Result := TOmniContainerWindowsMessageObserverImpl.Create(hWindow, msg, wParam, lParam);
 end; { CreateContainerWindowsMessageObserver }
-{$IFEND}
+{$ENDIF MSWINDOWS}
 
 { TOmniContainerObserver }
 
@@ -288,7 +289,7 @@ begin
   ceoEvent.SetEvent;
 end; { TOmniContainerWindowsEventObserverImpl.Notify }
 
-{$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
+{$IFDEF MSWINDOWS}
 
 { TOmniContainerWindowsEventObserverImpl }
 
@@ -308,7 +309,7 @@ end; { TOmniContainerWindowsEventObserverImpl.Create }
 destructor TOmniContainerWindowsEventObserverImpl.Destroy;
 begin
   if not cweoEventIsExternal then
-    DSiCloseHandleAndNull(cweoEvent);
+    Winapi.Windows.CloseHandle(cweoEvent);
   cweoEvent := 0;
   inherited;
 end; { TOmniContainerWindowsEventObserverImpl.Destroy }
@@ -366,9 +367,8 @@ begin
       wait := CSecondSleep;
     end
     else if lasterr = ERROR_INVALID_WINDOW_HANDLE then
-      RaiseLastOSError(lasterr {$IFDEF OTL_RaiseLastOSErrorHasAdditionalInfo},
-                       #13#10'Possible cause: Thread that created OmniThreadLibrary task does not exist anymore. Task should be destroyed in the same thread that created it.'
-                       {$ENDIF OTL_RaiseLastOSErrorHasAdditionalInfo})
+      RaiseLastOSError(lasterr,
+                       #13#10'Possible cause: Thread that created OmniThreadLibrary task does not exist anymore. Task should be destroyed in the same thread that created it.')
     else
       RaiseLastOSError(lasterr);
   end;
@@ -380,7 +380,7 @@ begin
   PostWithRetry(aMessage, wParam, lParam);
 end; { TOmniContainerWindowsMessageObserverImpl.Send }
 
-{$IFEND}
+{$ENDIF MSWINDOWS}
 
 { TOmniContainerSubject }
 
