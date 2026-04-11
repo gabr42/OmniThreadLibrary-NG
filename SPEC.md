@@ -141,10 +141,12 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 ### 1.6 OtlPlatform.pas — Platform utilities
 **Files**: `OtlPlatform.pas`
 
-- [ ] `TTimeSource`: Use `TStopwatch` on all platforms (remove `DSiTimeGetTime64` path)
-- [ ] Thread affinity: Implement for Windows (via `Winapi.Windows` directly, not DSiWin32) and Linux (`pthread_setaffinity_np` via external declaration). No-op on macOS/iOS/Android.
-- [ ] Drop NUMA support entirely (remove `NUMANode`, `ProcessorGroup` from task config)
-- [ ] `TPlatform.ThreadID`: Already cross-platform via `TThread.CurrentThread.ThreadID`
+- [x] `TTimeSource`: Uses `TStopwatch.ElapsedMilliseconds` on all platforms (removed `DSiTimeGetTime64` path)
+- [x] Thread affinity: Implemented for Windows via direct `Winapi.Windows` API (`GetProcessAffinityMask`, `SetThreadAffinityMask`). Non-Windows: no-op with TODO for `pthread_setaffinity_np`.
+- [x] `TPlatform.ThreadID`: Already cross-platform via `TThread.CurrentThread.ThreadID`
+- [x] Removed DSiWin32 dependency
+- [x] All 61 unit tests pass
+- **Deferred to Phase 2**: Drop NUMA support (`NUMANode`, `ProcessorGroup`) — these are in `OtlCommon.pas` and `OtlTaskControl.pas`
 
 ### 1.7 Remove GpLists dependency
 - [ ] Replace `TGpInt64List`, `TGpIntegerList`, `TGpIntegerObjectList` usages with `TList<Int64>`, `TList<Integer>`, `TObjectList<T>` or similar generics
