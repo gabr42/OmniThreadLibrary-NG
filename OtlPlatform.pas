@@ -34,10 +34,15 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Creation date     : 2018-05-16
-///   Last modification : 2018-05-16
-///   Version           : 1.0
+///   Last modification : 2026-04-11
+///   Version           : 2.0
 ///</para><para>
 ///   History:
+///     2.0: 2026-04-11
+///       - Removed DSiWin32 dependency.
+///       - TTimeSource.Timestamp_ms now uses TStopwatch.ElapsedMilliseconds directly.
+///       - Thread affinity uses direct Windows API (GetProcessAffinityMask,
+///         SetThreadAffinityMask) instead of DSiWin32 wrappers.
 ///     1.0: 2018-05-16
 ///       - Released.
 ///</para></remarks>
@@ -51,11 +56,10 @@ interface
 uses
   {$IFDEF MSWINDOWS}
   Winapi.Windows,
-  DSiWin32,
   {$ENDIF MSWINDOWS}
   System.Classes,
   System.Diagnostics,
-  SysUtils;
+  System.SysUtils;
 
 type
   TTimeSource = record
@@ -87,6 +91,35 @@ var
 
 implementation
 
+const
+  CCPUIDs = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@$';
+
+{$IFDEF MSWINDOWS}
+function AffinityMaskToString(affinityMask: NativeUInt): string;
+var
+  idxID: integer;
+begin
+  Result := '';
+  for idxID := 1 to Length(CCPUIDs) do begin
+    if Odd(affinityMask) then
+      Result := Result + CCPUIDs[idxID];
+    affinityMask := affinityMask SHR 1;
+  end;
+end; { AffinityMaskToString }
+
+function StringToAffinityMask(const affinity: string): NativeUInt;
+var
+  idxID: integer;
+begin
+  Result := 0;
+  for idxID := Length(CCPUIDs) downto 1 do begin
+    Result := Result SHL 1;
+    if Pos(CCPUIDs[idxID], affinity) > 0 then
+      Result := Result OR 1;
+  end;
+end; { StringToAffinityMask }
+{$ENDIF MSWINDOWS}
+
 { exports }
 
 function Time: PTimeSource;
@@ -103,14 +136,7 @@ end; { TTimeSource.Create }
 
 function TTimeSource.Timestamp_ms: int64;
 begin
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  if FStopwatch.IsHighResolution then
-    Result := Round(FStopwatch.ElapsedTicks / FStopwatch.Frequency * 1000)
-  else
-    Result := DSiTimeGetTime64;
-  {$ELSE}
-  Result := Round(FStopwatch.ElapsedTicks / FStopwatch.Frequency * 1000)
-  {$IFEND}
+  Result := FStopwatch.ElapsedMilliseconds;
 end; { TTimeSource.Timestamp_ms }
 
 function TTimeSource.Elapsed_ms(startTime_ms: int64): int64;
@@ -131,17 +157,22 @@ end; { TTimeSource.HasElapsed }
 { TPlatform }
 
 class function TPlatform.GetThreadAffinity: string;
-{$IFNDEF MSWINDOWS}
-const
-  CPUIDs = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@$';
+{$IFDEF MSWINDOWS}
+var
+  processAffinityMask: NativeUInt;
+  systemAffinityMask : NativeUInt;
+  threadAffinityMask : NativeUInt;
 {$ENDIF}
 begin
   {$IFDEF MSWINDOWS}
-  Result := DSiGetThreadAffinity;
+  GetProcessAffinityMask(GetCurrentProcess, processAffinityMask, systemAffinityMask);
+  threadAffinityMask := SetThreadAffinityMask(GetCurrentThread, processAffinityMask);
+  SetThreadAffinityMask(GetCurrentThread, threadAffinityMask);
+  Result := AffinityMaskToString(threadAffinityMask);
   {$ELSE}
-  Result := Copy(CPUIDs, 1, TThread.ProcessorCount);
+  Result := Copy(CCPUIDs, 1, TThread.ProcessorCount);
   // TODO : pthread_getaffinity_np
-  {$ENDIF ~MSWINDOWS}
+  {$ENDIF MSWINDOWS}
 end; { TPlatform.GetThreadAffinity }
 
 class function TPlatform.GetThreadID: TThreadID;
@@ -150,9 +181,17 @@ begin
 end; { TPlatform.GetThreadID }
 
 class procedure TPlatform.SetThreadAffinity(const value: string);
+{$IFDEF MSWINDOWS}
+var
+  processAffinityMask: NativeUInt;
+  systemAffinityMask : NativeUInt;
+  validatedMask      : NativeUInt;
+{$ENDIF}
 begin
   {$IFDEF MSWINDOWS}
-  DSiSetThreadAffinity(value);
+  GetProcessAffinityMask(GetCurrentProcess, processAffinityMask, systemAffinityMask);
+  validatedMask := processAffinityMask AND StringToAffinityMask(value);
+  SetThreadAffinityMask(GetCurrentThread, validatedMask);
   {$ELSE}
   // TODO : pthread_setaffinity_np
   {$ENDIF MSWINDOWS}
