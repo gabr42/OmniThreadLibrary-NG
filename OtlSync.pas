@@ -2689,11 +2689,6 @@ end; { TOmniEvent.IsSignalled }
 
 procedure TOmniEvent.Reset;
 begin
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  {$WARN SYMBOL_PLATFORM OFF}
-  Win32Check(Winapi.Windows.ResetEvent(FEvent.Handle));
-  {$WARN SYMBOL_PLATFORM ON}
-  {$ELSE}
   PerformObservableAction(
     procedure
     begin
@@ -2701,16 +2696,10 @@ begin
       FState := False;
     end,
     True);
-  {$IFEND}
 end; { TOmniEvent.Reset }
 
 procedure TOmniEvent.SetEvent;
 begin
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  {$WARN SYMBOL_PLATFORM OFF}
-  Win32Check(Winapi.Windows.SetEvent(FEvent.Handle));
-  {$WARN SYMBOL_PLATFORM ON}
-  {$ELSE}
   PerformObservableAction(
     procedure
     begin
@@ -2718,7 +2707,6 @@ begin
       FState := True;
     end,
     True);
-  {$IFEND}
 end; { TOmniEvent.SetEvent }
 
 procedure TOmniEvent.Signal;
