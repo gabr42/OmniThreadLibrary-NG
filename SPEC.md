@@ -124,6 +124,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [ ] Keep `TOmniContainerEventObserver` (IOmniEvent-based) as the universal observer
 - [ ] Keep `TOmniContainerPlatformObserver` for monitor-based notification
 - [ ] Single code path — no `{$IFDEF MSWINDOWS}` in this unit
+- [ ] **Deferred from 1.2**: `TOmniEvent.Reset`/`SetEvent` Windows fast-path bypasses `PerformObservableAction`, which means observer callbacks (used by condition-variable-based `TWaitFor`) are not fired. Fix: make `TOmniEvent` always use observable path on all platforms. This is required for `TWaitFor.WaitAll`/`WaitAny` (CV-based) to work correctly on Windows. Note: `TWaitFor.MsgWaitAny` (used by OtlTaskControl task loop) is unaffected — it waits on handles directly.
 
 ### 1.6 OtlPlatform.pas — Platform utilities
 **Files**: `OtlPlatform.pas`
@@ -151,6 +152,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [ ] Remove `Winapi.Messages` dependency
 - [ ] `TOmniMessageQueue.NewMessageEvent` returns `IOmniEvent` on all platforms
 - [ ] Keep `TOmniMessage` record (MsgID + TOmniValue payload) unchanged
+- [ ] **Deferred from 1.2.3**: Unify `TOmniTransitionEvent = IOmniEvent` on ALL platforms (currently conditional `THandle`/`IOmniEvent`). This cascades through `OtlComm.pas` (`NewMessageEvent`), `OtlTask.pas` (`TOmniWaitObjectList`), and `OtlTaskControl.pas` (`DispatchCommMessage`, `TerminateWhen`, `Asy_RegisterWaitObject`). Also remove the transitional `OtlSync.SetEvent(event: TOmniTransitionEvent)` helper once the type is unified.
 
 ### 2.2 OtlCommon.pas — Core types
 **Files**: `OtlCommon.pas`
@@ -165,7 +167,8 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 **Files**: `OtlTask.pas`, `OtlTaskControl.pas`
 
 #### 2.3.1 Task execution loop redesign
-- [ ] Replace `MsgWaitForMultipleObjectsEx`-based `WaitForEvent` with CV-based `TSynchroWaitFor`
+- [ ] Replace `MsgWaitForMultipleObjectsEx`-based `WaitForEvent` with CV-based `TWaitFor.WaitAny`
+- [ ] **Deferred from 1.2.4**: Remove `MsgWaitForMultipleObjectsEx` usage from task loop — currently `TWaitFor.MsgWaitAny` wraps it for backward compat
 - [ ] The task loop waits on: communication channel event + termination event + timer timeout + custom wait objects
 - [ ] All wait objects are `IOmniEvent` (unified type)
 - [ ] Remove Windows message processing from the task loop (`ProcessThreadMessages`)
