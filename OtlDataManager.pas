@@ -149,7 +149,7 @@ uses
   System.Contnrs,
   DSiWin32,
 {$ENDIF}
-  GpLists,
+  System.Generics.Collections,
   System.SysUtils,
   System.Classes,
   System.Types,
@@ -345,7 +345,7 @@ type
   strict private
     const CMaxPreserveOrderPackageSize = 10240; // pretty arbitrary, should do some performance tests
   strict private
-    dmBufferRangeList   : TGpInt64ObjectList;
+    dmBufferRangeList   : TList<TPair<int64, TObject>>;
     dmBufferRangeLock   : TOmniCS;
     dmNextPosition      : int64;
     dmNumWorkers        : integer;
@@ -1002,9 +1002,7 @@ begin
   dmOptions := options;
   dmSourceProvider_ref.StorePositions := (dmoPreserveOrder in dmOptions);
   if dmoPreserveOrder in dmOptions then begin
-    dmBufferRangeList := TGpInt64ObjectList.Create(false);
-    dmBufferRangeList.Sorted := true;
-    dmBufferRangeList.Duplicates := dupError;
+    dmBufferRangeList := TList<TPair<int64, TObject>>.Create;
     dmUnusedBuffers := TObjectList.Create;
   end;
   InitializePacketSizes;
@@ -1043,7 +1041,8 @@ begin
           (BufferList[0].Range.First = dmNextPosition) and
           BufferList[0].IsFull do
     begin
-      buffer := TOmniOutputBufferImpl(dmBufferRangeList.ExtractObject(0));
+      buffer := TOmniOutputBufferImpl(dmBufferRangeList[0].Value);
+      dmBufferRangeList.Delete(0);
       dmNextPosition := buffer.Range.Last + 1;
       buffer.CopyToOutput; // this will put the 'buffer' back into 'empty' state so from this point onwards 'buffer' must not be used!
     end;
@@ -1054,7 +1053,10 @@ procedure TOmniBaseDataManager.NotifyBufferRangeChanged(buffer: TOmniOutputBuffe
 begin
   dmBufferRangeLock.Acquire;
   try
-    dmBufferRangeList.AddObject(buffer.Range.First, buffer);
+    var idx := 0;
+    while (idx < dmBufferRangeList.Count) and (buffer.Range.First > dmBufferRangeList[idx].Key) do
+      Inc(idx);
+    dmBufferRangeList.Insert(idx, TPair<int64, TObject>.Create(buffer.Range.First, buffer));
   finally dmBufferRangeLock.Release; end;
 end; { TOmniBaseDataManager.NotifyBufferRangeChanged }
 
@@ -1069,7 +1071,7 @@ end; { TOmniBaseDataManager.CreateLocalQueue }
 
 function TOmniBaseDataManager.GetBufferList(idxBuffer: integer): TOmniOutputBufferImpl;
 begin
-  Result := TOmniOutputBufferImpl(dmBufferRangeList.Objects[idxBuffer]);
+  Result := TOmniOutputBufferImpl(dmBufferRangeList[idxBuffer].Value);
 end; { TOmniBaseDataManager.GetBufferList }
 
 function TOmniBaseDataManager.GetDataCountForGeneration(generation: integer): integer;

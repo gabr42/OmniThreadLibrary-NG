@@ -99,7 +99,6 @@ uses
   System.Classes,
   System.SyncObjs,
   System.Generics.Collections,
-  GpLists,
   OtlCommon,
   OtlSync,
   OtlComm;
@@ -111,8 +110,8 @@ type
 
   TOmniWaitObjectList = class
   strict private
-    owolResponseHandlers: TGpTMethodList;
-    owolWaitObjects     : {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}TGpInt64List{$ELSE}TList<IOmniEvent>{$IFEND};
+    owolResponseHandlers: TList<TMethod>;
+    owolWaitObjects     : {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}TList<Int64>{$ELSE}TList<IOmniEvent>{$IFEND};
   strict protected
     function  GetResponseHandlers(idxHandler: integer): TOmniWaitObjectMethod;
     function  GetWaitObjects(idxWaitObject: integer): TOmniTransitionEvent;
@@ -224,8 +223,8 @@ end;
 constructor TOmniWaitObjectList.Create;
 begin
   inherited Create;
-  owolWaitObjects := {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}TGpInt64List.Create{$ELSE}TList<IOmniEvent>.Create{$IFEND};
-  owolResponseHandlers := TGpTMethodList.Create;
+  owolWaitObjects := {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}TList<Int64>.Create{$ELSE}TList<IOmniEvent>.Create{$IFEND};
+  owolResponseHandlers := TList<TMethod>.Create;
 end; { TOmniWaitObjectList.Create }
 
 destructor TOmniWaitObjectList.Destroy;

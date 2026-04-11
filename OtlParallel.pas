@@ -373,7 +373,6 @@ uses
   System.RTTI,
   System.SyncObjs,
   System.Generics.Collections,
-  GpLists,
   OtlCommon,
   OtlSync,
   OtlCollections,
@@ -770,7 +769,7 @@ type
     FMoveNext           : TRttiMethod;
     FNumTasks           : integer;
     FNumTasksManual     : boolean;
-    FOnMessageList      : TGpIntegerObjectList;
+    FOnMessageList      : TList<TPair<integer, TObject>>;
     FOnStop             : TOmniTaskStopDelegate;
     FOnTaskControlCreate: TOmniTaskControlCreateDelegate;
     FOnTaskCreate       : TOmniTaskCreateDelegate;
@@ -927,7 +926,7 @@ type
     FNoWait             : boolean;
     FNumTasks           : integer;
     FNumTasksManual     : boolean;
-    FOnMessageList      : TGpIntegerObjectList;
+    FOnMessageList      : TList<TPair<integer, TObject>>;
     FOnStop             : TOmniTaskStopDelegate;
     FPartition          : array of TPartitionInfo;
     FStep               : integer;
@@ -981,7 +980,7 @@ type
 
   EJoinException = class(Exception)
   strict private
-    FExceptions: TGpIntegerObjectList;
+    FExceptions: TList<TPair<integer, TObject>>;
   public type
     TJoinInnerException = record
       FatalException: Exception;
@@ -1568,7 +1567,7 @@ type
     otcNoThreadPool            : boolean;
     otcOnMessageEventDispatcher: TObject;
     otcOnMessageEventHandler   : TOmniTaskMessageEvent;
-    otcOnMessageList           : TGpIntegerObjectList;
+    otcOnMessageList           : TList<TPair<integer, TObject>>;
     otcOnTerminated            : TOmniTaskConfigTerminated;
     otcPriority                : TOTLThreadPriority;
     otcThreadPool              : IOmniThreadPool;
@@ -1814,18 +1813,22 @@ end; { GlobalParallelPool }
 constructor EJoinException.Create;
 begin
   inherited Create('');
-  FExceptions := TGpIntegerObjectList.Create(true);
+  FExceptions := TList<TPair<integer, TObject>>.Create;
 end; { EJoinException.Create }
 
 destructor EJoinException.Destroy;
 begin
-  FreeAndNil(FExceptions);
+  if assigned(FExceptions) then begin
+    for var i := 0 to FExceptions.Count - 1 do
+      FExceptions[i].Value.Free;
+    FreeAndNil(FExceptions);
+  end;
   inherited;
 end; { EJoinException.Destroy }
 
 procedure EJoinException.Add(iTask: integer; taskException: Exception);
 begin
-  FExceptions.AddObject(iTask, taskException);
+  FExceptions.Add(TPair<integer, TObject>.Create(iTask, taskException));
   if Message = '' then
     Message := taskException.Message
   else
@@ -1841,7 +1844,8 @@ function EJoinException.DetachInner(idxException: integer): Exception;
 var
   i: integer;
 begin
-  Result := Exception(FExceptions.ExtractObject(idxException));
+  Result := Exception(FExceptions[idxException].Value);
+  FExceptions.Delete(idxException);
   Message := '';
   for i := 0 to Count - 1 do
     if Message = '' then
@@ -1852,8 +1856,8 @@ end; { EJoinException.DetachInner }
 
 function EJoinException.GetInner(idxException: integer): TJoinInnerException;
 begin
-  Result.FatalException := Exception(FExceptions.Objects[idxException]);
-  Result.TaskNumber := FExceptions[idxException];
+  Result.FatalException := Exception(FExceptions[idxException].Value);
+  Result.TaskNumber := FExceptions[idxException].Key;
 end; { EJoinException.GetInner }
 
 { TOmniJoinState }
@@ -2441,7 +2445,7 @@ begin
   FNumTasks := Environment.Process.Affinity.Count;
   FSourceProvider := sourceProvider;
   FManagedProvider := managedProvider;
-  FOnMessageList := TGpIntegerObjectList.Create;
+  FOnMessageList := TList<TPair<integer, TObject>>.Create;
 end; { TOmniParallelLoopBase.Create }
 
 constructor TOmniParallelLoopBase.Create(const enumerator: TEnumeratorDelegate);
@@ -2701,7 +2705,6 @@ procedure TOmniParallelLoopBase.InternalExecuteTask(taskDelegate: TOmniTaskDeleg
 var
   dmOptions    : TOmniDataManagerOptions;
   iTask        : integer;
-  kv           : TGpKeyValue;
   lockAggregate: IOmniCriticalSection;
   numTasks     : integer;
   task         : IOmniTaskControl;
@@ -2738,8 +2741,8 @@ begin
       .WithLock(lockAggregate);
     Parallel.ApplyConfig(FTaskConfig, task);
     task.Unobserved;
-    for kv in FOnMessageList.WalkKV do
-      task.OnMessage(kv.Key, TOmniMessageExec.Clone(TOmniMessageExec(kv.Value)));
+    for var msgPair in FOnMessageList do
+      task.OnMessage(msgPair.Key, TOmniMessageExec.Clone(TOmniMessageExec(msgPair.Value)));
     if assigned(FOnTaskControlCreate) then
       FOnTaskControlCreate(task);
     Parallel.Start(task, FTaskConfig);
@@ -2808,18 +2811,18 @@ end; { TOmniParallelLoopBase.SetNumTasks }
 
 procedure TOmniParallelLoopBase.SetOnMessage(eventDispatcher: TObject);
 begin
-  FOnMessageList.AddObject(COtlReservedMsgID, TOmniMessageExec.Create(eventDispatcher));
+  FOnMessageList.Add(TPair<integer, TObject>.Create(COtlReservedMsgID, TOmniMessageExec.Create(eventDispatcher)));
 end; { TOmniParallelLoopBase.SetOnMessage }
 
 procedure TOmniParallelLoopBase.SetOnMessage(msgID: word;
   eventHandler: TOmniTaskMessageEvent);
 begin
-  FOnMessageList.AddObject(msgID, TOmniMessageExec.Create(eventHandler));
+  FOnMessageList.Add(TPair<integer, TObject>.Create(msgID, TOmniMessageExec.Create(eventHandler)));
 end; { TOmniParallelLoopBase.SetOnMessage }
 
 procedure TOmniParallelLoopBase.SetOnMessage(msgID: word; eventHandler: TOmniOnMessageFunction);
 begin
-  FOnMessageList.AddObject(msgID, TOmniMessageExec.Create(eventHandler));
+  FOnMessageList.Add(TPair<integer, TObject>.Create(msgID, TOmniMessageExec.Create(eventHandler)));
 end; { TOmniParallelLoopBase.SetOnMessage }
 
 procedure TOmniParallelLoopBase.SetOnStop(stopDelegate: TOmniTaskStopDelegate);
@@ -3340,7 +3343,7 @@ begin
   FLast := last;
   FStep := step;
   FNumTasks := Environment.Process.Affinity.Count;
-  FOnMessageList := TGpIntegerObjectList.Create;
+  FOnMessageList := TList<TPair<integer, TObject>>.Create;
 end; { TOmniParallelSimpleLoop.Create }
 
 destructor TOmniParallelSimpleLoop.Destroy;
@@ -3565,7 +3568,6 @@ procedure TOmniParallelSimpleLoop.InternalExecute(const taskDelegate: TTaskDeleg
 var
   dmOptions    : TOmniDataManagerOptions;
   iTask        : integer;
-  kv           : TGpKeyValue;
   lockAggregate: IOmniCriticalSection;
   task         : IOmniTaskControl;
   taskCount    : integer;
@@ -3581,8 +3583,8 @@ begin
     task := CreateForTask(iTask, taskDelegate);
     Parallel.ApplyConfig(FTaskConfig, task);
     task.Unobserved;
-    for kv in FOnMessageList.WalkKV do
-      task.OnMessage(kv.Key, TOmniMessageExec.Clone(TOmniMessageExec(kv.Value)));
+    for var msgPair in FOnMessageList do
+      task.OnMessage(msgPair.Key, TOmniMessageExec.Clone(TOmniMessageExec(msgPair.Value)));
     Parallel.Start(task, FTaskConfig);
   end;
   if not FNoWait then begin
@@ -5093,19 +5095,21 @@ end; { TOmniBackgroundWorker.WaitFor }
 constructor TOmniTaskConfig.Create;
 begin
   inherited Create;
-  otcOnMessageList := TGpIntegerObjectList.Create(true);
+  otcOnMessageList := TList<TPair<integer, TObject>>.Create;
   otcPriority := TOTLThreadPriority.tpNormal;
 end; { TOmniTaskConfig.Create }
 
 destructor TOmniTaskConfig.Destroy;
 begin
-  FreeAndNil(otcOnMessageList);
+  if assigned(otcOnMessageList) then begin
+    for var i := 0 to otcOnMessageList.Count - 1 do
+      otcOnMessageList[i].Value.Free;
+    FreeAndNil(otcOnMessageList);
+  end;
   inherited Destroy;
 end; { TOmniTaskConfig.Destroy }
 
 procedure TOmniTaskConfig.Apply(const task: IOmniTaskControl);
-var
-  kv: TGpKeyValue;
 begin
   if assigned(otcCancelWithToken) then
     task.CancelWith(otcCancelWithToken);
@@ -5115,8 +5119,8 @@ begin
     task.OnMessage(otcOnMessageEventDispatcher);
   if assigned(otcOnMessageEventHandler) then
     task.OnMessage(otcOnMessageEventHandler);
-  for kv in otcOnMessageList.WalkKV do
-    TOmniMessageExec(kv.Value).Apply(kv.Key, task);
+  for var msgPair in otcOnMessageList do
+    TOmniMessageExec(msgPair.Value).Apply(msgPair.Key, task);
   if assigned(otcOnTerminated.Event) then
     task.OnTerminated(otcOnTerminated.Event);
   if assigned(otcOnTerminated.Func) then
@@ -5183,14 +5187,14 @@ end; { TOmniTaskConfig.OnMessage }
 function TOmniTaskConfig.OnMessage(msgID: word; eventHandler: TOmniOnMessageFunction):
   IOmniTaskConfig;
 begin
-  otcOnMessageList.AddObject(msgID, TOmniMessageExec.Create(eventHandler));
+  otcOnMessageList.Add(TPair<integer, TObject>.Create(msgID, TOmniMessageExec.Create(eventHandler)));
   Result := Self;
 end; { TOmniTaskConfig.OnMessage }
 
 function TOmniTaskConfig.OnMessage(msgID: word; eventHandler: TOmniTaskMessageEvent):
   IOmniTaskConfig;
 begin
-  otcOnMessageList.AddObject(msgID, TOmniMessageExec.Create(eventHandler));
+  otcOnMessageList.Add(TPair<integer, TObject>.Create(msgID, TOmniMessageExec.Create(eventHandler)));
   Result := Self;
 end; { TOmniTaskConfig.OnMessage }
 

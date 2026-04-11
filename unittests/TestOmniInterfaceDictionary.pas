@@ -43,31 +43,35 @@ type
 implementation
 
 uses
-  GpLists,
+  System.Generics.Collections,
   GpStringHash,
   TestValue;
 
 procedure TestIOmniInterfaceDictionary.CheckContainsRange(low, high: integer);
 var
   i     : integer;
-  keys  : IGpIntegerList;
+  keys  : TList<integer>;
   pair  : TOmniInterfaceDictionaryPair;
-  values: IGpIntegerList;
+  values: TList<integer>;
 begin
   CheckEquals(high-low+1, FIOmniInterfaceDictionary.Count);
-  keys := TGpIntegerList.CreateInterface;
-  values := TGpIntegerList.CreateInterface;
-  for pair in FIOmniInterfaceDictionary do begin
-    keys.Add(pair.Key);
-    values.Add((pair.Value as ITestValue).Value);
-  end;
-  CheckEquals(high-low+1, keys.Count);
-  CheckEquals(high-low+1, values.Count);
-  for i := low to high do begin
-    CheckEquals(keys[i-low], values[i-low]);
-    CheckTrue(keys.Contains(i));
-    CheckTrue(values.Contains(i));
-  end;
+  keys := TList<integer>.Create;
+  try
+    values := TList<integer>.Create;
+    try
+      for pair in FIOmniInterfaceDictionary do begin
+        keys.Add(pair.Key);
+        values.Add((pair.Value as ITestValue).Value);
+      end;
+      CheckEquals(high-low+1, keys.Count);
+      CheckEquals(high-low+1, values.Count);
+      for i := low to high do begin
+        CheckEquals(keys[i-low], values[i-low]);
+        CheckTrue(keys.Contains(i));
+        CheckTrue(values.Contains(i));
+      end;
+    finally values.Free; end;
+  finally keys.Free; end;
 end;
 
 procedure TestIOmniInterfaceDictionary.SetUp;

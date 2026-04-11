@@ -110,7 +110,7 @@ interface
 uses
   OtlCommon,
   System.SysUtils,
-  GpLists,
+  System.Generics.Collections,
   System.Classes,
   OtlComm,
   OtlSync,
@@ -186,7 +186,7 @@ type
   strict private
     empListLock    : TOmniCS;
     empMonitorClass: TOmniEventMonitorClass;
-    empMonitorList : TGpIntegerObjectList;
+    empMonitorList : TObjectDictionary<integer, TObject>;
   public
     constructor Create;
     destructor  Destroy; override;
@@ -442,8 +442,7 @@ end; { TOmniCountedEventMonitor.Release }
 constructor TOmniEventMonitorPool.Create;
 begin
   inherited Create;
-  empMonitorList := TGpIntegerObjectList.Create;
-  empMonitorList.Sorted := true;
+  empMonitorList := TObjectDictionary<integer, TObject>.Create([doOwnsValues]);
 end; { TOmniEventMonitorPool.Create }
 
 destructor TOmniEventMonitorPool.Destroy;
@@ -460,12 +459,14 @@ var
 begin
   empListLock.Acquire;
   try
-    monitorInfo := TOmniCountedEventMonitor(empMonitorList.FetchObject(integer(TPlatform.ThreadID)));
-    if assigned(monitorInfo) then
-      monitorInfo.Allocate
+    var obj: TObject;
+    if empMonitorList.TryGetValue(integer(TPlatform.ThreadID), obj) then begin
+      monitorInfo := TOmniCountedEventMonitor(obj);
+      monitorInfo.Allocate;
+    end
     else begin
       monitorInfo := TOmniCountedEventMonitor.Create(MonitorClass.Create(nil));
-      empMonitorList.AddObject(integer(monitorInfo.Monitor.ThreadID), monitorInfo);
+      empMonitorList.Add(integer(monitorInfo.Monitor.ThreadID), monitorInfo);
     end;
     Result := monitorInfo.Monitor;
   finally empListLock.Release; end;
@@ -476,22 +477,22 @@ end; { TOmniEventMonitorPool.Allocate }
 ///<since>2010-03-03</since>
 procedure TOmniEventMonitorPool.Release(monitor: TOmniEventMonitor);
 var
-  idxMonitor : integer;
   monitorInfo: TOmniCountedEventMonitor;
+  threadID   : integer;
 begin
   empListLock.Acquire;
   try
-    idxMonitor := empMonitorList.IndexOf(integer(monitor.ThreadID));
-    if idxMonitor < 0 then
+    threadID := integer(monitor.ThreadID);
+    var obj: TObject;
+    if not empMonitorList.TryGetValue(threadID, obj) then
       raise Exception.CreateFmt(
         'TOmniEventMonitorPool.Release: Monitor is not allocated for thread %d',
         [monitor.ThreadID]);
-    monitorInfo := TOmniCountedEventMonitor(empMonitorList.Objects[idxMonitor]);
+    monitorInfo := TOmniCountedEventMonitor(obj);
     Assert(monitorInfo.Monitor = monitor);
     monitorInfo.Release;
-    if monitorInfo.RefCount = 0 then begin
-      empMonitorList.Delete(idxMonitor);
-    end;
+    if monitorInfo.RefCount = 0 then
+      empMonitorList.Remove(threadID);
   finally empListLock.Release; end;
 end; { TOmniEventMonitorPool.Release }
 
