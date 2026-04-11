@@ -281,7 +281,17 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [ ] All core OTL units: replace DSiWin32 calls with direct `Winapi.Windows` calls or cross-platform equivalents
 - [ ] Allowed remaining DSiWin32 usage: only in platform-specific enhancement code behind `{$IFDEF MSWINDOWS}`
 
-### 5.3 Test migration: DUnit -> DUnitX
+### 5.3 Compiler hints and warnings audit
+- [ ] Build all units and test projects with hints and warnings enabled
+- [ ] Review every hint and warning; fix or suppress with justification
+- [ ] Goal: zero-warning build for `CompileAllUnits.dproj` and `ConsoleTestRunner.dproj` on Win32 and Win64
+- [ ] Known pre-existing warnings to investigate:
+  - `W1035: Return value of function 'Locked<T>.Initialize' might be undefined` (OtlSync.pas)
+  - `H2443: Inline function not expanded because unit not in USES list` (OtlSync.pas, OtlContainers.pas)
+  - `W1036: Variable might not have been initialized` (OtlTaskControl.pas)
+  - `H2077: Value assigned never used` / `H2164: Variable declared but never used` (OtlParallel.pas, OtlSync.pas)
+
+### 5.4 Test migration: DUnit → DUnitX
 - [ ] Port all test modules to DUnitX framework
 - [ ] Test modules to port:
   - `SmokeTest.pas`, `TestTask.pas`, `TestOtlSync1.pas`, `TestOtlComm.pas`
@@ -291,12 +301,12 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [ ] Keep `CompileAllUnits.dpr` for compilation verification
 - [ ] Update `buildandrun.bat` for DUnitX runner
 
-### 5.4 CI pipeline
+### 5.5 CI pipeline
 - [ ] GitHub Actions: Windows (Win32 + Win64) build and test
 - [ ] GitHub Actions: Linux64 build (when Delphi Linux compiler available in CI)
 - [ ] Claude Code automated PR review
 
-### 5.5 Migration guide
+### 5.6 Migration guide
 - [ ] Document all API changes from OTL v3 to OTL NG
 - [ ] Document removed features (ForkJoin, NUMA, design-time packages)
 - [ ] Document new features (`ProcessMessages`, `WaitForMessage`, COM initialization option)
@@ -363,9 +373,10 @@ Phase 4: Monitoring & event bus
 Phase 5: Cleanup & testing (ongoing, but final push here)
   5.1 Dead code removal
   5.2 DSiWin32 reduction
-  5.3 DUnitX migration
-  5.4 CI pipeline
-  5.5 Migration guide
+  5.3 Compiler hints and warnings audit
+  5.4 DUnitX migration
+  5.5 CI pipeline
+  5.6 Migration guide
 ```
 
 ---
