@@ -149,9 +149,15 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - **Deferred to Phase 2**: Drop NUMA support (`NUMANode`, `ProcessorGroup`) — these are in `OtlCommon.pas` and `OtlTaskControl.pas`
 
 ### 1.7 Remove GpLists dependency
-- [ ] Replace `TGpInt64List`, `TGpIntegerList`, `TGpIntegerObjectList` usages with `TList<Int64>`, `TList<Integer>`, `TObjectList<T>` or similar generics
-- [ ] Search all units for `GpLists` usage and replace
-- [ ] This removes a significant external dependency
+- [x] Replaced all GpLists types in 6 files with standard `System.Generics.Collections`:
+  - `TGpInt64List` → `TList<Int64>` (OtlTask, OtlTaskControl)
+  - `TGpTMethodList` → `TList<TMethod>` (OtlTask)
+  - `TGpIntegerObjectList` → `TObjectDictionary<Integer, TObject>` (OtlEventMonitor) or `TList<TPair<Integer, TObject>>` (OtlTaskControl, OtlParallel)
+  - `TGpInt64ObjectList` → `TList<TPair<Int64, T>>` (OtlTaskControl timers, OtlDataManager)
+  - `TGpIntegerList`/`IGpIntegerList` → `TList<Integer>` (TestOmniInterfaceDictionary)
+- [x] GpLists removed from uses clause of: OtlTask, OtlTaskControl, OtlParallel, OtlEventMonitor, OtlDataManager, TestOmniInterfaceDictionary
+- [x] All 61 unit tests pass
+- **Note**: `GpStringHash` is still used by OtlTaskControl.pas and OtlCommon.pas (separate dependency)
 
 ---
 
