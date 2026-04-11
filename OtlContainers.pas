@@ -190,9 +190,7 @@ type
     obsNumElements  : integer;
     obsPublicChainP : PReferencedPtr;
     obsRecycleChainP: PReferencedPtr;
-  {$IFNDEF OTL_HaveCmpx16b}
     obsLock         : IOmniCriticalSection;
-  {$ENDIF ~OTL_HaveCmpx16b}
   class var
     class var obsIsInitialized: boolean;                //default is false
     class var obsTaskPopLoops : NativeInt;
@@ -241,9 +239,7 @@ type
     obqPublicRingMem    : pointer;
     obqRecycleRingBuffer: POmniRingBuffer;
     obqRecycleRingMem   : pointer;
-    {$IFNDEF OTL_HaveCmpx16b}
     obqLock             : IOmniCriticalSection;
-    {$ENDIF ~OTL_HaveCmpx16b}
   class var
     class var obqIsInitialized  : boolean;
     class var obqTaskInsertLoops: NativeInt;             //default is false
@@ -324,9 +320,7 @@ type
     obcMemStack   : TOmniBaseBoundedStack;
     obcNumSlots   : integer;
     obcTailPointer: POmniTaggedPointer;
-    {$IFNDEF OTL_HaveCmpx16b}
     obcLock       : IOmniCriticalSection;
-    {$ENDIF ~OTL_HaveCmpx16b}
   strict protected
     {$IFDEF DEBUG_OMNI_QUEUE}
     procedure Assert(condition: boolean);
@@ -443,9 +437,7 @@ end; { RoundUpTo }
 constructor TOmniBaseBoundedStack.Create;
 begin
   inherited Create;
-  {$IFNDEF OTL_HaveCmpx16b}
   obsLock := CreateOmniCriticalSection;
-  {$ENDIF ~OTL_HaveCmpx16b}
 end; { TOmniBaseBoundedStack.Create }
 
 destructor TOmniBaseBoundedStack.Destroy;
@@ -734,9 +726,7 @@ end; { TOmniBoundedStack.Push }
 constructor TOmniBaseBoundedQueue.Create;
 begin
   inherited Create;
-  {$IFNDEF OTL_HaveCmpx16b}
   obqLock := CreateOmniCriticalSection;
-  {$ENDIF ~OTL_HaveCmpx16b}
 end; { TOmniBaseBoundedQueue.Create }
 
 destructor TOmniBaseBoundedQueue.Destroy;
@@ -1261,9 +1251,7 @@ begin
     PartitionMemory(memory);
     Assert(obcMemStack.Push(memory));
   end;
-  {$IFNDEF OTL_HaveCmpx16b}
   obcLock := CreateOmniCriticalSection;
-  {$ENDIF ~OTL_HaveCmpx16b}
   Initialize;
 end; { TOmniBaseQueue.Create }
 
