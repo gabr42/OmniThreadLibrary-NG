@@ -93,7 +93,6 @@ uses
   GpStuff,
   {$ENDIF ~MSWINDOWS}
   System.Generics.Collections,
-  GpStringHash,
   System.SysUtils,
   System.Classes,
   System.SyncObjs,
@@ -563,7 +562,7 @@ type
     oteExitMessage       : string;
     oteFunc              : TOmniTaskDelegate;
     oteMethod            : TOmniTaskMethod;
-    oteMethodHash        : TGpStringObjectHash;
+    oteMethodHash        : TObjectDictionary<string, TOmniInvokeInfo>;
     oteMsgInfo           : TOmniMessageInfo;
     oteOptions           : TOmniTaskControlOptions;
     oteOwner_ref         : TOmniTaskControl;
@@ -2035,8 +2034,7 @@ var
   func           : TOmniTaskControlInvokeFunction;
   funcEx         : TOmniTaskControlInvokeFunctionEx;
   methodAddr     : pointer;
-  methodInfoObj  : TObject;
-  methodInfo     : TOmniInvokeInfo absolute methodInfoObj;
+  methodInfo     : TOmniInvokeInfo;
   methodName     : string;
   methodSignature: TOmniInvokeType;
   msgData        : TOmniValue;
@@ -2062,8 +2060,8 @@ begin
       if methodName = '' then
         raise Exception.Create('TOmniTaskExecutor.DispatchOmniMessage: Method name not set');
       if not assigned(oteMethodHash) then
-        oteMethodHash := TGpStringObjectHash.Create(17, true); //usually there won't be many methods
-      if not oteMethodHash.Find(methodName, methodInfoObj) then begin
+        oteMethodHash := TObjectDictionary<string, TOmniInvokeInfo>.Create([doOwnsValues]);
+      if not oteMethodHash.TryGetValue(methodName, methodInfo) then begin
         GetMethodAddrAndSignature(methodName, methodAddr, methodSignature);
         methodInfo := TOmniInvokeInfo.Create(methodAddr, methodSignature);
         oteMethodHash.Add(methodName, methodInfo);

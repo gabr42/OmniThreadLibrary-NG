@@ -44,7 +44,6 @@ implementation
 
 uses
   System.Generics.Collections,
-  GpStringHash,
   TestValue;
 
 procedure TestIOmniInterfaceDictionary.CheckContainsRange(low, high: integer);
@@ -149,7 +148,7 @@ var
   intf: ITestValue;
   numElements: integer;
 begin
-  numElements := GetGoodHashSize(1) * 2;
+  numElements := 106; // enough elements to trigger internal resize
   for i := 1 to numElements do begin
     intf := TTestValue.Create(i);
     FIOmniInterfaceDictionary.Add(i, intf);
