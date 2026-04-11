@@ -102,11 +102,16 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 ### 1.3 OtlContainers.pas — Lock-free containers
 **Files**: `OtlContainers.pas`
 
-- [ ] Remove assembly-based `CASTag` — use `TInterlocked.CompareExchange` with redesigned tag structure (from 1.2.2)
-- [ ] Replace `asm pause` spinlock yield with `TThread.SpinWait` or `TThread.Yield`
-- [ ] Lock-free queues (`TOmniBaseBoundedQueue`, `TOmniBaseBoundedStack`) **must remain lock-free**
-- [ ] If 128-bit CAS is unavailable, use a fallback ABA-prevention scheme (e.g., hazard pointers or index-based approach with 64-bit CAS)
-- [ ] Remove `DSiWin32` dependency — use `Winapi.Windows` directly where needed (Windows-only paths)
+- [x] Remove assembly-based `CASTag` — CAS functions now pure Pascal in OtlSync (Step 1.2); CASTag calls CAS8 from OtlSync
+- [x] Replace `asm pause` spinlock yield with `TThread.SpinWait(1)` (cross-platform pause hint)
+- [x] Lock-free queues (`TOmniBaseBoundedQueue`, `TOmniBaseBoundedStack`) **remain lock-free** on Windows (bus-locked path via `OTL_HaveCmpx16b`); critical-section fallback on other platforms
+- [x] Remove `DSiWin32`, `GpStuff`, `Winapi.Windows` dependencies (all were dead imports)
+- [x] Remove `{$IFDEF OTL_MobileSupport}` guards (always true with Delphi 11+)
+- [x] Unify `TReferencedPtr` layout — `Reference` field always present
+- [x] Always allocate critical section locks (fields unconditional; Acquire/Release conditional)
+- [x] Remove automatic `OTL_OLDCPU` for Win32 (SSE2 is baseline for Delphi 11+)
+- [x] Make initialization size assertions unconditional
+- **Deferred**: Truly lock-free non-128-bit-CAS fallback (hazard pointers or index-based 64-bit CAS) — significant algorithmic redesign, deferred past Phase 1
 
 ### 1.4 OtlCollections.pas — Blocking collection
 **Files**: `OtlCollections.pas`

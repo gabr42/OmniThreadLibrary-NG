@@ -1,5 +1,6 @@
 ///<summary>Microlocking containers. Part of the OmniThreadLibrary project.</summary>
-///<remarks>TOmni[Base]Queue requires Pentium 4 processor (or newer) unless OTL_OLDCPU is defined.</remarks>
+///<remarks>Bus-locked (lock-free) path active when OTL_HaveCmpx16b is defined (Windows x86/x64).
+///Critical-section fallback on all other platforms.</remarks>
 ///<author>Primoz Gabrijelcic, GJ</author>
 ///<license>
 ///This software is distributed under the BSD license.
@@ -36,10 +37,15 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Sean B. Durkin
 ///   Creation date     : 2008-07-13
-///   Last modification : 2025-09-05
-///   Version           : 3.02c
+///   Last modification : 2026-04-11
+///   Version           : 3.03
 ///</para><para>
 ///   History:
+///     3.03: 2026-04-11
+///       - OTL NG: Platform abstraction — removed DSiWin32, GpStuff, Winapi.Windows
+///         dependencies; removed all inline assembly (replaced with TThread.SpinWait);
+///         removed {$IFDEF OTL_MobileSupport} guards; unified TReferencedPtr layout;
+///         always allocate critical section locks; removed automatic OTL_OLDCPU.
 ///     3.02c: 2025-09-05
 ///       - Fixed TOmniBaseBoundedStack.Pop when stack was empty and OTL_HaveCmpx16b
 ///         was not defined.
