@@ -124,17 +124,19 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Remove `DSiWin32`, `GpStuff`, `Winapi.Windows`, `OtlPlatform` dependencies
 - [x] Replace `asm pause` with `TThread.SpinWait(1)`
 - [x] Fixed non-Windows TryTake bug: observer event was omitted from waiter, preventing wake-up on enqueue
-- **Test blocked on 1.5**: `TestBlockingCollection1` hangs because `TOmniEvent.SetEvent` on Windows bypasses `PerformObservableAction`, so CV-based `TWaitFor` is never notified. Fix in Step 1.5.
+- **Test blocked on 1.5**: ~~`TestBlockingCollection1` hangs because `TOmniEvent.SetEvent` on Windows bypasses `PerformObservableAction`~~ **Fixed in Step 1.5.**
 
 ### 1.5 OtlContainerObserver.pas — Observer pattern
-**Files**: `OtlContainerObserver.pas`
+**Files**: `OtlContainerObserver.pas`, `OtlSync.pas`
 
-- [ ] Remove `TOmniContainerWindowsMessageObserver` and `TOmniContainerWindowsMessageObserverImpl` entirely (PostMessage/AllocateHWnd path)
-- [ ] Remove `TOmniContainerWindowsEventObserver` (THandle-based)
-- [ ] Keep `TOmniContainerEventObserver` (IOmniEvent-based) as the universal observer
-- [ ] Keep `TOmniContainerPlatformObserver` for monitor-based notification
-- [ ] Single code path — no `{$IFDEF MSWINDOWS}` in this unit
-- [ ] **Deferred from 1.2**: `TOmniEvent.Reset`/`SetEvent` Windows fast-path bypasses `PerformObservableAction`, which means observer callbacks (used by condition-variable-based `TWaitFor`) are not fired. Fix: make `TOmniEvent` always use observable path on all platforms. This is required for `TWaitFor.WaitAll`/`WaitAny` (CV-based) to work correctly on Windows. Note: `TWaitFor.MsgWaitAny` (used by OtlTaskControl task loop) is unaffected — it waits on handles directly.
+- [x] **Fixed (deferred from 1.2)**: `TOmniEvent.Reset`/`SetEvent` now always use `PerformObservableAction` on all platforms, fixing CV-based `TWaitFor` on Windows
+- [x] Removed DSiWin32 dependency from OtlContainerObserver.pas
+- [x] Removed `OTL_PlatformIndependent` guards (replaced with plain `{$IFDEF MSWINDOWS}`)
+- [x] Removed `OTL_RaiseLastOSErrorHasAdditionalInfo` ifdef (always available in Delphi 11+)
+- [x] Keep `TOmniContainerEventObserver` (IOmniEvent-based) as the universal observer
+- [x] Keep `TOmniContainerPlatformObserver` for monitor-based notification
+- [x] All 61 unit tests pass (including previously-deadlocking `TestBlockingCollection1`)
+- **Deferred to Phase 2**: Remove `TOmniContainerWindowsMessageObserver` and `TOmniContainerWindowsEventObserver` — still used by `OtlComm.pas` (Step 2.1) and `OtlParallel.pas` (Step 3.1)
 
 ### 1.6 OtlPlatform.pas — Platform utilities
 **Files**: `OtlPlatform.pas`
