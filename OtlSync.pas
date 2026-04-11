@@ -725,8 +725,8 @@ function CreateOmniEvent(AExternalEvent: TEvent; ATakeOwnership: boolean = false
 function CreateOmniEvent(AExternalEvent: THandle; ATakeOwnership: boolean = false): IOmniEvent; overload;
 {$ENDIF MSWINDOWS}
 
-{$IFDEF MSWINDOWS}
 procedure NInterlockedExchangeAdd(var addend; value: NativeInt);
+procedure MFence; inline;
 
 function CAS8(const oldValue, newValue: byte; var destination): boolean;
 function CAS16(const oldValue, newValue: word; var destination): boolean;
@@ -750,12 +750,12 @@ procedure Move128(var Source, Destination);
 procedure MoveDPtr(var Source, Destination); overload;
 procedure MoveDPtr(newData: pointer; newReference: NativeInt; var Destination); overload;
 
+{$IFDEF MSWINDOWS}
 ///<summary>Waits on any number of handles.</summary>
 ///<returns>True on success, False on timeout.</returns>
 function WaitForAllObjects(const handles: array of THandle; timeout_ms: cardinal): boolean;
 {$ENDIF MSWINDOWS}
 
-//function GetThreadId: NativeInt;
 function GetCPUTimeStamp: int64;
 
 function SetEvent(event: TOmniTransitionEvent): boolean;
@@ -770,6 +770,13 @@ uses
   OtlPlatform;
 
 type
+  {$IFDEF CPUX64}
+  TInt128 = record
+    Lo: int64;
+    Hi: int64;
+  end;
+  {$ENDIF CPUX64}
+
   TOmniCriticalSection = class(TInterfacedObject, IOmniCriticalSection)
   strict private
     ocsCritSect : TSynchroObject;
@@ -976,220 +983,213 @@ begin
 end; { CreateOmniEvent }
 {$ENDIF MSWINDOWS}
 
-{$IFDEF MSWINDOWS}
+{ Atomic compare-and-swap operations — pure Pascal, no inline assembly }
+
 function CAS8(const oldValue, newValue: byte; var destination): boolean;
-asm
-{$IFDEF CPUX64}
-  mov   al, oldValue
-{$ENDIF CPUX64}
-  lock cmpxchg [destination], dl
-  setz  al
+var
+  alignedPtr: PInteger;
+  offset    : integer;
+  oldWord   : integer;
+  newWord   : integer;
+begin
+  alignedPtr := PInteger(NativeUInt(@destination) and not NativeUInt(3));
+  offset := integer(NativeUInt(@destination) and 3) * 8;
+  repeat
+    oldWord := alignedPtr^;
+    if byte(oldWord shr offset) <> oldValue then
+      Exit(false);
+    newWord := (oldWord and not ($FF shl offset)) or (integer(newValue) shl offset);
+    if TInterlocked.CompareExchange(alignedPtr^, newWord, oldWord) = oldWord then
+      Exit(true);
+  until false;
 end; { CAS8 }
 
 function CAS16(const oldValue, newValue: word; var destination): boolean;
-asm
-{$IFDEF CPUX64}
-  mov     ax, oldValue
-{$ENDIF CPUX64}
-  lock cmpxchg [destination], dx
-  setz  al
+var
+  alignedPtr: PInteger;
+  offset    : integer;
+  oldWord   : integer;
+  newWord   : integer;
+begin
+  alignedPtr := PInteger(NativeUInt(@destination) and not NativeUInt(3));
+  offset := integer(NativeUInt(@destination) and 3) * 8;
+  repeat
+    oldWord := alignedPtr^;
+    if word(oldWord shr offset) <> oldValue then
+      Exit(false);
+    newWord := (oldWord and not ($FFFF shl offset)) or (integer(newValue) shl offset);
+    if TInterlocked.CompareExchange(alignedPtr^, newWord, oldWord) = oldWord then
+      Exit(true);
+  until false;
 end; { CAS16 }
 
 function CAS32(const oldValue, newValue: cardinal; var destination): boolean; overload;
-asm
-{$IFDEF CPUX64}
-  mov   eax, oldValue
-{$ENDIF CPUX64}
-  lock cmpxchg [destination], edx
-  setz  al
+begin
+  Result := TInterlocked.CompareExchange(integer(destination), integer(newValue), integer(oldValue)) = integer(oldValue);
 end; { CAS32 }
 
 {$IFNDEF CPUX64}
 function CAS32(const oldValue: pointer; newValue: pointer; var destination): boolean; overload;
-asm
-//{$IFDEF CPUX64}
-  mov    eax, oldValue
-//{$ENDIF CPUX64}
-  lock cmpxchg [destination], edx
-  setz  al
+begin
+  Result := TInterlocked.CompareExchange(integer(destination), integer(newValue), integer(oldValue)) = integer(oldValue);
 end; { CAS32 }
 {$ENDIF ~CPUX64}
 
 function CAS64(const oldData, newData: int64; var destination): boolean; overload;
-asm
-{$IFNDEF CPUX64}
-  push  edi
-  push  ebx
-  mov   edi, destination
-  mov   ebx, low newData
-  mov   ecx, high newData
-  mov   eax, low oldData
-  mov   edx, high oldData
-  lock cmpxchg8b [edi]
-  pop   ebx
-  pop   edi
-{$ELSE CPUX64}
-  mov   rax, oldData
-  lock cmpxchg [destination], newData
-{$ENDIF ~CPUX64}
-  setz  al
+begin
+  Result := TInterlocked.CompareExchange(int64(destination), newData, oldData) = oldData;
 end; { CAS64 }
 
 function CAS(const oldValue, newValue: NativeInt; var destination): boolean; overload;
-asm
-{$IFDEF CPUX64}
-  mov   rax, oldValue
-{$ENDIF CPUX64}
-  lock cmpxchg [destination], newValue
-  setz  al
+begin
+  {$IFDEF CPUX64}
+  Result := TInterlocked.CompareExchange(int64(destination), int64(newValue), int64(oldValue)) = int64(oldValue);
+  {$ELSE}
+  Result := TInterlocked.CompareExchange(integer(destination), integer(newValue), integer(oldValue)) = integer(oldValue);
+  {$ENDIF}
 end; { CAS }
 
 function CAS(const oldValue, newValue: pointer; var destination): boolean; overload;
-asm
-{$IFDEF CPUX64}
-  mov   rax, oldValue
-{$ENDIF CPUX64}
-  lock cmpxchg [destination], newValue
-  setz  al
+begin
+  {$IFDEF CPUX64}
+  Result := TInterlocked.CompareExchange(int64(destination), int64(newValue), int64(oldValue)) = int64(oldValue);
+  {$ELSE}
+  Result := TInterlocked.CompareExchange(integer(destination), integer(newValue), integer(oldValue)) = integer(oldValue);
+  {$ENDIF}
 end; { CAS }
 
-//eighter 8-byte or 16-byte CAS, depending on the platform; destination must be propely aligned (8- or 16-byte)
+//Either 8-byte or 16-byte CAS, depending on the platform; destination must be properly aligned (8- or 16-byte)
 function CAS(const oldData: pointer; oldReference: NativeInt; newData: pointer;
   newReference: NativeInt; var destination): boolean; overload;
-asm
 {$IFNDEF CPUX64}
-  push  edi
-  push  ebx
-  mov   ebx, newData
-  mov   ecx, newReference
-  mov   edi, destination
-  lock cmpxchg8b qword ptr [edi]
-  pop   ebx
-  pop   edi
-{$ELSE CPUX64}
-  .noframe
-  push  rbx                     //rsp := rsp - 8 !
-  mov   rax, oldData
-  mov   rbx, newData
-  mov   rcx, newReference
-  mov   r8, [destination + 8]   //+8 with respect to .noframe
-  lock cmpxchg16b [r8]
-  pop   rbx
-{$ENDIF CPUX64}
-  setz  al
+var
+  oldPacked: int64;
+  newPacked: int64;
+begin
+  Int64Rec(oldPacked).Lo := cardinal(oldData);
+  Int64Rec(oldPacked).Hi := cardinal(oldReference);
+  Int64Rec(newPacked).Lo := cardinal(newData);
+  Int64Rec(newPacked).Hi := cardinal(newReference);
+  Result := TInterlocked.CompareExchange(int64(destination), newPacked, oldPacked) = oldPacked;
 end; { CAS }
+{$ELSE CPUX64}
+var
+  comparand: TInt128;
+begin
+  comparand.Lo := int64(oldData);
+  comparand.Hi := int64(oldReference);
+  Result := InterlockedCompareExchange128(@destination, newReference, int64(newData), @comparand);
+end; { CAS }
+{$ENDIF ~CPUX64}
+
+{ Atomic move operations — pure Pascal, no inline assembly }
 
 {$IFNDEF CPUX64}
 procedure Move64(var Source, Destination); overload;
-//Move 8 bytes atomicly from Source 8-byte aligned to Destination!
-asm
-  movq  xmm0, qword [Source]
-  movq  qword [Destination], xmm0
-end;
+//Move 8 bytes atomically from 8-byte aligned Source to Destination
+var
+  value: int64;
+begin
+  value := int64(Source);
+  int64(Destination) := TInterlocked.Exchange(int64(Destination), value);
+end; { Move64 }
 
 procedure Move64(newData: pointer; newReference: cardinal; var Destination); overload;
-//Move 8 bytes atomically into 8-byte Destination!
-asm
-  movd  xmm0, eax
-  movd  xmm1, edx
-  punpckldq xmm0, xmm1
-  movq  qword [Destination], xmm0
+//Move 8 bytes atomically into 8-byte aligned Destination
+var
+  packedVal: int64;
+begin
+  Int64Rec(packedVal).Lo := cardinal(newData);
+  Int64Rec(packedVal).Hi := newReference;
+  TInterlocked.Exchange(int64(Destination), packedVal);
 end; { Move64 }
 {$ENDIF ~CPUX64}
 
 procedure Move128(var Source, Destination);
-//Move 16 bytes atomically from Source to 16-byte aligned to Destination!
-asm
+//Move 16 bytes atomically from Source to properly aligned Destination
 {$IFNDEF CPUX64}
-  movdqa  xmm0, dqword [Source]
-  movdqa  dqword [Destination], xmm0
-{$ELSE CPUX64}
-//Move 16 bytes atomically into 16-byte Destination!
-  push  rbx
-  mov   r8, destination
-  mov   rbx, [Source]
-  mov   rcx, [Source + 8]
-  mov   rax, [r8]
-  mov   rdx, [r8 + 8]
-@repeat:
-  lock  cmpxchg16B [r8]
-  jnz   @repeat
-  pop   rbx
-{$ENDIF CPUX64}
+var
+  value: int64;
+begin
+  value := int64(Source);
+  TInterlocked.Exchange(int64(Destination), value);
 end; { Move128 }
+{$ELSE CPUX64}
+var
+  comparand: TInt128;
+  newLo    : int64;
+  newHi    : int64;
+begin
+  newLo := PInt64(@Source)^;
+  newHi := PInt64(PByte(@Source) + 8)^;
+  comparand.Lo := PInt64(@Destination)^;
+  comparand.Hi := PInt64(PByte(@Destination) + 8)^;
+  while not InterlockedCompareExchange128(@Destination, newHi, newLo, @comparand) do
+    ; //retry — comparand is updated by InterlockedCompareExchange128 on failure
+end; { Move128 }
+{$ENDIF ~CPUX64}
 
-//eighter 8-byte or 16-byte atomic Move, depending on the platform; destination must be propely aligned (8- or 16-byte)
+//Either 8-byte or 16-byte atomic Move, depending on the platform; destination must be properly aligned (8- or 16-byte)
 procedure MoveDPtr(newData: pointer; newReference: NativeInt; var Destination); overload;
-asm
 {$IFNDEF CPUX64}
-  movd  xmm0, eax
-  movd  xmm1, edx
-  punpckldq xmm0, xmm1
-  movq  qword [Destination], xmm0
-  mov   eax, [eax + $24]
-{$ELSE CPUX64}
-//Move 16 bytes atomically into 16-byte Destination!
-  push  rbx
-  mov   r8, destination
-  mov   rbx, newData
-  mov   rcx, newReference
-  mov   rax, [r8]
-  mov   rdx, [r8 + 8]
-@repeat:
-  lock  cmpxchg16B [r8]
-  jnz   @repeat
-  pop   rbx
-{$ENDIF CPUX64}
+var
+  packedVal: int64;
+begin
+  Int64Rec(packedVal).Lo := cardinal(newData);
+  Int64Rec(packedVal).Hi := cardinal(newReference);
+  TInterlocked.Exchange(int64(Destination), packedVal);
 end; { MoveDPtr }
-
-//eighter 8-byte or 16-byte atomic Move, depending on the platform; destination must be propely aligned (8- or 16-byte)
-procedure MoveDPtr(var Source, Destination);
-asm
-{$IFNDEF CPUX64}
-//Move 8 bytes atomically from Source 8-byte aligned to Destination!
-  movq  xmm0, qword [Source]
-  movq  qword [Destination], xmm0
 {$ELSE CPUX64}
-//Move 16 bytes atomically into 16-byte Destination!
-  push  rbx
-  mov   r8, destination
-  mov   rbx, [Source]
-  mov   rcx, [Source + 8]
-  mov   rax, [r8]
-  mov   rdx, [r8 + 8]
-@repeat:
-  lock  cmpxchg16B [r8]
-  jnz   @repeat
-  pop   rbx
-{$ENDIF CPUX64}
-end;
-{$ENDIF MSWINDOWS}
+var
+  comparand: TInt128;
+begin
+  comparand.Lo := PInt64(@Destination)^;
+  comparand.Hi := PInt64(PByte(@Destination) + 8)^;
+  while not InterlockedCompareExchange128(@Destination, newReference, int64(newData), @comparand) do
+    ; //retry — comparand is updated by InterlockedCompareExchange128 on failure
+end; { MoveDPtr }
+{$ENDIF ~CPUX64}
+
+//Either 8-byte or 16-byte atomic Move, depending on the platform; destination must be properly aligned (8- or 16-byte)
+procedure MoveDPtr(var Source, Destination);
+{$IFNDEF CPUX64}
+var
+  value: int64;
+begin
+  value := int64(Source);
+  TInterlocked.Exchange(int64(Destination), value);
+end; { MoveDPtr }
+{$ELSE CPUX64}
+var
+  comparand: TInt128;
+  newLo    : int64;
+  newHi    : int64;
+begin
+  newLo := PInt64(@Source)^;
+  newHi := PInt64(PByte(@Source) + 8)^;
+  comparand.Lo := PInt64(@Destination)^;
+  comparand.Hi := PInt64(PByte(@Destination) + 8)^;
+  while not InterlockedCompareExchange128(@Destination, newHi, newLo, @comparand) do
+    ; //retry — comparand is updated by InterlockedCompareExchange128 on failure
+end; { MoveDPtr }
+{$ENDIF ~CPUX64}
 
 function GetCPUTimeStamp: int64;
-{$IFDEF MSWINDOWS}
-asm
-  rdtsc
-{$IFDEF CPUX64}
-  shl   rdx, 32
-  or    rax, rdx
-{$ENDIF CPUX64}
-{$ELSE}             // TODO : *** Check if MeasureExecutionTimes in OtlContainers still works
 begin
   Result := TStopwatch.GetTimestamp;
-{$ENDIF}
 end; { GetCPUTimeStamp }
 
-{$IFDEF MSWINDOWS}
 procedure NInterlockedExchangeAdd(var addend; value: NativeInt);
-asm
-  lock  xadd [addend], value
+begin
+  TInterlockedEx.Add(NativeInt(addend), value);
 end; { NInterlockedExchangeAdd }
 
-procedure MFence; assembler;
-asm
-  mfence
+procedure MFence;
+begin
+  MemoryBarrier;
 end; { MFence }
 
+{$IFDEF MSWINDOWS}
 function WaitForAllObjects(const handles: array of THandle; timeout_ms: cardinal):
   boolean;
 var
