@@ -121,10 +121,6 @@ uses
   System.SyncObjs,
   OtlCommon,
   OtlSync,
-{$IFDEF MSWINDOWS}
-  DSiWin32,
-  GpStuff,
-{$ENDIF}
   OtlContainerObserver;
 
 const
@@ -383,9 +379,6 @@ function CreateOmniValueQueue(UseBusLocking: boolean; ThresholdForFull: integer 
 implementation
 
 uses
-  {$IFDEF MSWINDOWS}
-  Winapi.Windows,
-  {$ENDIF MSWINDOWS}
   System.SysUtils,
   {$IFDEF OTL_MobileSupport}
   System.Generics.Collections,
