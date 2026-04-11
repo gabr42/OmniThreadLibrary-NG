@@ -56,34 +56,48 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 **Files**: `OtlSync.pas`
 
 #### 1.2.1 Remove inline assembly
-- [ ] Replace all 16 CAS/atomic assembly blocks with `TInterlocked` / `TInterlockedEx` calls
-- [ ] `CAS32` -> `TInterlocked.CompareExchange`
-- [ ] `CAS64` -> `TInterlocked.CompareExchange` (Int64 overload)
-- [ ] `NInterlockedExchangeAdd` -> `TInterlocked.Add`
-- [ ] `MFence` -> `TInterlocked.MemoryBarrier` (Delphi 11+ has this)
-- [ ] `Move64`, `Move128`, `MoveDPtr` -> redesign to not need atomic 128-bit moves (see 1.2.2)
-- [ ] Keep `TInterlockedEx` wrapper if it improves readability
+- [x] Replace all 16 CAS/atomic assembly blocks with `TInterlocked` / `TInterlockedEx` calls
+- [x] `CAS32` -> `TInterlocked.CompareExchange`
+- [x] `CAS64` -> `TInterlocked.CompareExchange` (Int64 overload)
+- [x] `NInterlockedExchangeAdd` -> `TInterlocked.Add`
+- [x] `MFence` -> `System.MemoryBarrier` (compiler intrinsic)
+- [x] `Move64`, `Move128`, `MoveDPtr` -> pure Pascal using `TInterlocked.Exchange`/`InterlockedCompareExchange128`
+- [x] Keep `TInterlockedEx` wrapper for readability
 
 #### 1.2.2 Redesign 5-parameter CAS (CMPXCHG16B) dependency
-- [ ] The lock-free queue uses tagged pointers (data + sequence counter) with 128-bit CAS to prevent ABA
-- [ ] **New approach**: Use 64-bit CAS with generation counter packed into pointer bits, or split into two 64-bit atomic operations with acquire/release semantics
-- [ ] If neither approach preserves lock-free guarantees, fall back to spinlock-protected operations on non-x86 and keep `{$IFDEF OTL_HaveCmpx16b}` fast path on Windows x86/x64
+- [x] Win32: Pack pointer+reference into Int64, use `TInterlocked.CompareExchange(Int64)`
+- [x] Win64: Use `Winapi.Windows.InterlockedCompareExchange128` (RTL-declared)
+- [x] Non-Windows: Spinlock fallback (containers have non-lock-free path when `OTL_HaveCmpx16b` is undef)
+- [x] CAS8/CAS16: Byte-in-word CAS technique with retry loop
 
 #### 1.2.3 Unify TOmniTransitionEvent
-- [ ] `TOmniTransitionEvent = IOmniEvent` on ALL platforms (remove the `THandle` path)
-- [ ] `IOmniEvent` wraps `System.SyncObjs.TEvent` — already cross-platform
-- [ ] Remove `IOmniHandleObject` interface (Windows-only handle access)
+- [ ] `TOmniTransitionEvent = IOmniEvent` on ALL platforms (deferred — cascades to OtlComm.pas)
+- [x] `IOmniEvent` wraps `System.SyncObjs.TEvent` — already cross-platform
+- [x] Remove `IOmniHandleObject` interface (replaced by `IOmniSynchroObject`)
+- [x] Unify `IOmniCancellationToken` — always uses `IOmniEvent` internally
+- [x] `IOmniResourceCount` inherits from `IOmniSynchroObject` unconditionally
 
 #### 1.2.4 Replace WaitForMultipleObjects
-- [ ] All multi-wait code moves to condition-variable-based `TSynchroWaitFor`
-- [ ] Fix existing bugs in `TSynchroWaitFor` (known to have bugs)
-- [ ] On Windows: still use condition variables (not `WaitForMultipleObjects`) for uniformity
-- [ ] `TWaitFor` class becomes the single implementation on all platforms
+- [x] All multi-wait code uses condition-variable-based `TWaitFor` (formerly `TSynchroWaitFor`)
+- [x] On Windows: condition variables used for WaitAll/WaitAny; `MsgWaitAny` uses `MsgWaitForMultipleObjectsEx` directly
+- [x] `TWaitFor` class is the single implementation on all platforms
+- [x] Windows-only convenience: `Create(THandle[])`, `SetHandles`, `MsgWaitAny`, `WaitHandles` property
 - [ ] Remove `MsgWaitForMultipleObjectsEx` usage from task loop (see Phase 2)
 
 #### 1.2.5 TOmniResourceCount
-- [ ] Replace Windows event handle implementation with `IOmniEvent`-based implementation
-- [ ] Use condition variable for the "wait until zero" operation
+- [x] Replace Windows event handle implementation with `IOmniEvent`-based implementation
+- [x] Single unified class on all platforms (removed non-Windows stub)
+- [x] Windows-only `Handle` property for backward compatibility
+
+#### 1.2.6 Cleanup (sub-step G)
+- [x] Remove `DSiWin32`, `GpStuff`, `GpLists` from uses clause
+- [x] `TOmniLockManager<K>`: Replace `TDSiEventHandle`/`TGpDoublyLinkedList` with `IOmniEvent`/`TObjectList`
+- [x] Remove all `{$IFDEF OTL_MobileSupport}` guards (always true)
+- [x] Remove all `{$IFDEF OTL_HasVolatileAttribute}` guards (always true)
+- [x] Remove `{$IFDEF OTL_CountdownHasSpinCount}` guard (always true)
+- [x] Remove `{$IFDEF OTL_ForceThreadTracking}` usage (define removed)
+- [x] Implement `TOmniSingleThreadUseChecker.Check/DebugCheck` unconditionally
+- [x] Delete `OtlSync_.pas` (dead v2.02 snapshot)
 
 ### 1.3 OtlContainers.pas — Lock-free containers
 **Files**: `OtlContainers.pas`
