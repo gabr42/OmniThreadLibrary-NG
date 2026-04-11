@@ -224,8 +224,18 @@ begin
   CheckTrue(synch.WaitFor('R:2', 3000), 'WaitFor R:2');
   synch.Signal('W:2');
 
-  CheckTrue(readerTask.Wait(5000), 'R:Wait');
-  CheckTrue(writerTask.Wait(5000), 'W:Wait');
+  try
+    readerTask.Wait(5000);
+  except
+    on E: EAggregateException do
+      Fail('Reader: ' + E.InnerExceptions[0].Message);
+  end;
+  try
+    writerTask.Wait(5000);
+  except
+    on E: EAggregateException do
+      Fail('Writer: ' + E.InnerExceptions[0].Message);
+  end;
 end;
 
 initialization

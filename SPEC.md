@@ -160,9 +160,10 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - **Note**: `GpStringHash` is still used by OtlTaskControl.pas (separate dependency, see Step 1.8)
 
 ### 1.8 Remove GpStringHash dependency
-- [ ] Replace `GpStringHash` usage in `OtlTaskControl.pas` with `TDictionary<string, T>` or equivalent from `System.Generics.Collections`
-- [ ] Replace `GpStringHash` usage in `unittests/TestOmniInterfaceDictionary.pas`
-- [ ] Remove `GpStringHash` from uses clauses
+- [x] Replace `GpStringHash` usage in `OtlTaskControl.pas` with `TObjectDictionary<string, TOmniInvokeInfo>` from `System.Generics.Collections`
+- [x] Replace `GpStringHash` usage in `unittests/TestOmniInterfaceDictionary.pas` (removed unused import, replaced `GetGoodHashSize` with constant)
+- [x] Remove `GpStringHash` from uses clauses
+- [x] All 61 unit tests pass
 
 ---
 
@@ -171,13 +172,13 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 ### 2.1 OtlComm.pas — Message passing
 **Files**: `OtlComm.pas`
 
-- [ ] Remove hidden window allocation (`DSiAllocateHWnd` / `WndProc`)
-- [ ] Remove `TOmniContainerWindowsMessageObserver` usage
-- [ ] Use `TOmniContainerEventObserver` (IOmniEvent-based) for all queue notifications
-- [ ] Remove `Winapi.Messages` dependency
-- [ ] `TOmniMessageQueue.NewMessageEvent` returns `IOmniEvent` on all platforms
-- [ ] Keep `TOmniMessage` record (MsgID + TOmniValue payload) unchanged
-- [ ] **Deferred from 1.2.3**: Unify `TOmniTransitionEvent = IOmniEvent` on ALL platforms (currently conditional `THandle`/`IOmniEvent`). This cascades through `OtlComm.pas` (`NewMessageEvent`), `OtlTask.pas` (`TOmniWaitObjectList`), and `OtlTaskControl.pas` (`DispatchCommMessage`, `TerminateWhen`, `Asy_RegisterWaitObject`). Also remove the transitional `OtlSync.SetEvent(event: TOmniTransitionEvent)` helper once the type is unified.
+- [x] Remove hidden window allocation (`DSiAllocateHWnd` / `WndProc`)
+- [x] Remove `TOmniContainerWindowsMessageObserver` usage
+- [x] Use `TOmniContainerEventObserver` (IOmniEvent-based) for all queue notifications
+- [x] Remove `Winapi.Messages` dependency
+- [x] `TOmniMessageQueue.NewMessageEvent` returns `IOmniEvent` on all platforms
+- [x] Keep `TOmniMessage` record (MsgID + TOmniValue payload) unchanged
+- [ ] **Deferred to 2.3**: Unify `TOmniTransitionEvent = IOmniEvent` on ALL platforms (currently conditional `THandle`/`IOmniEvent`). This cascades through `OtlComm.pas` (`NewMessageEvent`), `OtlTask.pas` (`TOmniWaitObjectList`), and `OtlTaskControl.pas` (`DispatchCommMessage`, `TerminateWhen`, `Asy_RegisterWaitObject`). Also remove the transitional `OtlSync.SetEvent(event: TOmniTransitionEvent)` helper once the type is unified.
 
 ### 2.2 OtlCommon.pas — Core types
 **Files**: `OtlCommon.pas`
