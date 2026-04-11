@@ -30,10 +30,19 @@
 ///<remarks><para>
 ///   Author            : Primoz Gabrijelcic
 ///   Creation date     : 2010-07-01
-///   Last modification : 2019-01-03
-///   Version           : 2.0
+///   Last modification : 2026-04-11
+///   Version           : 3.0
 ///</para><para>
 ///   History:
+///     3.0: 2026-04-11
+///       - OTL NG: Minimum Delphi version raised to 11 Alexandria.
+///       - Removed all pre-Delphi 11 version checks and conditionals.
+///       - All version-gated defines are now unconditionally set (transitional;
+///         will be removed from usage sites as individual units are updated).
+///       - Removed OTL_ForceThreadTracking (XE2-only workaround).
+///       - Added OTL_HasAPC for Windows (gates QueueUserAPC-based fast path).
+///       - OTL_PlatformIndependent is now a manual testing flag on Windows;
+///         auto-set on non-Windows platforms.
 ///     2.01: 2018-05-28
 ///       - Introduced OTL_NameThreadHasStringParameter and OTL_HasVolatileAttribute.
 ///     1.06: 2019-01-03
@@ -58,14 +67,8 @@
 
 // Defines below this point should not be changed. Changing them could break OmniThreadLibrary.
 
-{$IFNDEF CONDITIONALEXPRESSIONS}
-'OmniThreadLibrary requires Delphi XE2 or newer'
-{$ENDIF}
-
-{$IF CompilerVersion >= 26}{$LEGACYIFEND ON}{$IFEND}
-
-{$IF CompilerVersion < 23}
-{$MESSAGE ERROR 'OmniThreadLibrary requires Delphi XE2 or newer'}
+{$IF CompilerVersion < 35}
+{$MESSAGE ERROR 'OmniThreadLibrary NG requires Delphi 11 Alexandria or newer'}
 {$IFEND}
 
 {$ALIGN 8}
@@ -78,60 +81,34 @@
 {$TYPEDADDRESS OFF}
 {$ASSERTIONS ON}
 {$TYPEINFO OFF}
+{$ZEROBASEDSTRINGS OFF}
 
-{$IF CompilerVersion = 23} //DXE2
-  {$DEFINE OTL_ForceThreadTracking} //passing False to TSpinLock.Create causes problems on XE2
-{$IFEND}
+// Transitional defines — always true with Delphi 11+.
+// Kept until usage sites are cleaned up in individual units (Phase 1 steps 1.2–1.7).
+{$DEFINE OTL_CountdownHasSpinCount}
+{$DEFINE OTL_NameThreadHasStringParameter}
+{$DEFINE OTL_TypeInfoHasTypeData}
+{$DEFINE OTL_VariantHasInt64}
+{$DEFINE OTL_StrPasInAnsiStrings}
+{$DEFINE OTL_HasVolatileAttribute}
+{$DEFINE OTL_FixedGenericIncompletelyDefined}
+{$DEFINE OTL_MobileSupport}
+{$DEFINE OTL_CanInlineOperators}
+{$DEFINE OTL_HasForceQueue}
+{$DEFINE OTL_HasLightweightMREW}
 
-{$IF CompilerVersion >= 24} //DXE3
-  {$DEFINE OTL_CountdownHasSpinCount}
-  {$DEFINE OTL_NameThreadHasStringParameter}
-  {$DEFINE OTL_TypeInfoHasTypeData}
-  {$DEFINE OTL_VariantHasInt64}
-{$IFEND}
-
-{$IF CompilerVersion >= 25} //DXE4
-  {$DEFINE OTL_StrPasInAnsiStrings}
-  {$DEFINE OTL_HasVolatileAttribute}
-{$IFEND}
-
-{$IF CompilerVersion >= 28} //DX7
-  {$DEFINE OTL_FixedGenericIncompletelyDefined}
-{$IFEND}
-
-{$IF CompilerVersion >= 29} //DXE8
-  {$DEFINE OTL_MobileSupport}
-  {$ZEROBASEDSTRINGS OFF}
-{$IFEND}
-
-{$IF CompilerVersion >= 30} //10 Seattle
-  {$DEFINE OTL_CanInlineOperators}
-{$IFEND}
-
-{$IF CompilerVersion >= 32} //Tokyo
-  {$DEFINE OTL_HasForceQueue}
-{$IFEND}
-
-{$IF CompilerVersion >= 35} //11 Alexandria
-  {$DEFINE OTL_HasLightweightMREW}
-{$IFEND}
-
-{$IFNDEF MSWINDOWS}
-{$IFNDEF OTL_MobileSupport}
-{$MESSAGE ERROR 'Only Windows compilation is supported on this Delphi version (at least XE8 is required for non-Windows platforms.'}
-{$ENDIF ~OTL_MobileSupport}
-{$ENDIF ~MSWINDOWS}
+// Platform-specific defines
 
 {$IFDEF MSWINDOWS}
-  {$DEFINE OTL_HaveCmpx16b}
+  {$DEFINE OTL_HaveCmpx16b}  // Opt-in 128-bit CAS fast path (Windows x86/x64 only)
+  {$DEFINE OTL_HasAPC}        // Gates QueueUserAPC-based fast path on Windows
 {$ELSE}
-  //We don't have a platform-independant way of using cmpx8b/cmpx16b
-  //(5-parameter OtlSync.CAS) so we can't use bus-locking on non-Windows targets.
   {$UNDEF OTL_HaveCmpx16b}
-{$ENDIF ~MSWINDOWS}
-
-{$IFDEF OTL_MobileSupport}
-{$IFNDEF MSWINDOWS}
-{$DEFINE OTL_PlatformIndependent} // Define manually to force platform-independant code on Windows.
 {$ENDIF}
+
+// On non-Windows platforms, platform-independent code paths are mandatory.
+// On Windows, define OTL_PlatformIndependent manually to force platform-independent
+// code paths for testing purposes.
+{$IFNDEF MSWINDOWS}
+  {$DEFINE OTL_PlatformIndependent}
 {$ENDIF}

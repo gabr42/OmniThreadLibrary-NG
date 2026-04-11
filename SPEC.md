@@ -45,12 +45,12 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 **Goal**: Replace all Windows-specific primitives with cross-platform abstractions. Everything in this phase compiles and passes tests on Windows before moving on.
 
 ### 1.1 OtlOptions.inc cleanup
-- [ ] Remove minimum compiler version checks for pre-Delphi 11
-- [ ] Remove `OTL_MobileSupport` conditional — platform independence is now the default
-- [ ] Keep `OTL_HaveCmpx16b` as opt-in for Windows+x86/x64 performance (but no code path should *require* it)
-- [ ] Remove the `{$IFNDEF MSWINDOWS}` error directive
-- [ ] Define `OTL_HasAPC` for Windows (gates QueueUserAPC-based fast path)
-- [ ] Keep `OTL_PlatformIndependent` as a way to force platform-independent code paths on Windows (for testing)
+- [x] Remove minimum compiler version checks for pre-Delphi 11
+- [x] Remove `OTL_MobileSupport` conditional — platform independence is now the default
+- [x] Keep `OTL_HaveCmpx16b` as opt-in for Windows+x86/x64 performance (but no code path should *require* it)
+- [x] Remove the `{$IFNDEF MSWINDOWS}` error directive
+- [x] Define `OTL_HasAPC` for Windows (gates QueueUserAPC-based fast path)
+- [x] Keep `OTL_PlatformIndependent` as a way to force platform-independent code paths on Windows (for testing)
 
 ### 1.2 OtlSync.pas — Synchronization primitives
 **Files**: `OtlSync.pas`
