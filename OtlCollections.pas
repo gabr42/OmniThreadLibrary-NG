@@ -264,16 +264,6 @@ uses
   System.Diagnostics,
   OtlPlatform;
 
-{$IFDEF MSWINDOWS}
-{$IFDEF CPUX64}
-procedure AsmPause;
-asm
-  .noframe
-  pause
-end; { AsmPause }
-{$ENDIF CPUX64}
-{$ENDIF}
-
 { TOmniBlockingCollectionEnumerator }
 
 constructor TOmniBlockingCollectionEnumerator.Create(collection: TOmniBlockingCollection);
@@ -368,11 +358,7 @@ begin
       obcCompletedSignal.SetEvent; // tell blocked readers to quit
       Exit;
     end;
-    {$IFDEF MSWINDOWS}
-    {$IFDEF CPUX64}AsmPause;{$ELSE}asm pause; end;{$ENDIF CPUX64}
-    {$ELSE}
-    TThread.Yield;
-    {$ENDIF}
+    TThread.SpinWait(1);
   until false;
 end; { TOmniBlockingCollection.CompleteAdding }
 
