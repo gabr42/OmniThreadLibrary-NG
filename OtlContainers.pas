@@ -161,11 +161,8 @@ type
 
   PReferencedPtr = ^TReferencedPtr;
   TReferencedPtr = record
-    {$IFNDEF OTL_HaveCmpx16b}[Volatile]{$ENDIF}
-    PData    : pointer;
-    {$IFDEF OTL_HaveCmpx16b} // references are only used in bus-locked implementation
-    Reference: NativeInt;
-    {$ENDIF}
+    [Volatile] PData: pointer;
+    Reference       : NativeInt;   // used by bus-locked (lock-free) path; ignored by critical-section fallback
   end; { TReferencedPtr }
 
   TReferencedPtrBuffer = array [0..MaxInt shr 5] of TReferencedPtr;
