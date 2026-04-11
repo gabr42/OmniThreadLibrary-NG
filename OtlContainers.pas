@@ -1832,9 +1832,9 @@ end; { TOmniValueQueueCS.LeaveCriticalSection }
 
 initialization
   Assert(SizeOf(pointer) = SizeOf(NativeInt));
-  {$IFDEF OTL_HaveCmpx16b}
   Assert(SizeOf(TOmniTaggedValue) = {$IFDEF CPUX64}3{$ELSE}4{$ENDIF}*SizeOf(pointer));
   Assert(SizeOf(TOmniTaggedPointer) = 2*SizeOf(pointer));
+  {$IFDEF OTL_HaveCmpx16b}
   InitializeTimingInfo;
   {$ENDIF OTL_HaveCmpx16b}
 end.
