@@ -157,7 +157,12 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
   - `TGpIntegerList`/`IGpIntegerList` → `TList<Integer>` (TestOmniInterfaceDictionary)
 - [x] GpLists removed from uses clause of: OtlTask, OtlTaskControl, OtlParallel, OtlEventMonitor, OtlDataManager, TestOmniInterfaceDictionary
 - [x] All 61 unit tests pass
-- **Note**: `GpStringHash` is still used by OtlTaskControl.pas and OtlCommon.pas (separate dependency)
+- **Note**: `GpStringHash` is still used by OtlTaskControl.pas (separate dependency, see Step 1.8)
+
+### 1.8 Remove GpStringHash dependency
+- [ ] Replace `GpStringHash` usage in `OtlTaskControl.pas` with `TDictionary<string, T>` or equivalent from `System.Generics.Collections`
+- [ ] Replace `GpStringHash` usage in `unittests/TestOmniInterfaceDictionary.pas`
+- [ ] Remove `GpStringHash` from uses clauses
 
 ---
 
