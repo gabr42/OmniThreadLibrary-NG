@@ -567,12 +567,8 @@ end; { TOmniBlockingCollection.ToArray<T> }
 
 function TOmniBlockingCollection.TryAdd(const value: TOmniValue): boolean;
 var
-  {$IFDEF MSWINDOWS}
-  awaited: cardinal;
-  {$ELSE}
   waitResult: TWaitFor.TWaitForResult;
-  Signaller: IOmniSynchro;
-  {$ENDIF}
+  signaller : IOmniSynchro;
 begin
   obcAddCountAndCompleted.Increment;
   try
@@ -586,16 +582,9 @@ begin
         // previous line has executed so test again ...
         if obcThrottling and (obcApproxCount.Value >= obcHighWaterMark) then begin
           obcAddCountAndCompleted.Decrement; // Leave the Add temporarily so that CompleteAdding can succeed
-          {$IFDEF MSWINDOWS}
-          awaited := DSiWaitForTwoObjects(obcCompletedSignal.BaseEvent.Handle, obcNotOverflow.BaseEvent.Handle, false, INFINITE);
-          if awaited = WAIT_OBJECT_0 then
+          waitResult := FCompletedWaiter.WaitAny(INFINITE, signaller);
           obcAddCountAndCompleted.Increment; // Re-enter Add; queue may be now in 'completed' state
-          if (awaited = WAIT_OBJECT_0) or IsCompleted then begin
-          {$ELSE}
-          waitResult := FCompletedWaiter.WaitAny(INFINITE,Signaller);
-          obcAddCountAndCompleted.Increment;
-          if ((waitResult = waAwaited) and (Signaller = obcCompletedSignal)) or IsCompleted then begin
-          {$ENDIF}
+          if ((waitResult = waAwaited) and (signaller = obcCompletedSignal)) or IsCompleted then begin
             Result := false; // completed
             Exit;
           end;
