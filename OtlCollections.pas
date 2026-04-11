@@ -115,11 +115,6 @@ interface
 
 uses
   System.SysUtils,
-  {$IFDEF MSWINDOWS}
-  Winapi.Windows,
-  DSiWin32,
-  GpStuff,
-  {$ENDIF}
   System.SyncObjs,
   System.TypInfo,
   System.RTTI,
@@ -259,8 +254,7 @@ implementation
 
 uses
   System.Classes,
-  System.Diagnostics,
-  OtlPlatform;
+  System.Diagnostics;
 
 { TOmniBlockingCollectionEnumerator }
 
