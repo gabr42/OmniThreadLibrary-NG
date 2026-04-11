@@ -194,14 +194,12 @@ type
     obcHighWaterMark       : integer;
     obcLowWaterMark        : integer;
     obcNotOverflow         : IOmniEvent;
-    obcObserver            : {$IFDEF MSWINDOWS}TOmniContainerWindowsEventObserver{$ELSE}TOmniContainerEventObserver{$ENDIF};
+    obcObserver            : TOmniContainerEventObserver;
     obcReraiseExceptions   : boolean;
     obcResourceCount       : IOmniResourceCount;
     obcThrottling          : boolean;
-    {$IFNDEF MSWINDOWS}
-    FCompletedWaiter       : TSynchroWaitFor;
-    FTakableWaiter         : TSynchroWaitFor;
-    {$ENDIF}
+    FCompletedWaiter       : TWaitFor;
+    FTakeWaiter            : TWaitFor;
   protected
     function  GetApproxCount: integer; inline;
     function  GetContainerSubject: TOmniContainerSubject;
@@ -297,38 +295,28 @@ var
   shareLock: IOmniCriticalSection;
 begin
   inherited Create;
-  // SBD: TODO: Work needs to be done here
-  //  1. obcResourceCount needs to be constructed with shareLock
-  //  2. Find out what is the interaction with obcObserver. Does it block taking?
-  {$IFDEF MSWINDOWS}
-  shareLock := nil;
-  {$ELSE}
   shareLock := CreateOmniCriticalSection;
-  {$ENDIF}
   obcAddCountAndCompleted.Value := 0;
   obcApproxCount.Value := 0;
   if numProducersConsumers > 0 then
     obcResourceCount := CreateResourceCount(numProducersConsumers);
   obcCollection := TOmniQueue.Create;
   obcCompletedSignal := CreateOmniEvent(true, false, shareLock);
-  obcObserver := {$IFDEF MSWINDOWS}CreateContainerWindowsEventObserver;
-                 {$ELSE}CreateContainerEventObserver;{$ENDIF}
+  obcObserver := CreateContainerEventObserver;
   obcCollection.ContainerSubject.Attach(obcObserver, coiNotifyOnAllInserts);
   obcNotOverflow := CreateOmniEvent(true, true, shareLock);
-  {$IFNDEF MSWINDOWS}
-  FCompletedWaiter := TSynchroWaitFor.Create([obcCompletedSignal, obcNotOverflow], shareLock);
+  FCompletedWaiter := TWaitFor.Create([obcCompletedSignal, obcNotOverflow], shareLock);
   if assigned(obcResourceCount) then
-    // SBD: TODO: Not sure if obcObserver needs to be included.
-    FTakableWaiter := TSynchroWaitFor.Create([obcCompletedSignal, {obcObserver,}
-                        (obcResourceCount as IOmniSynchroObject).Synchro], shareLock)
+    FTakeWaiter := TWaitFor.Create([obcCompletedSignal, obcObserver.GetEvent,
+                     (obcResourceCount as IOmniSynchroObject).Synchro], shareLock)
   else
-    // FTakableWaiter := TSynchroWaitFor.Create([obcCompletedSignal, obcObserver], shareLock);
-    FTakableWaiter := nil
-  {$ENDIF}
+    FTakeWaiter := TWaitFor.Create([obcCompletedSignal, obcObserver.GetEvent], shareLock);
 end; { TOmniBlockingCollection.Create }
 
 destructor TOmniBlockingCollection.Destroy;
 begin
+  FreeAndNil(FTakeWaiter);
+  FreeAndNil(FCompletedWaiter);
   obcNotOverflow := nil;
   if assigned(obcCollection) and assigned(obcObserver) then
     obcCollection.ContainerSubject.Detach(obcObserver, coiNotifyOnAllInserts);
@@ -336,10 +324,6 @@ begin
   obcCompletedSignal := nil;
   FreeAndNil(obcCollection);
   obcResourceCount := nil;
-  {$IFNDEF MSWINDOWS}
-  FCompletedWaiter.Free;
-  FTakableWaiter.Free;
-  {$ENDIF}
   inherited Destroy;
 end; { TOmniBlockingCollection.Destroy }
 
@@ -623,64 +607,52 @@ begin
   finally obcAddCountAndCompleted.Decrement; end;
 end; { TOmniBlockingCollection.TryAdd }
 
-{$IFDEF MSWINDOWS}
 function TOmniBlockingCollection.TryTake(var value: TOmniValue;
   timeout_ms: cardinal): boolean;
 var
-  awaited    : DWORD;
-  startTime  : int64;
-  waitHandles: array [0..2] of THandle;
+  stopWatch: TStopWatch;
+  awaited  : TWaitFor.TWaitForResult;
+  signaller: IOmniSynchro;
 
-  function Elapsed: boolean;
-  begin
-    if timeout_ms = INFINITE then
-      Result := false
-    else
-      Result := (startTime + timeout_ms) < Time.Timestamp_ms;
-  end; { Elapsed }
-
-  function TimeLeft_ms: DWORD;
+  function TimeLeft_ms: cardinal;
   var
     intTime: integer;
   begin
     if timeout_ms = INFINITE then
       Result := INFINITE
     else begin
-      intTime := startTime + timeout_ms - Time.Timestamp_ms;
+      intTime := timeout_ms - stopWatch.ElapsedMilliseconds;
       if intTime < 0 then
         Result := 0
       else
         Result := intTime;
     end;
-  end; { TimeLeft }
+  end; { TimeLeft_ms }
 
-begin { TOmniBlockingCollection.TryTake }
+begin
   if obcCollection.TryDequeue(value) then
     Result := true
   else begin // must be executed even if timeout_ms = 0 or the algorithm will break
     if assigned(obcResourceCount) then
       obcResourceCount.Allocate;
     try
-      startTime := Time.Timestamp_ms;
-      waitHandles[0] := obcCompletedSignal.Handle;
-      waitHandles[1] := obcObserver.GetEvent;
-      if assigned(obcResourceCount) then
-        waitHandles[2] := obcResourceCount.Handle;
+      stopWatch := TStopWatch.StartNew;
       Result := false;
       repeat
-        awaited := WaitForMultipleObjects(2 + Ord(assigned(obcResourceCount)),
-                     @waitHandles, false, TimeLeft_ms);
+        awaited := FTakeWaiter.WaitAny(TimeLeft_ms, signaller);
         if obcCollection.TryDequeue(value) then begin // there may still be data in completed queue
           Result := true;
           break; //repeat
         end;
-        if awaited <> WAIT_OBJECT_1 then begin
-          if awaited = WAIT_OBJECT_2 then
-            CompleteAdding;
+        if (awaited = waAwaited) and assigned(obcResourceCount)
+           and (signaller = (obcResourceCount as IOmniSynchroObject).Synchro)
+        then
+          CompleteAdding;
+        if (awaited = waAwaited) and (signaller = obcCompletedSignal) then begin
           Result := false;
-          break; //while
+          break; //repeat
         end;
-      until Elapsed;
+      until TimeLeft_ms = 0;
     finally
       if assigned(obcResourceCount) then
         obcResourceCount.Release;
@@ -694,76 +666,6 @@ begin { TOmniBlockingCollection.TryTake }
   if Result and obcReraiseExceptions and value.IsException then
     raise value.AsException;
 end; { TOmniBlockingCollection.TryTake }
-
-{$ELSE}
-
-// Non-windows version of TryTake().
-function TOmniBlockingCollection.TryTake(
-  var value: TOmniValue; timeout_ms: cardinal): boolean;
-var
-  StopWatch: TStopWatch;
-  awaited: TWaitFor.TWaitForResult;
-  Signaller: IOmniSynchro;
-
-  function TimeLeft_ms: cardinal;
-  var
-    intTime: integer;
-  begin
-    if timeout_ms = INFINITE then
-      Result := INFINITE
-    else begin
-      intTime := timeout_ms - StopWatch.ElapsedMilliseconds;
-      if intTime < 0 then
-        Result := 0
-      else
-        Result := intTime;
-    end;
-  end; { TimeLeft }
-
-begin
-  if obcCollection.TryDequeue(value) then
-    Result := true
-  else begin // must be executed even if timeout_ms = 0 or the algorithm will break
-    if assigned(obcResourceCount) then
-      obcResourceCount.Allocate;
-    try
-      StopWatch := TStopWatch.StartNew;
-      Result := false;
-      repeat
-        if assigned(FTakableWaiter) then
-          awaited := FTakableWaiter.WaitAny(TimeLeft_ms, Signaller)
-        else begin
-          if obcCompletedSignal.WaitFor(TimeLeft_ms) = wrSignaled then
-            awaited := waAwaited
-          else
-            awaited := waTimeout;
-          Signaller := obcCompletedSignal;
-        end;
-        if obcCollection.TryDequeue(value) then begin // there may still be data in completed queue
-          Result := true;
-          break; //repeat
-        end;
-        if (awaited = waAwaited) and assigned(obcResourceCount) and (Signaller = (obcResourceCount as IOmniSynchroObject).Synchro) then
-          CompleteAdding;
-        if (awaited = waAwaited) and (Signaller = obcCompletedSignal) then begin
-          Result := false;
-          break; //while
-        end;
-      until TimeLeft_ms = 0
-    finally
-      if assigned(obcResourceCount) then
-        obcResourceCount.Release;
-    end;
-  end;
-  if Result then begin
-    obcApproxCount.Decrement;
-    if obcThrottling and (obcApproxCount.Value <= obcLowWaterMark) then
-      obcNotOverflow.SetEvent
-  end;
-  if Result and obcReraiseExceptions and value.IsException then
-    raise value.AsException;
-end;
-{$ENDIF}
 
 end.
 
