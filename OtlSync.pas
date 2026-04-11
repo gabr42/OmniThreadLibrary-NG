@@ -349,38 +349,27 @@ type
   ///   increments the count.
   ///   Threadsafe.
   ///</summary>
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
   TOmniResourceCount = class(TInterfacedObject, IOmniResourceCount, IOmniSynchroObject)
   strict private
-    orcAvailable   : TDSiEventHandle;
-    orcHandle      : TDSiEventHandle;
+    orcAvailable   : IOmniEvent;
+    orcZero        : IOmniEvent;
     orcLock        : TOmniCS;
     orcNumResources: TOmniAlignedInt32;
   protected
+    {$IFDEF MSWINDOWS}
     function  GetHandle: THandle;
+    {$ENDIF MSWINDOWS}
     function  GetSynchro: IOmniSynchro;
   public
     constructor Create(initialCount: cardinal);
-    destructor  Destroy; override;
     function  Allocate: cardinal; inline;
     function  Release: cardinal;
     function  TryAllocate(var resourceCount: cardinal; timeout_ms: cardinal = 0): boolean;
+    {$IFDEF MSWINDOWS}
     property Handle: THandle read GetHandle;
+    {$ENDIF MSWINDOWS}
     property Synchro: IOmniSynchro read GetSynchro;
   end; { TOmniResourceCount }
-  {$ELSE}
-  TOmniResourceCount = class abstract(TInterfacedObject, IOmniResourceCount, IOmniSynchroObject)
-  strict protected
-    function  GetSynchro: IOmniSynchro;
-  public
-    constructor Create(initialCount: cardinal);
-    destructor  Destroy; override;
-    function  Allocate: cardinal;
-    function  Release: cardinal;
-    function  TryAllocate(var resourceCount: cardinal; timeout_ms: cardinal = 0): boolean;
-    property Synchro: IOmniSynchro read GetSynchro;
-  end; { TOmniResourceCount }
-  {$IFEND}
 
   IOmniCancellationToken = interface ['{5946F4E8-45C0-4E44-96AB-DBE2BE66A701}']
     function  GetEvent: IOmniEvent;
@@ -1393,24 +1382,15 @@ begin
   end;
 end; { TOmniMREW.TryEnterWriteLock }
 
-{$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-
 { TOmniResourceCount }
 
 constructor TOmniResourceCount.Create(initialCount: cardinal);
 begin
   inherited Create;
-  orcHandle := CreateEvent(nil, true, (initialCount = 0), nil);
-  orcAvailable := CreateEvent(nil, true, (initialCount <> 0), nil);
+  orcZero := CreateOmniEvent(true, (initialCount = 0));
+  orcAvailable := CreateOmniEvent(true, (initialCount <> 0));
   orcNumResources.Value := initialCount;
 end; { TOmniResourceCount.Create }
-
-destructor TOmniResourceCount.Destroy;
-begin
-  DSiCloseHandleAndNull(orcHandle);
-  DSiCloseHandleAndNull(orcAvailable);
-  inherited;
-end; { TOmniResourceCount.Destroy }
 
 ///<summary>Allocates resource and returns number of remaining resources.
 ///  If the initial number of resources is 0, then the call will block until a resource
@@ -1422,14 +1402,16 @@ begin
   TryAllocate(Result, INFINITE);
 end; { TOmniResourceCount.Allocate }
 
+{$IFDEF MSWINDOWS}
 function TOmniResourceCount.GetHandle: THandle;
 begin
-  Result := orcHandle;
+  Result := (orcZero as IOmniSynchro).Handle;
 end; { TOmniResourceCount.GetHandle }
+{$ENDIF MSWINDOWS}
 
 function TOmniResourceCount.GetSynchro: IOmniSynchro;
 begin
-  Result := CreateOmniEvent(orcHandle, false);
+  Result := orcZero as IOmniSynchro;
 end; { TOmniResourceCount.GetSynchro }
 
 ///<summary>Releases resource and returns number of remaining resources.
@@ -1441,8 +1423,8 @@ begin
   try
     Result := cardinal(orcNumResources.Increment);
     if Result = 1 then begin
-      ResetEvent(orcHandle);
-      SetEvent(orcAvailable);
+      orcZero.Reset;
+      orcAvailable.SetEvent;
     end;
   finally orcLock.Release; end;
 end; { TOmniResourceCount.Release }
@@ -1452,6 +1434,7 @@ function TOmniResourceCount.TryAllocate(var resourceCount: cardinal;
   timeout_ms: cardinal): boolean;
 var
   startTime_ms: int64;
+  waitResult  : TWaitResult;
   waitTime_ms : int64;
 begin
   Result := false;
@@ -1469,7 +1452,8 @@ begin
         if waitTime_ms <= 0 then
           Exit;
       end;
-      if WaitForSingleObject(orcAvailable, waitTime_ms) <> WAIT_OBJECT_0 then
+      waitResult := orcAvailable.WaitFor(waitTime_ms);
+      if waitResult <> wrSignaled then
         Exit; // skip final Release
       orcLock.Acquire;
     end;
@@ -1477,9 +1461,9 @@ begin
       Result := true;
       resourceCount := cardinal(orcNumResources.Decrement);
       if resourceCount = 0 then begin
-        ResetEvent(orcAvailable); //reset before release - otherwise there's a race condition between this code and .Release
-        orcLock.Release; //prevent race condition - another thread may wait on orcHandle and destroy this instance
-        SetEvent(orcHandle);
+        orcAvailable.Reset; //reset before release - otherwise there's a race condition between this code and .Release
+        orcLock.Release; //prevent race condition - another thread may wait on orcZero and destroy this instance
+        orcZero.SetEvent;
         Exit; // skip final Release
       end;
       break; //repeat
@@ -1487,46 +1471,6 @@ begin
   until false;
   orcLock.Release;
 end; { TOmniResourceCount.TryAllocate }
-
-{$ELSE ~MSWINDOWS}
-
-constructor TOmniResourceCount.Create(initialCount: cardinal);
-begin
-  { TODO : Not implemented! }
-  raise Exception.Create('Not implemented!');
-end; { TOmniResourceCount.Create }
-
-destructor TOmniResourceCount.Destroy;
-begin
-  { TODO : Not implemented! }
-  raise Exception.Create('Not implemented!');
-end; { TOmniResourceCount.Destroy }
-
-function TOmniResourceCount.Allocate: cardinal;
-begin
-  { TODO : Not implemented! }
-  raise Exception.Create('Not implemented!');
-end; { TOmniResourceCount.Allocate }
-
-function TOmniResourceCount.GetSynchro: IOmniSynchro;
-begin
-  { TODO : Not implemented! }
-  raise Exception.Create('Not implemented!');
-end; { TOmniResourceCount.GetSynchro }
-
-function TOmniResourceCount.Release: cardinal;
-begin
-  { TODO : Not implemented! }
-  raise Exception.Create('Not implemented!');
-end; { TOmniResourceCount.Release }
-
-function TOmniResourceCount.TryAllocate(var resourceCount: cardinal; timeout_ms: cardinal): boolean;
-begin
-  { TODO : Not implemented! }
-  raise Exception.Create('Not implemented!');
-end; { TOmniResourceCount.TryAllocate }
-
-{$IFEND}
 
 { Atomic<T> }
 
