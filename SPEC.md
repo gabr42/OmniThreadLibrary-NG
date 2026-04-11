@@ -124,6 +124,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Remove `DSiWin32`, `GpStuff`, `Winapi.Windows`, `OtlPlatform` dependencies
 - [x] Replace `asm pause` with `TThread.SpinWait(1)`
 - [x] Fixed non-Windows TryTake bug: observer event was omitted from waiter, preventing wake-up on enqueue
+- **Test blocked on 1.5**: `TestBlockingCollection1` hangs because `TOmniEvent.SetEvent` on Windows bypasses `PerformObservableAction`, so CV-based `TWaitFor` is never notified. Fix in Step 1.5.
 
 ### 1.5 OtlContainerObserver.pas — Observer pattern
 **Files**: `OtlContainerObserver.pas`
