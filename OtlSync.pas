@@ -298,13 +298,7 @@ type
   //IOmniEvent or something similar.
   TOmniTransitionEvent = {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}THandle{$ELSE}IOmniEvent{$IFEND};
 
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  IOmniHandleObject = interface ['{80B85D03-8E1F-4812-8782-38A04BA52076}']
-    function  GetHandle: THandle;
-  //
-    property Handle: THandle read GetHandle;
-  end; { IOmniHandleObject }
-  {$IFEND}
+  //IOmniHandleObject removed — use IOmniSynchroObject instead
 
   ///<summary>Simple critical section wrapper. Critical section is automatically
   ///    initialised on first use.</summary>
@@ -337,15 +331,17 @@ type
     function  TryEnterWriteLock(timeout_ms: integer = 0): boolean;
   end; { TOmniMREW }
 
-  IOmniResourceCount = interface({$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-                                 IOmniHandleObject
-                                 {$ELSE}
-                                 IOmniSynchroObject
-                                 {$IFEND})
+  IOmniResourceCount = interface(IOmniSynchroObject)
   ['{F5281539-1DA4-45E9-8565-4BEA689A23AD}']
+    {$IFDEF MSWINDOWS}
+    function  GetHandle: THandle;
+    {$ENDIF MSWINDOWS}
     function  Allocate: cardinal;
     function  Release: cardinal;
     function  TryAllocate(var resourceCount: cardinal; timeout_ms: cardinal = 0): boolean;
+    {$IFDEF MSWINDOWS}
+    property Handle: THandle read GetHandle;
+    {$ENDIF MSWINDOWS}
   end; { IOmniResourceCount }
 
   ///<summary>Kind of an inverse semaphore. Gets signalled when count drops to 0.
@@ -354,14 +350,15 @@ type
   ///   Threadsafe.
   ///</summary>
   {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  TOmniResourceCount = class(TInterfacedObject, IOmniResourceCount, IOmniHandleObject)
+  TOmniResourceCount = class(TInterfacedObject, IOmniResourceCount, IOmniSynchroObject)
   strict private
     orcAvailable   : TDSiEventHandle;
     orcHandle      : TDSiEventHandle;
     orcLock        : TOmniCS;
     orcNumResources: TOmniAlignedInt32;
   protected
-    function GetHandle: THandle;
+    function  GetHandle: THandle;
+    function  GetSynchro: IOmniSynchro;
   public
     constructor Create(initialCount: cardinal);
     destructor  Destroy; override;
@@ -369,6 +366,7 @@ type
     function  Release: cardinal;
     function  TryAllocate(var resourceCount: cardinal; timeout_ms: cardinal = 0): boolean;
     property Handle: THandle read GetHandle;
+    property Synchro: IOmniSynchro read GetSynchro;
   end; { TOmniResourceCount }
   {$ELSE}
   TOmniResourceCount = class abstract(TInterfacedObject, IOmniResourceCount, IOmniSynchroObject)
@@ -385,20 +383,18 @@ type
   {$IFEND}
 
   IOmniCancellationToken = interface ['{5946F4E8-45C0-4E44-96AB-DBE2BE66A701}']
-    {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-    function  GetHandle: THandle;
-    {$ELSE}
     function  GetEvent: IOmniEvent;
-    {$IFEND}
+    {$IFDEF MSWINDOWS}
+    function  GetHandle: THandle;
+    {$ENDIF MSWINDOWS}
   //
     procedure Clear;
     function  IsSignalled: boolean;
     procedure Signal;
-    {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-    property Handle: THandle read GetHandle;
-    {$ELSE}
     property Event: IOmniEvent read GetEvent;
-    {$IFEND}
+    {$IFDEF MSWINDOWS}
+    property Handle: THandle read GetHandle;
+    {$ENDIF MSWINDOWS}
   end; { IOmniCancellationToken }
 
   {$IFDEF OTL_HasLightweightMREW}
@@ -791,29 +787,22 @@ type
   end; { TOmniCriticalSection }
 
   TOmniCancellationToken = class(TInterfacedObject, IOmniCancellationToken)
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  private
-    FEvent      : TDSiEventHandle;
-    FIsSignalled: boolean;
-  protected
-    function  GetHandle: THandle; inline;
-  {$ELSE}
   private
     FEvent: IOmniEvent;
   protected
     function  GetEvent: IOmniEvent; inline;
-  {$IFEND}
+    {$IFDEF MSWINDOWS}
+    function  GetHandle: THandle; inline;
+    {$ENDIF MSWINDOWS}
   public
     constructor Create;
     procedure Clear; inline;
     function  IsSignalled: boolean; inline;
     procedure Signal; inline;
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-    destructor  Destroy; override;
-    property Handle: THandle read GetHandle;
-  {$ELSE}
     property Event: IOmniEvent read GetEvent;
-  {$IFEND}
+    {$IFDEF MSWINDOWS}
+    property Handle: THandle read GetHandle;
+    {$ENDIF MSWINDOWS}
   end; { TOmniCancellationToken }
 
   TOmniSynchroObject = class abstract(TSynchroObject, IInterface, IOmniSynchro)
@@ -1283,60 +1272,34 @@ end; { TOmniCriticalSection.Release }
 
 constructor TOmniCancellationToken.Create;
 begin
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  FEvent := CreateEvent(nil, true, false, nil);
-  {$ELSE}
-  FEvent := CreateOmniEvent(True, False);
-  {$IFEND}
+  FEvent := CreateOmniEvent(true, false);
 end; { TOmniCancellationToken.Create }
-
-{$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-destructor TOmniCancellationToken.Destroy;
-begin
-  DSiCloseHandleAndNull(FEvent);
-  inherited;
-end; { TOmniCancellationToken.Destroy }
-{$IFEND}
 
 procedure TOmniCancellationToken.Clear;
 begin
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  FIsSignalled := false;
-  ResetEvent(FEvent);
-  {$ELSE}
   FEvent.Reset;
-  {$IFEND}
 end; { TOmniCancellationToken.Clear }
 
-{$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-function TOmniCancellationToken.GetHandle: THandle;
-begin
-  Result := FEvent;
-end; { TOmniCancellationToken.GetHandle }
-{$ELSE}
 function TOmniCancellationToken.GetEvent: IOmniEvent;
 begin
   Result := FEvent;
 end; { TOmniCancellationToken.GetEvent }
-{$IFEND}
+
+{$IFDEF MSWINDOWS}
+function TOmniCancellationToken.GetHandle: THandle;
+begin
+  Result := (FEvent as IOmniSynchro).Handle;
+end; { TOmniCancellationToken.GetHandle }
+{$ENDIF MSWINDOWS}
 
 function TOmniCancellationToken.IsSignalled: boolean;
 begin
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  Result := FIsSignalled;
-  {$ELSE}
   Result := FEvent.IsSignalled;
-  {$IFEND}
 end; { TOmniCancellationToken.IsSignalled }
 
 procedure TOmniCancellationToken.Signal;
 begin
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  FIsSignalled := true;
-  SetEvent(FEvent);
-  {$ELSE}
   FEvent.Signal;
-  {$IFEND}
 end; { TOmniCancellationToken.Signal }
 
 { TOmniMREW }
@@ -1463,6 +1426,11 @@ function TOmniResourceCount.GetHandle: THandle;
 begin
   Result := orcHandle;
 end; { TOmniResourceCount.GetHandle }
+
+function TOmniResourceCount.GetSynchro: IOmniSynchro;
+begin
+  Result := CreateOmniEvent(orcHandle, false);
+end; { TOmniResourceCount.GetSynchro }
 
 ///<summary>Releases resource and returns number of remaining resources.
 ///  Resets the externally visible event if necessary.
