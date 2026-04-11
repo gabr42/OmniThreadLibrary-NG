@@ -200,16 +200,11 @@ uses
   System.TypInfo,
   {$IFDEF MSWINDOWS}
   Winapi.Windows,
-  DSiWin32,
-  GpStuff,
-  GpLists,
-  {$ENDIF}
-  GpSync.CondVar,
-  {$IFDEF OTL_MobileSupport}
+  {$ENDIF MSWINDOWS}
   {$IFDEF POSIX}
   Posix.Pthread,
-  {$ENDIF}
-  {$ENDIF OTL_MobileSupport}
+  {$ENDIF POSIX}
+  GpSync.CondVar,
   System.Diagnostics,
   OtlCommon;
 
@@ -512,14 +507,12 @@ type
     procedure Unlock(const key: K);
   end; { IOmniLockManager<K> }
 
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  // mobile version does not implement doubly linked list (yet)
   TOmniLockManager<K> = class(TInterfacedObject, IOmniLockManager<K>)
   strict private type
-    TNotifyPair = class(TGpDoublyLinkedListObject)
+    TNotifyPair = class
       Key   : K;
-      Notify: TDSiEventHandle;
-      constructor Create(const aKey: K; aNotify: TDSiEventHandle);
+      Notify: IOmniEvent;
+      constructor Create(const aKey: K; aNotify: IOmniEvent);
     end;
     TLockValue = record
       LockCount: integer;
@@ -530,7 +523,7 @@ type
     FComparer  : IEqualityComparer<K>;
     FLock      : TOmniCS;
     FLockList  : TDictionary<K,TLockValue>;
-    FNotifyList: TGpDoublyLinkedList;
+    FNotifyList: TObjectList<TNotifyPair>;
   strict private type
     TAutoUnlock = class(TInterfacedObject, IOmniLockManagerAutoUnlock)
     strict private
@@ -551,7 +544,6 @@ type
     function  LockUnlock(const key: K; timeout_ms: cardinal): IOmniLockManagerAutoUnlock;
     procedure Unlock(const key: K);
   end; { TOmniLockManager<K> }
-  {$IFEND}
 
   ///<summary>Waits on any/all from any number of synchro objects such as Events
   ///  and CountDownEvents. Uses condition variables internally for cross-platform
@@ -766,7 +758,7 @@ type
     FLock     : TSpinLock;
     FObservers: TList<IOmniSynchroObserver>;
     FData     : TArray<TObject>;
-    {$IFDEF OTL_HasVolatileAttribute}[Volatile]{$ENDIF}
+    [Volatile]
     FRefCount : integer;
     FShareLock: IOmniCriticalSection;
   private
@@ -825,7 +817,7 @@ type
   strict protected
     FEvent      : TEvent;
     FManualReset: boolean;
-    {$IFDEF OTL_HasVolatileAttribute}[Volatile]{$ENDIF}
+    [Volatile]
     FState      : boolean;
   public
     constructor Create(AManualReset, InitialState: boolean; const AShareLock: IOmniCriticalSection = nil); overload;
@@ -1865,11 +1857,9 @@ end; { Locked<T>.TryBeginWrite }
 {$IFEND LINUX or ANDROID}
 {$ENDIF OTL_HasLightweightMREW}
 
-{$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-
 { TOmniLockManager<K>.TNotifyPair<K> }
 
-constructor TOmniLockManager<K>.TNotifyPair.Create(const aKey: K; aNotify: TDSiEventHandle);
+constructor TOmniLockManager<K>.TNotifyPair.Create(const aKey: K; aNotify: IOmniEvent);
 begin
   inherited Create;
   Key := aKey;
@@ -1927,7 +1917,7 @@ begin
   if not assigned(FComparer) then
     FComparer := TEqualityComparer<K>.Default;
   FLockList := TDictionary<K,TLockValue>.Create(capacity, FComparer);
-  FNotifyList := TGpDoublyLinkedList.Create;
+  FNotifyList := TObjectList<TNotifyPair>.Create(true);
 end; { TOmniLockManager }
 
 constructor TOmniLockManager<K>.Create(capacity: integer);
@@ -1945,14 +1935,13 @@ end; { TOmniLockManager }
 function TOmniLockManager<K>.Lock(const key: K; timeout_ms: cardinal): boolean;
 var
   lockData  : TLockValue;
-  lockThread: integer;
-  notifyItem: TGpDoublyLinkedListObject;
   startWait : int64;
-  waitEvent : TDSiEventHandle;
+  waitEvent : IOmniEvent;
+  waitResult: TWaitResult;
   wait_ms   : integer;
 begin
   Result := false;
-  waitEvent := 0;
+  waitEvent := nil;
   startWait := Time.Timestamp_ms;
 
   repeat
@@ -1971,24 +1960,24 @@ begin
         Result := true;
         break; //repeat
       end
-      else if waitEvent = 0 then begin
-        waitEvent := CreateEvent(nil, false, false, nil);
-        FNotifyList.InsertAtTail(TNotifyPair.Create(key, waitEvent));
+      else if not assigned(waitEvent) then begin
+        waitEvent := CreateOmniEvent(false, false);
+        FNotifyList.Add(TNotifyPair.Create(key, waitEvent));
       end;
     finally FLock.Release; end;
     wait_ms := integer(timeout_ms) - integer(Time.Elapsed_ms(startWait));
+    waitResult := waitEvent.WaitFor(cardinal(wait_ms));
   until ((timeout_ms <> INFINITE) and (wait_ms <= 0)) or
-        (WaitForSingleObject(waitEvent, cardinal(wait_ms)) = WAIT_TIMEOUT);
+        (waitResult = wrTimeout);
 
-  if waitEvent <> 0 then begin
+  if assigned(waitEvent) then begin
     FLock.Acquire;
     try
-      for notifyItem in FNotifyList do
-        if TNotifyPair(notifyItem).Notify = waitEvent then begin
-          notifyItem.Free;
-          break; //for notifyItem
+      for var i := FNotifyList.Count - 1 downto 0 do
+        if FNotifyList[i].Notify = waitEvent then begin
+          FNotifyList.Delete(i);
+          break; //for i
         end;
-      DSiCloseHandleAndNull(waitEvent);
     finally FLock.Release; end;
   end;
 end; { TOmniLockManager<K>.Lock }
@@ -2008,8 +1997,7 @@ end; { TOmniLockManager<K>.LockUnlock }
 
 procedure TOmniLockManager<K>.Unlock(const key: K);
 var
-  lockData  : TLockValue;
-  notifyItem: TGpDoublyLinkedListObject;
+  lockData: TLockValue;
 begin
   FLock.Acquire;
   try
@@ -2023,16 +2011,14 @@ begin
     end
     else begin
       FLockList.Remove(key);
-      for notifyItem in FNotifyList do
-        if FComparer.Equals(TNotifyPair(notifyItem).Key, key) then begin
-          SetEvent(TNotifyPair(notifyItem).Notify);
-          break; //for notifyItem
+      for var i := 0 to FNotifyList.Count - 1 do
+        if FComparer.Equals(FNotifyList[i].Key, key) then begin
+          FNotifyList[i].Notify.SetEvent;
+          break; //for i
         end;
     end;
   finally FLock.Release; end;
 end; { TOmniLockManager<K>.Unlock }
-
-{$IFEND}
 
 { TWaitFor.TSynchroClient }
 
@@ -2407,12 +2393,9 @@ begin
 end; { TOmniSingleThreadUseChecker.AttachToCurrentThread }
 
 procedure TOmniSingleThreadUseChecker.Check;
-{$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
 var
   thID: cardinal;
-{$IFEND}
 begin
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
   FLock.Acquire;
   try
     thID := cardinal(GetCurrentThreadID);
@@ -2422,22 +2405,15 @@ begin
         [thID, FThreadID]);
     FThreadID := thId;
   finally FLock.Release; end;
-  {$ELSE}
-  //TODO Implement
-  raise Exception.Create('Not implemented');
-  {$IFEND}
 end; { TOmniSingleThreadUseChecker.Check }
 
 procedure TOmniSingleThreadUseChecker.DebugCheck;
 {$IFDEF OTL_CheckThreadSafety}
-{$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
 var
   thID: cardinal;
-{$IFEND}
 {$ENDIF OTL_CheckThreadSafety}
 begin
   {$IFDEF OTL_CheckThreadSafety}
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
   FLock.Acquire;
   try
     thID := cardinal(GetCurrentThreadID);
@@ -2447,10 +2423,6 @@ begin
         [thID, FThreadID]);
     FThreadID := thId;
   finally FLock.Release; end;
-  {$ELSE}
-  //TODO Implement
-  raise Exception.Create('Not implemented');
-  {$IFEND}
   {$ENDIF OTL_CheckThreadSafety}
 end; { TOmniSingleThreadUseChecker.DebugCheck }
 
@@ -2464,7 +2436,7 @@ begin
   if assigned(AShareLock) then
     FShareLock := AShareLock
   else
-    FLock := TSpinLock.Create({$IFDEF OTL_ForceThreadTracking}True{$ELSE}False{$ENDIF});
+    FLock := TSpinLock.Create(False);
   FObservers := TList<IOmniSynchroObserver>.Create
 end; { TOmniSynchroObject.Create }
 
@@ -2632,7 +2604,7 @@ end; { TSynchroSpin.Destroy }
 
 constructor TOmniCountdownEvent.Create(Count, SpinCount: Integer; const AShareLock: IOmniCriticalSection);
 begin
-  FCountdown := TCountdownEvent.Create(Count {$IFDEF OTL_CountdownHasSpinCount}, SpinCount{$ENDIF});
+  FCountdown := TCountdownEvent.Create(Count, SpinCount);
   inherited Create(FCountdown, True, AShareLock)
 end; { TOmniCountdownEvent.Create }
 
