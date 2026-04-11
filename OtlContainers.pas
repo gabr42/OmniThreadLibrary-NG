@@ -109,9 +109,7 @@ unit OtlContainers;
 
 {$OPTIMIZATION ON}
 {$WARN SYMBOL_PLATFORM OFF}
-{$IFNDEF CPUX64}
-  {$DEFINE OTL_OLDCPU} // undefine if you're sure your code will only run on a CPU that supports SSE2 instruction set (more specifically, Move64 instruction)
-{$ENDIF ~CPUX64}
+// Define OTL_OLDCPU manually if targeting pre-SSE2 processors (SSE2 is baseline for Delphi 11+)
 //DEFINE DEBUG_OMNI_QUEUE to enable assertions in TOmniBaseQueue
 
 interface
