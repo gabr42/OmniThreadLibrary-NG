@@ -771,6 +771,7 @@ type
                                               IOmniTaskControlInternals)
   strict private
     otcBackgroundObserver  : TObject; {TOmniContainerBackgroundObserver}
+    otcBgNotifyEvent       : IOmniEvent;  // notification event registered in owner's wait set
     otcDebugFlags          : TOmniTaskControlInternalDebugFlags;
     otcDelayedTerminate    : boolean;
     otcDestroyLock         : boolean;
@@ -782,6 +783,7 @@ type
     otcOnMessageExec       : TOmniMessageExec;
     otcOnMessageList       : TList<TPair<integer, TObject>>;
     otcOnTerminatedExec    : TOmniMessageExec;
+    otcOwnerExecutor_ref   : Pointer; {TOmniTaskExecutor — owner's executor for wait object unregistration}
     otcOwnerThreadID       : TThreadID;
     otcOwningPool          : IOmniThreadPool;
     otcParameters          : TOmniValueContainer;
@@ -797,6 +799,7 @@ type
     function  CreateTask: IOmniTask;
     procedure DestroyMonitor;
     procedure EnsureCommChannel; inline;
+    procedure HandleBackgroundNotification;
     procedure Initialize(const taskName: string);
   protected
     function  FilterMessage(const msg: TOmniMessage): boolean;
@@ -996,6 +999,13 @@ uses
 
 const
   SHORT_LEN = sizeof(ShortString) - 1;
+
+threadvar
+  // Per-thread reference to the current OTL task executor.
+  // Set in DispatchMessages, cleared on exit. Used by CreateInternalMonitor
+  // to detect when the owner is an OTL worker task and register the child's
+  // notification event in the owner's wait set for immediate delivery.
+  _CurrentOmniTaskExecutor: Pointer; // ^TOmniTaskExecutor, nil if not in OTL task
 
 type
   TOmniTaskControlEventMonitor = class(TOmniEventMonitor)
@@ -1968,25 +1978,30 @@ end; { TOmniTaskExecutor.DispatchEvent }
 
 procedure TOmniTaskExecutor.DispatchMessages(const task: IOmniTask);
 begin
+  _CurrentOmniTaskExecutor := Self;
   try
-    oteWorkerInitOK := false;
     try
-      if assigned(WorkerIntf) then begin
-        WorkerIntf.SetExecutor(Self);
-        WorkerIntf.Task := task;
-        if not WorkerIntf.Initialize then
-          Exit;
-      end;
-      oteWorkerInitOK := true;
-    finally WorkerInitialized.SetEvent; end;
+      oteWorkerInitOK := false;
+      try
+        if assigned(WorkerIntf) then begin
+          WorkerIntf.SetExecutor(Self);
+          WorkerIntf.Task := task;
+          if not WorkerIntf.Initialize then
+            Exit;
+        end;
+        oteWorkerInitOK := true;
+      finally WorkerInitialized.SetEvent; end;
 
-    RebuildWaitHandles(task, oteMsgInfo);
-    MainMessageLoop(task, oteMsgInfo);
-  finally
-    if assigned(WorkerIntf) then begin
-      WorkerIntf.Cleanup;
-      WorkerIntf.Task := nil;
+      RebuildWaitHandles(task, oteMsgInfo);
+      MainMessageLoop(task, oteMsgInfo);
+    finally
+      if assigned(WorkerIntf) then begin
+        WorkerIntf.Cleanup;
+        WorkerIntf.Task := nil;
+      end;
     end;
+  finally
+    _CurrentOmniTaskExecutor := nil;
   end;
 end; { TOmniTaskExecutor.DispatchMessages }
 
@@ -2618,7 +2633,7 @@ begin
     WorkerIntf.BeforeWait(timeout_ms);
   Result := msgInfo.Waiter.WaitAny(timeout_ms);
   {$IFDEF MSWINDOWS}
-  SleepEx(0, TRUE); // drain pending APCs — zero cost when none pending
+  WaitForMultipleObjectsEx(0, nil, false, 0, true); // drain pending APCs without yielding time slice
   {$ENDIF MSWINDOWS}
   {$IFNDEF OTL_HasAPC}
   DrainBackgroundObservers; // POSIX: drain pending child notifications
@@ -2705,6 +2720,11 @@ begin
       CreateTwoWayChannel(otcQueueLength, otcSharedInfo.TerminatedEvent);
 end; { TOmniTaskControl.EnsureCommChannel }
 
+procedure TOmniTaskControl.HandleBackgroundNotification;
+begin
+  ProcessMessages;
+end; { TOmniTaskControl.HandleBackgroundNotification }
+
 function TOmniTaskControl.Alertable: IOmniTaskControl;
 begin
   // No-op: alertable waits are no longer supported in the CV-based task loop.
@@ -2755,10 +2775,20 @@ begin
       procedure begin Self.ProcessMessages end);
     otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Attach(
       TOmniContainerBackgroundObserver(otcBackgroundObserver), coiNotifyOnAllInserts);
+    // If owner is an OTL worker task, register notification event in its wait set
+    // for immediate delivery. Otherwise fall back to APC (Windows) or polling (POSIX).
+    if _CurrentOmniTaskExecutor <> nil then begin
+      otcBgNotifyEvent := TOmniContainerBackgroundObserver(otcBackgroundObserver).GetNotifyEvent;
+      otcOwnerExecutor_ref := _CurrentOmniTaskExecutor;
+      TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_RegisterWaitObject(
+        otcBgNotifyEvent, HandleBackgroundNotification);
+    end
     {$IFNDEF OTL_HasAPC}
-    RegisterBackgroundObserver(
-      TOmniContainerBackgroundObserver(otcBackgroundObserver));
+    else
+      RegisterBackgroundObserver(
+        TOmniContainerBackgroundObserver(otcBackgroundObserver))
     {$ENDIF}
+    ;
   end;
 end; { TOmniTaskControl.CreateInternalMonitor }
 
@@ -3393,12 +3423,20 @@ begin
     DestroyMonitor;
   end;
   if assigned(otcBackgroundObserver) then begin
+    // Unregister notification event from owner's wait set (if registered)
+    if assigned(otcBgNotifyEvent) and assigned(otcOwnerExecutor_ref)
+       and (otcOwnerExecutor_ref = _CurrentOmniTaskExecutor)
+    then
+      TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_UnregisterWaitObject(otcBgNotifyEvent);
+    {$IFNDEF OTL_HasAPC}
+    if not assigned(otcOwnerExecutor_ref) then // was not registered as wait object
+      UnregisterBackgroundObserver(
+        TOmniContainerBackgroundObserver(otcBackgroundObserver));
+    {$ENDIF}
+    otcBgNotifyEvent := nil;
+    otcOwnerExecutor_ref := nil;
     otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Detach(
       TOmniContainerBackgroundObserver(otcBackgroundObserver), coiNotifyOnAllInserts);
-    {$IFNDEF OTL_HasAPC}
-    UnregisterBackgroundObserver(
-      TOmniContainerBackgroundObserver(otcBackgroundObserver));
-    {$ENDIF}
     FreeAndNil(otcBackgroundObserver);
   end;
   if not Result then begin

@@ -9,9 +9,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Creation date     : 2026-04-12
 ///   Last modification : 2026-04-12
-///   Version           : 1.01
+///   Version           : 1.02
 ///</para><para>
 ///   History:
+///     1.02: 2026-04-12
+///       - Added IOmniEvent to all observer implementations for wait-set injection.
+///         When owner is an OTL worker task, the event is registered as a wait object
+///         in the owner's message loop for immediate notification delivery.
+///       - Windows APC delivery retained for non-OTL-task owners (plain TThread).
 ///     1.01: 2026-04-12
 ///       - Cross-platform restructure. Renamed from OtlAPCDispatch.pas.
 ///       - Windows: QueueUserAPC-based delivery (unchanged logic).
@@ -35,16 +40,20 @@ uses
   System.SysUtils,
   System.SyncObjs,
   System.Classes,
+  OtlSync,
   OtlContainerObserver;
 
 type
   TOmniContainerBackgroundObserver = class(TOmniContainerObserver)
+  public
+    function GetNotifyEvent: IOmniEvent; virtual; abstract;
   end;
 
 {:Creates a background observer targeting the specified thread.
-  On Windows, uses QueueUserAPC for zero-latency alertable-wait delivery.
-  On POSIX, uses an atomic pending flag that the owner thread drains
-  (automatic in OTL worker threads via thread-local registry).
+  On Windows, uses QueueUserAPC for non-OTL-task owners (plain TThread in
+  alertable wait). On all platforms, the observer exposes an IOmniEvent via
+  GetNotifyEvent that can be registered in the owner's wait set for immediate
+  delivery when the owner is an OTL worker task.
   @param   aTargetThreadID OS thread ID of the owner thread.
   @param   aOnNotify       Callback invoked on the owner thread.
                             Typically calls ProcessMessages to drain the comm channel.
@@ -68,7 +77,7 @@ procedure RegisterBackgroundObserver(aObserver: TOmniContainerBackgroundObserver
 procedure UnregisterBackgroundObserver(aObserver: TOmniContainerBackgroundObserver);
 
 {:Drains all pending background notifications for the current thread.
-  Called from WaitForEvent on POSIX — equivalent of SleepEx(0, TRUE) on Windows.
+  Called from WaitForEvent on POSIX — equivalent of alertable wait on Windows.
   No-op if no observers are registered.
   @since   2026-04-12
 }
@@ -91,7 +100,7 @@ uses
 
 {$IFDEF OTL_HasAPC}
 
-// === Windows implementation: QueueUserAPC-based delivery ===
+// === Windows implementation: QueueUserAPC + IOmniEvent for wait-set injection ===
 
 const
   THREAD_SET_CONTEXT = $0010;
@@ -110,11 +119,13 @@ type
 
   TOmniContainerAPCObserverImpl = class(TOmniContainerBackgroundObserver)
   strict private
+    FNotifyEvent : IOmniEvent;
     FState       : PAPCState;
     FThreadHandle: THandle;
   public
     constructor Create(aTargetThreadID: TThreadID; const aOnNotify: TProc);
     destructor  Destroy; override;
+    function  GetNotifyEvent: IOmniEvent; override;
     procedure Notify; override;
   end;
 
@@ -143,6 +154,7 @@ constructor TOmniContainerAPCObserverImpl.Create(aTargetThreadID: TThreadID;
   const aOnNotify: TProc);
 begin
   inherited Create;
+  FNotifyEvent := CreateOmniEvent(false, false);
   FState := AllocMem(SizeOf(TAPCState));
   FState.RefCount := 1;
   FState.APCPending := 0;
@@ -169,15 +181,22 @@ begin
     CloseHandle(FThreadHandle);
     FThreadHandle := 0;
   end;
+  FNotifyEvent := nil;
   inherited;
 end; { TOmniContainerAPCObserverImpl.Destroy }
 
+function TOmniContainerAPCObserverImpl.GetNotifyEvent: IOmniEvent;
+begin
+  Result := FNotifyEvent;
+end; { TOmniContainerAPCObserverImpl.GetNotifyEvent }
+
 procedure TOmniContainerAPCObserverImpl.Notify;
 begin
-  // No CanNotify check — the APC observer uses its own APCPending atomic
-  // flag for coalescing. CanNotify is only for one-shot interests
-  // (NotifyOnce), not permanent subscriptions like coiNotifyOnAllInserts.
-  // Coalesce: only queue if no APC is already pending
+  // Signal the event for wait-set-based delivery (OTL worker task owners).
+  // The event is auto-reset so the wait fires once per signal batch.
+  FNotifyEvent.SetEvent;
+  // Also queue APC for non-OTL-task owners (plain TThread in alertable wait).
+  // Coalesce: only queue if no APC is already pending.
   if TInterlocked.CompareExchange(FState.APCPending, 1, 0) = 0 then begin
     TInterlocked.Increment(FState.RefCount);
     if not QueueUserAPC(@APCCallback, FThreadHandle, NativeUInt(FState)) then begin
@@ -194,17 +213,19 @@ end; { TOmniContainerAPCObserverImpl.Notify }
 
 {$ELSE}
 
-// === POSIX implementation: Atomic pending flag + thread-local registry ===
+// === POSIX implementation: IOmniEvent + thread-local registry ===
 
 type
   TOmniContainerCVObserverImpl = class(TOmniContainerBackgroundObserver)
   strict private
-    FCVPending: integer;  // atomic 0/1 coalescing flag
-    FIsActive : integer;  // atomic 0/1; cleared on destroy
-    FOnNotify : TProc;    // callback executed on owner thread
+    FCVPending  : integer;    // atomic 0/1 coalescing flag
+    FIsActive   : integer;    // atomic 0/1; cleared on destroy
+    FNotifyEvent: IOmniEvent; // signalled on each Notify for wait-set delivery
+    FOnNotify   : TProc;      // callback executed on owner thread
   public
     constructor Create(const aOnNotify: TProc);
     destructor  Destroy; override;
+    function  GetNotifyEvent: IOmniEvent; override;
     procedure Notify; override;
     procedure DrainPending;
   end;
@@ -214,6 +235,7 @@ type
 constructor TOmniContainerCVObserverImpl.Create(const aOnNotify: TProc);
 begin
   inherited Create;
+  FNotifyEvent := CreateOmniEvent(false, false);
   FCVPending := 0;
   FIsActive := 1;
   FOnNotify := aOnNotify;
@@ -223,13 +245,20 @@ destructor TOmniContainerCVObserverImpl.Destroy;
 begin
   TInterlocked.Exchange(FIsActive, 0);
   FOnNotify := nil;
+  FNotifyEvent := nil;
   inherited;
 end; { TOmniContainerCVObserverImpl.Destroy }
 
+function TOmniContainerCVObserverImpl.GetNotifyEvent: IOmniEvent;
+begin
+  Result := FNotifyEvent;
+end; { TOmniContainerCVObserverImpl.GetNotifyEvent }
+
 procedure TOmniContainerCVObserverImpl.Notify;
 begin
-  // Coalesce: just set the pending flag. Owner thread drains via DrainPending,
-  // called from WaitForEvent (OTL workers) or ProcessMessages (plain threads).
+  // Signal the event for wait-set-based delivery (OTL worker task owners).
+  FNotifyEvent.SetEvent;
+  // Also set pending flag for thread-local registry drain (non-OTL owners).
   TInterlocked.CompareExchange(FCVPending, 1, 0);
 end; { TOmniContainerCVObserverImpl.Notify }
 

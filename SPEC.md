@@ -257,6 +257,11 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Remove `{$IFDEF OTL_HasAPC}` from OtlTaskControl.pas observer field and logic — observer is now unconditional
 - [x] Add `DrainBackgroundObservers` to `WaitForEvent` on POSIX (equivalent of `SleepEx(0, TRUE)`)
 - [x] Update `CompileAllUnits.dpr` with new unit name
+- [x] Replace `SleepEx(0, TRUE)` with `WaitForMultipleObjectsEx(0, nil, false, 0, true)` — processes APCs without yielding time slice
+- [x] Add `IOmniEvent` to all observer implementations for wait-set injection
+- [x] Add `_CurrentOmniTaskExecutor` threadvar — set in `DispatchMessages`, enables detecting OTL task owners
+- [x] When owner is OTL worker task, register notification event in owner's wait set via `Asy_RegisterWaitObject` — immediate delivery, no polling delay
+- [x] Cleanup: unregister wait object in `Terminate` if owner executor still matches
 
 ### 2.4 OtlThreadPool.pas — Thread pool
 **Files**: `OtlThreadPool.pas`
