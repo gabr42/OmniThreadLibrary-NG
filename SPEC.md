@@ -180,14 +180,21 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Keep `TOmniMessage` record (MsgID + TOmniValue payload) unchanged
 - [ ] **Deferred to 2.3**: Unify `TOmniTransitionEvent = IOmniEvent` on ALL platforms (currently conditional `THandle`/`IOmniEvent`). This cascades through `OtlComm.pas` (`NewMessageEvent`), `OtlTask.pas` (`TOmniWaitObjectList`), and `OtlTaskControl.pas` (`DispatchCommMessage`, `TerminateWhen`, `Asy_RegisterWaitObject`). Also remove the transitional `OtlSync.SetEvent(event: TOmniTransitionEvent)` helper once the type is unified.
 
-### 2.2 OtlCommon.pas — Core types
-**Files**: `OtlCommon.pas`
+### 2.2 OtlCommon.pas — Core types ✅
+**Files**: `OtlCommon.pas`, `OtlPlatform.pas`
 
-- [ ] `TOmniValue`: Keep as-is (wide usage, stable API)
-- [ ] Remove NUMA/processor group affinity code
-- [ ] Replace `DSiGetThreadGroupAffinity`/`DSiSetThreadGroupAffinity` with direct `Winapi.Windows` calls behind `{$IFDEF MSWINDOWS}`
-- [ ] Keep thread affinity setting on Windows+Linux
-- [ ] Remove Variant COM-specific paths (`varDispatch`, `varUnknown`) — keep basic Variant support
+- [x] `TOmniValue`: Kept as-is (wide usage, stable API)
+- [x] NUMA/processor group interfaces kept (used by OtlThreadPool.pas, OtlTaskControl.pas) — replaced DSiWin32-based implementation with direct WinAPI calls
+- [x] Replaced `DSiGetThreadGroupAffinity`/`DSiSetThreadGroupAffinity` with `Winapi.Windows.GetThreadGroupAffinity`/`SetThreadGroupAffinity`
+- [x] Replaced all DSi* affinity functions with direct WinAPI (`GetProcessAffinityMask`, `SetProcessAffinityMask`, `SetThreadAffinityMask`, `GetLogicalProcessorInformation`)
+- [x] Replaced `DSiGetProcessMemory` with `Winapi.PsAPI.GetProcessMemoryInfo`
+- [x] Replaced `DSiGetProcessTimes` with `Winapi.Windows.GetProcessTimes` + inline FILETIME conversion
+- [x] Replaced `DSiGetNumaHighestNodeNumber`/`DSiGetNumaProximityNodeEx` with direct WinAPI calls
+- [x] Replaced `DSiGetSystemFirmwareTable` with dynamic load via `GetProcAddress`
+- [x] Rewrote `LoadNUMAInfo` to use direct `GetLogicalProcessorInformationEx` with raw buffer walking (works around RTL buffer type bug)
+- [x] Exported `AffinityMaskToString`/`StringToAffinityMask` from OtlPlatform.pas interface section
+- [x] Keep thread affinity setting on Windows+Linux
+- [x] No Variant COM-specific paths found (`varDispatch`, `varUnknown` not present) — nothing to remove
 
 ### 2.3 OtlTask.pas & OtlTaskControl.pas — Task system
 **Files**: `OtlTask.pas`, `OtlTaskControl.pas`

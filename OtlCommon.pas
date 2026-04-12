@@ -305,7 +305,7 @@ uses
   System.Types,
 {$IFDEF MSWINDOWS}
   Winapi.Windows,
-  DSiWin32,
+  Winapi.PsAPI,
 {$ENDIF}
 {$IFDEF POSIX}
   Posix.Pthread,
@@ -3420,21 +3420,30 @@ end; { TOmniAffinity.GetCount }
 function TOmniAffinity.GetCountPhysical: integer;
 {$IFDEF MSWINDOWS}
 var
-  info: TSystemLogicalProcessorInformationArr;
-  item: TSystemLogicalProcessorInformation;
-  mask: NativeUInt;
+  bufLen: DWORD;
+  i     : integer;
+  info  : array of TSystemLogicalProcessorInformation;
+  mask  : NativeUInt;
 begin
-  if not DSiGetLogicalProcessorInfo(info) then
-    Result := GetCount // running on pre-XP SP3 OS, just get the best approximation
+  bufLen := 0;
+  GetLogicalProcessorInformation(nil, bufLen);
+  if GetLastError <> ERROR_INSUFFICIENT_BUFFER then
+    Result := GetCount
   else begin
-    Result := 0;
-    mask := GetMask;
-    for item in info do begin
-      if (item.Relationship = RelationProcessorCore) and
-         ((item.ProcessorMask AND mask) <> 0) then
-      begin
-        mask := mask AND NOT item.ProcessorMask;
-        Inc(Result);
+    SetLength(info, bufLen div SizeOf(TSystemLogicalProcessorInformation));
+    bufLen := Length(info) * SizeOf(TSystemLogicalProcessorInformation);
+    if not GetLogicalProcessorInformation(@info[0], bufLen) then
+      Result := GetCount
+    else begin
+      Result := 0;
+      mask := GetMask;
+      for i := 0 to High(info) do begin
+        if (info[i].Relationship = RelationProcessorCore) and
+           ((info[i].ProcessorMask AND mask) <> 0) then
+        begin
+          mask := mask AND NOT info[i].ProcessorMask;
+          Inc(Result);
+        end;
       end;
     end;
   end;
@@ -3445,27 +3454,36 @@ begin
 end; { TOmniAffinity.GetCountPhysical }
 
 function TOmniAffinity.GetMask: NativeUInt;
-{$IFNDEF MSWINDOWS}
+{$IFDEF MSWINDOWS}
+var
+  processAff: NativeUInt;
+  systemAff : NativeUInt;
+{$ELSE}
 var
   i: integer;
-{$ENDIF ~MSWINDOWS}
+{$ENDIF}
 begin
   {$IFDEF MSWINDOWS}
   case oaTarget of
-    atSystem:
-      Result := DSiGetSystemAffinityMask;
-    atProcess:
-      Result := DSiGetProcessAffinityMask;
-    atThread:
-      Result := DSiGetThreadAffinityMask;
+    atSystem: begin
+      GetProcessAffinityMask(GetCurrentProcess, processAff, Result);
+    end;
+    atProcess: begin
+      GetProcessAffinityMask(GetCurrentProcess, Result, systemAff);
+    end;
+    atThread: begin
+      GetProcessAffinityMask(GetCurrentProcess, processAff, systemAff);
+      Result := SetThreadAffinityMask(GetCurrentThread, processAff);
+      SetThreadAffinityMask(GetCurrentThread, Result);
+    end;
     else
-      Result := 0; // to keep compiler happy
+      Result := 0;
   end;
   {$ELSE}
   Result := 0;
   for i := 1 to TThread.ProcessorCount do
     Result := (Result SHL 1) OR 1;
-  {$ENDIF ~MSWINDOWS}
+  {$ENDIF}
 end; { TOmniAffinity.GetMask }
 
 procedure TOmniAffinity.SetAsString(const value: string);
@@ -3475,9 +3493,9 @@ begin
     atSystem:
       raise Exception.Create('TOmniAffinity.SetMask: Cannot modify system affinity mask.');
     atProcess:
-      DSiSetProcessAffinity(value);
+      SetProcessAffinityMask(GetCurrentProcess, OtlPlatform.StringToAffinityMask(value));
     atThread:
-      DSiSetThreadAffinity(value);
+      SetThreadAffinityMask(GetCurrentThread, OtlPlatform.StringToAffinityMask(value));
   end;
 {$ENDIF MSWINDOWS}
 end; { TOmniAffinity.SetAsString }
@@ -3485,14 +3503,17 @@ end; { TOmniAffinity.SetAsString }
 procedure TOmniAffinity.SetCount(const value: integer);
 {$IFDEF MSWINDOWS}
 var
-  affMask: string;
-  numCore: integer;
-  pCore  : integer;
-  sysMask: string;
+  affMask   : string;
+  numCore   : integer;
+  pCore     : integer;
+  processAff: NativeUInt;
+  systemAff : NativeUInt;
+  sysMask   : string;
 {$ENDIF MSWINDOWS}
 begin
 {$IFDEF MSWINDOWS}
-  sysMask := DSiGetSystemAffinity;
+  GetProcessAffinityMask(GetCurrentProcess, processAff, systemAff);
+  sysMask := OtlPlatform.AffinityMaskToString(systemAff);
   affMask := '';
   numCore := value;
   while (numCore > 0) and (sysMask <> '') do begin
@@ -3508,7 +3529,7 @@ end; { TOmniAffinity.SetCount }
 procedure TOmniAffinity.SetMask(const value: NativeUInt);
 begin
 {$IFDEF MSWINDOWS}
-  AsString := DSiAffinityMaskToString(value);
+  AsString := OtlPlatform.AffinityMaskToString(value);
 {$ENDIF MSWINDOWS}
 end; { TOmniAffinity.SetMask }
 
@@ -3528,7 +3549,9 @@ end; { TOmniProcessEnvironment.GetAffinity }
 {$IFDEF MSWINDOWS}
 function TOmniProcessEnvironment.GetMemory: TOmniProcessMemoryCounters;
 begin
-  if not DSiGetProcessMemory(Result) then
+  FillChar(Result, SizeOf(Result), 0);
+  Result.cb := SizeOf(Result);
+  if not GetProcessMemoryInfo(GetCurrentProcess, @Result, SizeOf(Result)) then
     FillChar(Result, SizeOf(Result), 0);
 end; { TOmniProcessEnvironment.GetMemory }
 {$ENDIF MSWINDOWS}
@@ -3560,8 +3583,21 @@ end; { TOmniProcessEnvironment.GetPriorityClass }
 
 {$IFDEF MSWINDOWS}
 function TOmniProcessEnvironment.GetTimes: TOmniProcessTimes;
+var
+  fsCreationTime: TFileTime;
+  fsExitTime    : TFileTime;
+  fsKernelTime  : TFileTime;
+  fsUserTime    : TFileTime;
+  sysTime       : TSystemTime;
 begin
-  if not DSiGetProcessTimes(Result.CreationTime, Result.UserTime, Result.KernelTime) then
+  if GetProcessTimes(GetCurrentProcess, fsCreationTime, fsExitTime, fsKernelTime, fsUserTime)
+     and FileTimeToSystemTime(fsCreationTime, sysTime)
+  then begin
+    Result.CreationTime := SystemTimeToDateTime(sysTime);
+    Result.KernelTime := (Int64(fsKernelTime.dwHighDateTime) shl 32 or fsKernelTime.dwLowDateTime) div 10;
+    Result.UserTime := (Int64(fsUserTime.dwHighDateTime) shl 32 or fsUserTime.dwLowDateTime) div 10;
+  end
+  else
     FillChar(Result, SizeOf(Result), 0);
 end; { TOmniProcessEnvironment.GetTimes }
 {$ENDIF MSWINDOWS}
@@ -3598,12 +3634,13 @@ var
 {$ENDIF MSWINDOWS}
 begin
   {$IFDEF MSWINDOWS}
-  if DSiGetThreadGroupAffinity(GetCurrentThread, groupAffinity) then begin
+  if GetThreadGroupAffinity(GetCurrentThread, groupAffinity) then begin
     Result.Group := groupAffinity.Group;
     Result.Affinity.AsMask := groupAffinity.Mask;
   end
-  else if GetLastError <> ERROR_NOT_SUPPORTED  then
-    raise Exception.CreateFmt('TOmniEnvironment.LoadNUMAInfo: DSiGetThreadGroupAffinity failed with [%d] %s', [GetLastError, SysErrorMessage(GetLastError)])
+  else if Winapi.Windows.GetLastError <> ERROR_NOT_SUPPORTED then
+    raise Exception.CreateFmt('TOmniThreadEnvironment.GetGroupAffinity: GetThreadGroupAffinity failed with [%d] %s',
+      [Winapi.Windows.GetLastError, SysErrorMessage(Winapi.Windows.GetLastError)])
   else
   {$ENDIF MSWINDOWS}
   begin
@@ -3627,7 +3664,7 @@ begin
   FillChar(groupAffinity, SizeOf(groupAffinity), 0);
   groupAffinity.Group := value.Group;
   groupAffinity.Mask := value.Affinity.AsMask;
-  DSiSetThreadGroupAffinity(GetCurrentThread, groupAffinity, nil);
+  SetThreadGroupAffinity(GetCurrentThread, groupAffinity, nil);
   {$ELSE}
   if value.Group <> 0 then
     raise Exception.Create('TOmniThreadEnvironment.SetGroupAffinity: Processor group must be 0');
@@ -3726,6 +3763,11 @@ end; { TOmniNUMANodes.GetItem }
 
 procedure TOmniNUMANodes.InitializeProximity;
 {$IFDEF MSWINDOWS}
+type
+  TGetSystemFirmwareTable = function(FirmwareTableProviderSignature: DWORD;
+    FirmwareTableID: DWORD; pFirmwareTableBuffer: Pointer;
+    BufferSize: DWORD): UINT; stdcall;
+
   function MakeDWORD(const name: AnsiString): DWORD;
   begin
     Result := (Ord(name[1]) SHL 24)
@@ -3735,17 +3777,18 @@ procedure TOmniNUMANodes.InitializeProximity;
   end; { MakeDWORD }
 
 var
-  highestNuma    : cardinal;
-  i              : integer;
-  j              : integer;
-  node           : word;
-  nodeFrom       : integer;
-  nodeTo         : integer;
-  numLocalities  : integer;
-  p              : pointer;
-  proximityToNuma: array of integer;
-  q              : PByte;
-  size           : integer;
+  getSystemFirmwareTable: TGetSystemFirmwareTable;
+  highestNuma           : ULONG;
+  i                     : integer;
+  j                     : integer;
+  node                  : word;
+  nodeFrom              : integer;
+  nodeTo                : integer;
+  numLocalities         : integer;
+  p                     : pointer;
+  proximityToNuma       : array of integer;
+  q                     : PByte;
+  size                  : integer;
 {$ENDIF MSWINDOWS}
 begin { TOmniNUMANodes.InitializeProximity }
 {$IFNDEF MSWINDOWS}
@@ -3753,7 +3796,7 @@ begin { TOmniNUMANodes.InitializeProximity }
   SetLength(FProximity[0], 1);
   FProximity[0,0] := 10;
 {$ELSE}
-  if not DSiGetNumaHighestNodeNumber(highestNuma) then
+  if not GetNumaHighestNodeNumber(highestNuma) then
     raise Exception.Create('TOmniNUMANodes.InitializeProximity: Failed to read highest NUMA node number');
 
   SetLength(FProximity, highestNuma+1);
@@ -3763,33 +3806,36 @@ begin { TOmniNUMANodes.InitializeProximity }
       FProximity[i,j] := 10;
   end;
 
-  size := DSiGetSystemFirmwareTable(MakeDWORD('ACPI'), MakeDWORD('TILS'), nil, 0);
-  if size > 44 then begin
-    GetMem(p, size);
-    try
-      DSiGetSystemFirmwareTable(MakeDWORD('ACPI'), MakeDWORD('TILS'), p, size);
-      q := PByte(NativeUInt(p) + 36);
-      numLocalities := PInt64(q)^;
-      Inc(q, 8);
+  getSystemFirmwareTable := GetProcAddress(GetModuleHandle('kernel32.dll'), 'GetSystemFirmwareTable');
+  if assigned(getSystemFirmwareTable) then begin
+    size := getSystemFirmwareTable(MakeDWORD('ACPI'), MakeDWORD('TILS'), nil, 0);
+    if size > 44 then begin
+      GetMem(p, size);
+      try
+        getSystemFirmwareTable(MakeDWORD('ACPI'), MakeDWORD('TILS'), p, size);
+        q := PByte(NativeUInt(p) + 36);
+        numLocalities := PInt64(q)^;
+        Inc(q, 8);
 
-      SetLength(proximityToNuma, numLocalities);
-      for i := 0 to numLocalities - 1do
-        if DSiGetNumaProximityNodeEx(i, node) then
-          proximityToNuma[i] := node
-        else
-          proximityToNuma[i] := -1;
+        SetLength(proximityToNuma, numLocalities);
+        for i := 0 to numLocalities - 1 do
+          if GetNumaProximityNodeEx(i, @node) then
+            proximityToNuma[i] := node
+          else
+            proximityToNuma[i] := -1;
 
-      for i := 0 to numLocalities - 1 do begin
-        nodeFrom := proximityToNuma[i];
-        for j := 0 to numLocalities - 1 do begin
-          nodeTo := proximityToNuma[j];
-          if (nodeFrom >= 0) and (nodeTo >= 0) then
-            FProximity[nodeFrom, nodeTo] := q^;
-          Inc(q);
+        for i := 0 to numLocalities - 1 do begin
+          nodeFrom := proximityToNuma[i];
+          for j := 0 to numLocalities - 1 do begin
+            nodeTo := proximityToNuma[j];
+            if (nodeFrom >= 0) and (nodeTo >= 0) then
+              FProximity[nodeFrom, nodeTo] := q^;
+            Inc(q);
+          end;
         end;
-      end;
-    finally FreeMem(p); end;
-  end; // if size > 44
+      finally FreeMem(p); end;
+    end; // if size > 44
+  end; // if assigned(getSystemFirmwareTable)
 {$ENDIF MSWINDOWS}
   FProximityInitialized := true;
 end; { TOmniNUMANodes.InitializeProximity }
@@ -3933,37 +3979,58 @@ end; { TOmniEnvironment.GetThread }
 procedure TOmniEnvironment.LoadNUMAInfo;
 {$IFDEF MSWINDOWS}
 var
+  buffer                 : PByte;
+  bufSize                : DWORD;
   iGroup                 : integer;
-  iInfo                  : integer;
   numaNodesInternal      : IOmniNUMANodesInternal;
-  pGroupInfo             : PProcessorGroupInfo;
+  offset                 : DWORD;
+  pGroupInfo             : PPROCESSOR_GROUP_INFO;
+  pInfo                  : PSystemLogicalProcessorInformationEx;
   processorGroupsInternal: IOmniProcessorGroupsInternal;
-  procInfo               : TSystemLogicalProcessorInformationExArr;
 {$ENDIF MSWINDOWS}
 begin
   {$IFNDEF MSWINDOWS}
   CreateFakeNUMAInfo;
   {$ELSE}
-  DSiGetLogicalProcessorInfoEx(DSiWin32._LOGICAL_PROCESSOR_RELATIONSHIP.RelationAll, procInfo);
-  if GetLastError = ERROR_NOT_SUPPORTED then
-    CreateFakeNUMAInfo
-  else begin
+  bufSize := 0;
+  GetLogicalProcessorInformationEx(RelationAll, PSYSTEM_LOGICAL_PROCESSOR_INFORMATION(nil), bufSize);
+  if Winapi.Windows.GetLastError = ERROR_NOT_SUPPORTED then begin
+    CreateFakeNUMAInfo;
+    Exit;
+  end;
+  if Winapi.Windows.GetLastError <> ERROR_INSUFFICIENT_BUFFER then begin
+    CreateFakeNUMAInfo;
+    Exit;
+  end;
+
+  GetMem(buffer, bufSize);
+  try
+    if not GetLogicalProcessorInformationEx(RelationAll, PSYSTEM_LOGICAL_PROCESSOR_INFORMATION(buffer), bufSize) then begin
+      CreateFakeNUMAInfo;
+      Exit;
+    end;
+
     numaNodesInternal := (oeNUMANodes as IOmniNUMANodesInternal);
     processorGroupsInternal := (oeProcessorGroups as IOmniProcessorGroupsInternal);
-    for iInfo := Low(procInfo) to High(procInfo) do begin
-      if DSiWin32._LOGICAL_PROCESSOR_RELATIONSHIP(procInfo[iInfo].Relationship) = DSiWin32._LOGICAL_PROCESSOR_RELATIONSHIP.RelationNumaNode then
-        numaNodesInternal.Add(TOmniNUMANode.Create(procInfo[iInfo].NumaNode.NodeNumber,
-          procInfo[iInfo].NumaNode.GroupMask.Group, procInfo[iInfo].NumaNode.GroupMask.Mask))
-      else if DSiWin32._LOGICAL_PROCESSOR_RELATIONSHIP(procInfo[iInfo].Relationship) = DSiWin32._LOGICAL_PROCESSOR_RELATIONSHIP.RelationGroup then begin
-        pGroupInfo := @procInfo[iInfo].Group.GroupInfo;
-        for iGroup := 0 to procInfo[iInfo].Group.ActiveGroupCount - 1 do begin
+
+    offset := 0;
+    while offset < bufSize do begin
+      pInfo := PSystemLogicalProcessorInformationEx(buffer + offset);
+      if pInfo.Relationship = RelationNumaNode then
+        numaNodesInternal.Add(TOmniNUMANode.Create(pInfo.NumaNode.NodeNumber,
+          pInfo.NumaNode.GroupMask.Group, pInfo.NumaNode.GroupMask.Mask))
+      else if pInfo.Relationship = RelationGroup then begin
+        pGroupInfo := @pInfo.Group.GroupInfo;
+        for iGroup := 0 to pInfo.Group.ActiveGroupCount - 1 do begin
           processorGroupsInternal.Add(TOmniProcessorGroup.Create(iGroup, pGroupInfo^.ActiveProcessorMask));
           Inc(pGroupInfo);
         end;
       end;
+      Inc(offset, pInfo.Size);
     end;
+
     numaNodesInternal.Sort;
-  end;
+  finally FreeMem(buffer); end;
   {$ENDIF MSWINDOWS}
 end; { TOmniEnvironment.LoadNUMAInfo }
 

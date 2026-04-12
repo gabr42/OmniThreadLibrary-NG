@@ -85,6 +85,11 @@ type
 
 function Time: PTimeSource; inline;
 
+{$IFDEF MSWINDOWS}
+function AffinityMaskToString(affinityMask: NativeUInt): string;
+function StringToAffinityMask(const affinity: string): NativeUInt;
+{$ENDIF MSWINDOWS}
+
 // must be global for inlining
 var
   GTimeSource: TTimeSource;
