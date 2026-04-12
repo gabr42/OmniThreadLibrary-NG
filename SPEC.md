@@ -340,14 +340,17 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [ ] Allowed remaining DSiWin32 usage: only in platform-specific enhancement code behind `{$IFDEF MSWINDOWS}`
 
 ### 5.3 Compiler hints and warnings audit
-- [ ] Build all units and test projects with hints and warnings enabled
-- [ ] Review every hint and warning; fix or suppress with justification
+- [x] Build all units and test projects with hints and warnings enabled
+- [x] Review every hint and warning; fix or suppress with justification
 - [ ] Goal: zero-warning build for `CompileAllUnits.dproj` and `ConsoleTestRunner.dproj` on Win32 and Win64
-- [ ] Known pre-existing warnings to investigate:
-  - `W1035: Return value of function 'Locked<T>.Initialize' might be undefined` (OtlSync.pas)
-  - `H2443: Inline function not expanded because unit not in USES list` (OtlSync.pas, OtlContainers.pas)
-  - `W1036: Variable might not have been initialized` (OtlTaskControl.pas)
-  - `H2077: Value assigned never used` / `H2164: Variable declared but never used` (OtlParallel.pas, OtlSync.pas)
+- [x] Known pre-existing warnings to investigate:
+  - [x] `W1035: Return value of function 'Locked<T>.Initialize' might be undefined` (OtlSync.pas) — fixed with `Result := Default(T)` and else branches
+  - [x] `H2077: Value assigned never used` (OtlSync.pas) — was a bug: `TPreSignalData.Create` parameter name collision causing self-assignment
+  - [x] `H2164: Variable declared but never used` (OtlParallel.pas) — removed unused `dest`/`el` from `TOmniParallelMapper.Execute`
+  - [ ] `H2443: Inline function not expanded because unit not in USES list` (OtlContainers.pas) — cannot fix without re-adding `Winapi.Windows`; harmless
+  - [ ] `H2445: Inline function not expanded` (OtlDataManager.pas) — Delphi compiler limitation; harmless
+  - [ ] `W1000: Symbol deprecated` (OtlTaskControl.pas) — expected for `Alertable`/`MsgWait` deprecations
+  - [ ] `W1036: Variable might not have been initialized` (OtlTaskControl.pas) — not currently emitted, may have been fixed earlier
 
 ### 5.4 Test migration: DUnit → DUnitX
 - [ ] Port all test modules to DUnitX framework

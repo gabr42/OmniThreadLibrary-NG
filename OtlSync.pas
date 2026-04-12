@@ -37,9 +37,12 @@
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu
 ///   Creation date     : 2009-03-30
 ///   Last modification : 2026-04-12
-///   Version           : 2.05
+///   Version           : 2.06
 ///</para><para>
 ///   History:
+///     2.06: 2026-04-12
+///       - Fixed TPreSignalData.Create parameter name bug (AllSignalled self-assignment).
+///       - Fixed W1035 warnings in Atomic<T>.Initialize and Locked<T>.Initialize.
 ///     2.05: 2026-04-12
 ///       - Removed unused GpSync.CondVar import.
 ///     2.04: 2026-04-12
@@ -851,7 +854,7 @@ type
   public
     OneSignalled: boolean;
     AllSignalled: boolean;
-    constructor Create(AOneSignalled, AllSignalled: boolean);
+    constructor Create(AOneSignalled, AAllSignalled: boolean);
   end; { TPreSignalData }
 
 var
@@ -1452,6 +1455,7 @@ begin
         resValue    : TValue;
         rType       : TRttiType;
       begin
+        Result := Default(T);
         ctx := TRttiContext.Create;
         rType := ctx.GetType(TypeInfo(T));
         for aMethCreate in rType.GetMethods do begin
@@ -1463,7 +1467,9 @@ begin
           end;
         end; //for
       end);
-  end;
+  end
+  else
+    Result := storage;
 end; { Atomic<T>.Initialize }
 
 { ATomic<I,T> }
@@ -1783,6 +1789,7 @@ begin
         resValue    : TValue;
         rType       : TRttiType;
       begin
+        Result := Default(T);
         ctx := TRttiContext.Create;
         rType := ctx.GetType(TypeInfo(T));
         for aMethCreate in rType.GetMethods do begin
@@ -1797,7 +1804,9 @@ begin
           end;
         end; //for
       end);
-  end;
+  end
+  else
+    Result := FValue;
 end; { Locked<T>.Initialize }
 
 procedure Locked<T>.Locked(proc: TProc);
@@ -2731,10 +2740,10 @@ end; { TOmniEvent.WaitFor }
 
 { TPreSignalData }
 
-constructor TPreSignalData.Create(AOneSignalled, AllSignalled: boolean);
+constructor TPreSignalData.Create(AOneSignalled, AAllSignalled: boolean);
 begin
   OneSignalled := AOneSignalled;
-  AllSignalled := AllSignalled;
+  AllSignalled := AAllSignalled;
 end; { TPreSignalData.Create }
 
 { TInterlockedEx }

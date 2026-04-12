@@ -39,6 +39,7 @@
 ///   Version           : 2.0d
 ///     2.0d: 2026-04-12
 ///       - Removed Parallel.ForkJoin (Step 3.1.1).
+///       - Removed unused variables in TOmniParallelMapper<T1,T2>.Execute.
 ///     2.0c: 2026-04-12
 ///       - Removed Winapi.Windows from implementation uses (not needed).
 ///     2.0b: 2026-04-12
@@ -5031,9 +5032,7 @@ end; { TOmniParallelMapper }
 function TOmniParallelMapper<T1,T2>.Execute(
   mapper: TMapProc<T1,T2>): IOmniParallelMapper<T1,T2>;
 var
-  dest: T2;
-  el  : T1;
-  i   : integer;
+  i: integer;
 begin
   SetLength(FTarget, Length(FSource));
   SetLength(FTargetData, FNumTasks);
