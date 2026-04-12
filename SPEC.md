@@ -219,14 +219,19 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] All 61 unit tests pass
 
 #### 2.3.2 Owner thread notification
-- [ ] **OTL worker threads (owner is OTL task)**: Notification via condition variable wake on the owner's wait loop
-- [ ] **Main/UI thread**: `TThread.Queue` for completion/message callbacks
-- [ ] **Plain TThread owner**: Owner must call `IOmniTaskControl.ProcessMessages` explicitly to drain pending notifications. On Windows, if the owner thread is in an alertable wait, notifications can be delivered via QueueUserAPC as a fast path (behind `{$IFDEF OTL_HasAPC}`).
-- [ ] `IOmniTaskControl.ProcessMessages`: New method — drains pending messages and executes callbacks. Returns immediately if nothing pending.
-- [ ] `IOmniTaskControl.WaitForMessage(timeout_ms)`: New method — blocks until a message is available or timeout. Uses CV internally.
+- [x] **OTL worker threads (owner is OTL task)**: On Windows, automatic delivery via `QueueUserAPC` — APC fires during `SleepEx(0, TRUE)` in owner's message loop. On non-Windows, owner must poll with `ProcessMessages`/`WaitForMessage`.
+- [x] **Main/UI thread**: `TThread.ForceQueue` via `TOmniEventMonitor` (existing, unchanged)
+- [x] **Plain TThread owner**: On Windows, automatic delivery via `QueueUserAPC` when thread enters alertable wait. On non-Windows, owner must call `ProcessMessages`/`WaitForMessage` explicitly.
+- [x] `IOmniTaskControl.ProcessMessages`: Drains pending messages and executes callbacks. Fires `OnTerminated` if task has stopped. Returns immediately if nothing pending.
+- [x] `IOmniTaskControl.WaitForMessage(timeout_ms)`: Blocks until a message is available, task terminates, or timeout. Returns `TOmniWaitForMessageResult` (wmrMessage/wmrTerminated/wmrTimeout).
+- [x] New unit `OtlAPCDispatch.pas`: Windows-only APC-based container observer (`{$IFDEF OTL_HasAPC}`). Uses ref-counted heap state for safe APC lifetime management. Coalesces multiple notifications into single APC.
+- [x] `CreateInternalMonitor` routes: main thread → event monitor, background thread on Windows → APC observer, background thread non-Windows → no-op (polling fallback)
+- [x] `SleepEx(0, TRUE)` added to `WaitForEvent` after `WaitAny` returns — drains pending APCs in OTL worker threads automatically
 
 #### 2.3.3 Task termination
-- [ ] `OnTerminated` callback: dispatched via `TThread.Queue` when owner is main thread, via CV signal when owner is OTL thread, requires explicit polling when owner is plain TThread
+- [x] `OnTerminated` callback: dispatched via event monitor when owner is main thread, via APC when owner is background thread on Windows, via explicit `ProcessMessages` polling on non-Windows
+- [x] `ForwardTaskTerminated` guarded with once-only flag (`otcTerminatedForwarded`) to prevent double-firing across monitor, APC, and Terminate paths
+- [x] `Terminate` calls `ForwardTaskTerminated` after message drain (protected by once-only flag)
 - [x] `IOmniTaskControl.WaitFor`: Uses `WaitForMultipleObjects` on Windows, `TWaitFor.WaitAny` on non-Windows, `IOmniEvent.WaitFor` when no thread
 - [x] Remove `WaitForSingleObject` on thread handle (completed — no remaining calls in OtlTaskControl)
 

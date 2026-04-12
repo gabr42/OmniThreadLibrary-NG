@@ -35,9 +35,16 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack
 ///   Last modification : 2026-04-12
-///   Version           : 2.06
+///   Version           : 2.07
 ///</para><para>
 ///   History:
+///     2.07: 2026-04-12
+///       - Added ProcessMessages and WaitForMessage to IOmniTaskControl for
+///         non-main-thread task owners.
+///       - On Windows, background thread owners get automatic callback delivery
+///         via QueueUserAPC (new OtlAPCDispatch unit).
+///       - Added SleepEx(0, TRUE) to task message loop for APC processing.
+///       - ForwardTaskTerminated is now guarded against double-firing.
 ///     2.06: 2026-04-12
 ///       - Added TOmniCOMInitType enum and IOmniTaskControl.COMInitialize method.
 ///         On Windows, calls CoInitializeEx/CoUninitialize around task execution.
@@ -201,6 +208,8 @@ type
 
   TOmniCOMInitType = (citNone, citSTA, citMTA);
 
+  TOmniWaitForMessageResult = (wmrMessage, wmrTerminated, wmrTimeout);
+
   TOmniTaskMessageEvent = procedure(const task: IOmniTaskControl; const msg: TOmniMessage) of object;
   TOmniTaskTerminatedEvent = procedure(const task: IOmniTaskControl) of object;
   TOmniOnMessageFunction = reference to procedure(const task: IOmniTaskControl; const msg: TOmniMessage);
@@ -305,9 +314,11 @@ type
     function  Terminate(maxWait_ms: cardinal = INFINITE): boolean; //will kill thread after timeout
     function  TerminateWhen(event: IOmniEvent): IOmniTaskControl; overload;
     function  TerminateWhen(token: IOmniCancellationToken): IOmniTaskControl; overload;
+    function  ProcessMessages: IOmniTaskControl;
     function  Unobserved: IOmniTaskControl;
     function  WaitFor(maxWait_ms: cardinal): boolean;
     function  WaitForInit: boolean;
+    function  WaitForMessage(timeout_ms: cardinal = INFINITE): TOmniWaitForMessageResult;
     function  WithCounter(const counter: IOmniCounter): IOmniTaskControl;
     function  WithLock(const lock: TSynchroObject; autoDestroyLock: boolean = true): IOmniTaskControl; overload;
     function  WithLock(const lock: IOmniCriticalSection): IOmniTaskControl; overload;
@@ -759,6 +770,9 @@ type
                                               IOmniTaskControlSharedInfo,
                                               IOmniTaskControlInternals)
   strict private
+    {$IFDEF OTL_HasAPC}
+    otcAPCObserver         : TObject; {TOmniContainerAPCObserver}
+    {$ENDIF OTL_HasAPC}
     otcDebugFlags          : TOmniTaskControlInternalDebugFlags;
     otcDelayedTerminate    : boolean;
     otcDestroyLock         : boolean;
@@ -766,18 +780,20 @@ type
     otcEventMonitorInternal: boolean;
     otcExecutor            : TOmniTaskExecutor;
     otcInEventHandler      : boolean;
+    otcMultiWaitLock       : IOmniCriticalSection;
     otcOnMessageExec       : TOmniMessageExec;
     otcOnMessageList       : TList<TPair<integer, TObject>>;
     otcOnTerminatedExec    : TOmniMessageExec;
+    otcOwnerThreadID       : TThreadID;
     otcOwningPool          : IOmniThreadPool;
     otcParameters          : TOmniValueContainer;
     otcQueueLength         : integer;
     otcSharedInfo          : TOmniSharedTaskInfo;
     otcOnTerminatedSimple  : TOmniOnTerminatedFunctionSimple;
     otcTerminateTokens     : TInterfaceList;
+    otcTerminatedForwarded : boolean;
     otcThread              : TOmniThread;
     otcUserData            : TOmniValueContainer;
-    otcMultiWaitLock       : IOmniCriticalSection;
   strict protected
     procedure CreateInternalMonitor;
     function  CreateTask: IOmniTask;
@@ -876,9 +892,11 @@ type
     function  Terminate(maxWait_ms: cardinal = INFINITE): boolean; //will kill thread after timeout
     function  TerminateWhen(event: IOmniEvent): IOmniTaskControl; overload;
     function  TerminateWhen(token: IOmniCancellationToken): IOmniTaskControl; overload;
+    function  ProcessMessages: IOmniTaskControl;
     function  Unobserved: IOmniTaskControl;
     function  WaitFor(maxWait_ms: cardinal): boolean;
     function  WaitForInit: boolean;
+    function  WaitForMessage(timeout_ms: cardinal = INFINITE): TOmniWaitForMessageResult;
     function  WithCounter(const counter: IOmniCounter): IOmniTaskControl;
     function  WithLock(const lock: TSynchroObject; autoDestroyLock: boolean = true): IOmniTaskControl; overload;
     function  WithLock(const lock: IOmniCriticalSection): IOmniTaskControl; overload; inline;
@@ -971,6 +989,9 @@ uses
   {$IFDEF MSWINDOWS}
   Winapi.ActiveX,
   {$ENDIF MSWINDOWS}
+  {$IFDEF OTL_HasAPC}
+  OtlAPCDispatch,
+  {$ENDIF OTL_HasAPC}
   OtlHooks,
   System.Diagnostics,
   OtlPlatform,
@@ -2597,6 +2618,9 @@ begin
   if assigned(WorkerIntf) then
     WorkerIntf.BeforeWait(timeout_ms);
   Result := msgInfo.Waiter.WaitAny(timeout_ms);
+  {$IFDEF MSWINDOWS}
+  SleepEx(0, TRUE); // drain pending APCs — zero cost when none pending
+  {$ENDIF MSWINDOWS}
   {$IFDEF Debug}
   if Result = waFailed then
     OutputDebugString(PChar(Format('*** TOmniTaskExecutor.WaitForEvent failed with error [%d] %s',
@@ -2716,11 +2740,23 @@ end; { TOmniTaskControl.COMInitialize }
 
 procedure TOmniTaskControl.CreateInternalMonitor;
 begin
-  if not assigned(otcEventMonitor) then begin
+  if assigned(otcEventMonitor) {$IFDEF OTL_HasAPC}or assigned(otcAPCObserver){$ENDIF} then
+    Exit;
+  if otcOwnerThreadID = MainThreadID then begin
     otcEventMonitorInternal := true;
     otcEventMonitor := GTaskControlEventMonitorPool.Allocate;
     TOmniEventMonitor(otcEventMonitor).Monitor(Self);
-  end;
+  end
+  {$IFDEF OTL_HasAPC}
+  else begin
+    EnsureCommChannel;
+    otcAPCObserver := CreateContainerAPCObserver(otcOwnerThreadID,
+      procedure begin Self.ProcessMessages end);
+    otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Attach(
+      TOmniContainerAPCObserver(otcAPCObserver), coiNotifyOnAllInserts);
+  end
+  {$ENDIF OTL_HasAPC}
+  ;
 end; { TOmniTaskControl.CreateInternalMonitor }
 
 function TOmniTaskControl.CreateTask: IOmniTask;
@@ -2809,6 +2845,9 @@ end; { TOmniTaskControl.ForwardTaskMessage }
 
 procedure TOmniTaskControl.ForwardTaskTerminated;
 begin
+  if otcTerminatedForwarded then
+    Exit;
+  otcTerminatedForwarded := true;
   if assigned(otcOnTerminatedExec) then begin
     otcInEventHandler := true;
     try
@@ -2909,6 +2948,7 @@ begin
   otcSharedInfo.TerminatedEvent := CreateOmniEvent(true, false); // TODO 1 -oPrimoz Gabrijelcic : *** do we need share lock here?
   otcUserData := TOmniValueContainer.Create;
   otcOnMessageList := TList<TPair<integer, TObject>>.Create;
+  otcOwnerThreadID := TThread.CurrentThread.ThreadID;
 end; { TOmniTaskControl.Initialize }
 
 function TOmniTaskControl.Invoke(const msgMethod: pointer): IOmniTaskControl;
@@ -3098,6 +3138,18 @@ begin
   CreateInternalMonitor;
   Result := Self;
 end; { TOmniTaskControl.OnTerminated }
+
+function TOmniTaskControl.ProcessMessages: IOmniTaskControl;
+var
+  msg: TOmniMessage;
+begin
+  Result := Self;
+  EnsureCommChannel;
+  while Comm.Receive(msg) do
+    ForwardTaskMessage(msg);
+  if assigned(otcSharedInfo) and otcSharedInfo.Stopped then
+    ForwardTaskTerminated;
+end; { TOmniTaskControl.ProcessMessages }
 
 function TOmniTaskControl.ProcessorGroup(procGroupNumber: integer): IOmniTaskControl;
 begin
@@ -3331,11 +3383,19 @@ begin
   Result := WaitFor(maxWait_ms);
   while Comm.Receive(msg) do
     ForwardTaskMessage(msg);
+  ForwardTaskTerminated;
   if otcEventMonitorInternal and assigned(otcEventMonitor) then begin
     //! must process monitor messages first
     TOmniEventMonitor(otcEventMonitor).ProcessMessages;
     DestroyMonitor;
   end;
+  {$IFDEF OTL_HasAPC}
+  if assigned(otcAPCObserver) then begin
+    otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Detach(
+      TOmniContainerAPCObserver(otcAPCObserver), coiNotifyOnAllInserts);
+    FreeAndNil(otcAPCObserver);
+  end;
+  {$ENDIF OTL_HasAPC}
   if not Result then begin
     if assigned(otcThread) then begin
       {$IFDEF MSWINDOWS}
@@ -3400,6 +3460,29 @@ function TOmniTaskControl.WaitForInit: boolean;
 begin
   Result := otcExecutor.WaitForInit;
 end; { TOmniTaskControl.WaitForInit }
+
+function TOmniTaskControl.WaitForMessage(timeout_ms: cardinal): TOmniWaitForMessageResult;
+var
+  waiter    : TWaitFor;
+  waitResult: TWaitFor.TWaitForResult;
+  signaller : IOmniSynchro;
+begin
+  EnsureCommChannel;
+  if Comm.NewMessageEvent.WaitFor(0) = wrSignaled then
+    Exit(wmrMessage);
+  if otcSharedInfo.TerminatedEvent.WaitFor(0) = wrSignaled then
+    Exit(wmrTerminated);
+  waiter := TWaitFor.Create([Comm.NewMessageEvent, otcSharedInfo.TerminatedEvent], otcMultiWaitLock);
+  try
+    waitResult := waiter.WaitAny(timeout_ms, signaller);
+    if waitResult <> waAwaited then
+      Exit(wmrTimeout);
+    if signaller = (Comm.NewMessageEvent as IOmniSynchro) then
+      Result := wmrMessage
+    else
+      Result := wmrTerminated;
+  finally waiter.Free; end;
+end; { TOmniTaskControl.WaitForMessage }
 
 function TOmniTaskControl.WithCounter(const counter: IOmniCounter): IOmniTaskControl;
 begin

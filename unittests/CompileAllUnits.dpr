@@ -9,6 +9,7 @@ program CompileAllUnits;
 uses
   SysUtils,
   Classes,
+  OtlAPCDispatch,
   OtlPlatform,
   OtlContainers,
   OtlCommon,
