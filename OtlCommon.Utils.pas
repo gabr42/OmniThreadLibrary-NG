@@ -97,7 +97,7 @@ begin
   if ansiName = LastThreadName then
     Exit;
 
-  TThread.NameThreadForDebugging({$IFDEF OTL_NameThreadHasStringParameter}name{$ELSE}ansiName{$ENDIF});
+  TThread.NameThreadForDebugging(name);
   {$IFDEF OTL_HasTThreadCurrentThread}
   if assigned(GSetThreadDescription) then
     GSetThreadDescription(TThread.CurrentThread.Handle, PChar(name));

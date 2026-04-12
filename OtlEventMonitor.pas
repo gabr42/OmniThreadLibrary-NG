@@ -37,9 +37,11 @@
 ///
 ///   Creation date     : 2008-06-12
 ///   Last modification : 2026-04-12
-///   Version           : 2.0c
+///   Version           : 2.0d
 ///</para><para>
 ///   History:
+///     2.0d: 2026-04-12
+///       - Removed OTL_HasForceQueue conditionals (always true on Delphi 11+).
 ///     2.0c: 2026-04-12
 ///       - Removed unused DSiWin32 import.
 ///     2.0b: 2019-04-14
@@ -282,7 +284,7 @@ end; { TOmniEventMonitor.Monitor }
 
 procedure TOmniEventMonitor.NotifyMessage(taskControlID: int64);
 begin
-  TThread.{$IFDEF OTL_HasForceQueue}ForceQueue{$ELSE}Queue{$ENDIF}(
+  TThread.ForceQueue(
     TThread.CurrentThread,
     procedure
     begin
@@ -292,7 +294,7 @@ end; { TOmniEventMonitor.NotifyMessage }
 
 procedure TOmniEventMonitor.NotifyTerminated(taskControlID: int64);
 begin
-  TThread.{$IFDEF OTL_HasForceQueue}ForceQueue{$ELSE}Queue{$ENDIF}(
+  TThread.ForceQueue(
     TThread.CurrentThread,
     procedure
     begin
@@ -303,7 +305,7 @@ end; { TOmniEventMonitor.NotifyTerminated }
 procedure TOmniEventMonitor.NotifyThreadPool(
   threadPoolInfo: TOmniThreadPoolMonitorInfo);
 begin
-  TThread.{$IFDEF OTL_HasForceQueue}ForceQueue{$ELSE}Queue{$ENDIF}(
+  TThread.ForceQueue(
     TThread.CurrentThread,
     procedure
     begin
@@ -319,9 +321,7 @@ end; { TOmniEventMonitor.ProcessMessages }
 procedure TOmniEventMonitor.ProcessNewMessage(taskControlID: int64);
 var
   task        : IOmniTaskControl;
-{$IFDEF OTL_HasForceQueue}
   timeStart_ms: int64;
-{$ENDIF OTL_HasForceQueue}
 
   function ProcessMessages(timeout_ms: integer = CMaxReceiveLoop_ms;
     rearmSelf: boolean = true): boolean;
@@ -334,13 +334,11 @@ var
         emOnTaskMessage(task, emCurrentMsg);
 
       { TODO 1 -oPrimoz Gabrijelcic : emMessageWindow? }
-      {$IFDEF OTL_HasForceQueue}
       if (GTimeSource.Elapsed_ms(timeStart_ms) > timeout_ms) {and (emMessageWindow <> 0)} then begin
         if rearmSelf then
           NotifyMessage(taskControlID);
         break; //while
       end;
-      {$ENDIF OTL_HasForceQueue}
     end; //while
     emCurrentMsg.MsgData._ReleaseAndClear;
   end; { ProcessMessages }
@@ -348,9 +346,7 @@ var
 begin
   task := emMonitoredTasks.ValueOf(taskControlID) as IOmniTaskControl;
   if assigned(task) then begin
-    {$IFDEF OTL_HasForceQueue}
     timeStart_ms := GTimeSource.Timestamp_ms;
-    {$ENDIF OTL_HasForceQueue}
     ProcessMessages;
   end;
 end; { TOmniEventMonitor.ProcessNewMessage }

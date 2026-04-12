@@ -30,10 +30,12 @@
 ///<remarks><para>
 ///   Author            : Primoz Gabrijelcic
 ///   Creation date     : 2010-07-01
-///   Last modification : 2026-04-11
-///   Version           : 3.0
+///   Last modification : 2026-04-12
+///   Version           : 3.01
 ///</para><para>
 ///   History:
+///     3.01: 2026-04-12
+///       - Removed all transitional defines (OTL_CountdownHasSpinCount, etc.) — always true on Delphi 11+.
 ///     3.0: 2026-04-11
 ///       - OTL NG: Minimum Delphi version raised to 11 Alexandria.
 ///       - Removed all pre-Delphi 11 version checks and conditionals.
@@ -82,20 +84,6 @@
 {$ASSERTIONS ON}
 {$TYPEINFO OFF}
 {$ZEROBASEDSTRINGS OFF}
-
-// Transitional defines — always true with Delphi 11+.
-// Kept until usage sites are cleaned up in individual units (Phase 1 steps 1.2–1.7).
-{$DEFINE OTL_CountdownHasSpinCount}
-{$DEFINE OTL_NameThreadHasStringParameter}
-{$DEFINE OTL_TypeInfoHasTypeData}
-{$DEFINE OTL_VariantHasInt64}
-{$DEFINE OTL_StrPasInAnsiStrings}
-{$DEFINE OTL_HasVolatileAttribute}
-{$DEFINE OTL_FixedGenericIncompletelyDefined}
-{$DEFINE OTL_MobileSupport}
-{$DEFINE OTL_CanInlineOperators}
-{$DEFINE OTL_HasForceQueue}
-{$DEFINE OTL_HasLightweightMREW}
 
 // Platform-specific defines
 

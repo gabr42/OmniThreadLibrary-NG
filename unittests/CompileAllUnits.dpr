@@ -25,7 +25,6 @@ uses
   OtlEventMonitor.Notify,
   OtlHooks,
   OtlLogger,
-  OtlRegister,
 //  OtlSuperobject,
   OtlTask,
   OtlTaskControl,

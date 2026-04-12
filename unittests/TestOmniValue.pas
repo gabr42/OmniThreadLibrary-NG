@@ -31,9 +31,7 @@ type
     procedure TestInterface;
     procedure TestSimpleValues;
     procedure TestWrappedValues;
-  {$IFDEF OTL_TypeInfoHasTypeData}
     procedure TestCastToInterface_issue_128;
-  {$ENDIF OTL_TypeInfoHasTypeData}
   end;
 
 implementation
@@ -81,7 +79,6 @@ begin
   CheckEquals(0, GTestValueCount);
 end;
 
-{$IFDEF OTL_TypeInfoHasTypeData}
 procedure TestTOmniValueContainer.TestCastToInterface_issue_128;
 var
   ov: TOmniValue;
@@ -93,7 +90,6 @@ begin
   intf := nil;
   CheckEquals($42000000000017, ov.CastTo<ITestInterface>.Value);
 end;
-{$ENDIF OTL_TypeInfoHasTypeData}
 
 procedure TestTOmniValueContainer.TestComposed;
 var

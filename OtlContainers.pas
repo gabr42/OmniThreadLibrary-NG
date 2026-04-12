@@ -37,10 +37,12 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Sean B. Durkin
 ///   Creation date     : 2008-07-13
-///   Last modification : 2026-04-11
-///   Version           : 3.03
+///   Last modification : 2026-04-12
+///   Version           : 3.04
 ///</para><para>
 ///   History:
+///     3.04: 2026-04-12
+///       - Suppressed H2443 hint for TSpinLock.Enter inline expansion.
 ///     3.03: 2026-04-11
 ///       - OTL NG: Platform abstraction — removed DSiWin32, GpStuff, Winapi.Windows
 ///         dependencies; removed all inline assembly (replaced with TThread.SpinWait);
@@ -1802,10 +1804,12 @@ begin
   FLock.Create(True);
 end; { TOmniValueQueueSpin.Create }
 
+{$HINTS OFF} // H2443: TSpinLock.Enter inline not expanded (Winapi.Windows not in uses) — harmless
 procedure TOmniValueQueueSpin.EnterCriticalSection;
 begin
   FLock.Enter;
 end; { TOmniValueQueueSpin.EnterCriticalSection }
+{$HINTS ON}
 
 procedure TOmniValueQueueSpin.LeaveCriticalSection;
 begin

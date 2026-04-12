@@ -514,9 +514,7 @@ type
     function  OnTaskCreate(taskCreateDelegate: TOmniTaskControlCreateDelegate): IOmniParallelLoop<T>; overload;
     function  OnStop(stopCode: TProc): IOmniParallelLoop<T>; overload;
     function  OnStop(stopCode: TOmniTaskStopDelegate): IOmniParallelLoop<T>; overload;
-    {$IFDEF OTL_FixedGenericIncompletelyDefined}
     function  OnStopInvoke(stopCode: TProc): IOmniParallelLoop<T>;
-    {$ENDIF OTL_FixedGenericIncompletelyDefined}
     function  PreserveOrder: IOmniParallelLoop<T>;
     function  TaskConfig(const config: IOmniTaskConfig): IOmniParallelLoop<T>;
   end; { IOmniParallelLoop<T> }
@@ -829,9 +827,7 @@ type
     function  OnTaskCreate(taskCreateDelegate: TOmniTaskControlCreateDelegate): IOmniParallelLoop<T>; overload;
     function  OnStop(stopCode: TProc): IOmniParallelLoop<T>; overload;
     function  OnStop(stopCode: TOmniTaskStopDelegate): IOmniParallelLoop<T>; overload;
-  {$IFDEF OTL_FixedGenericIncompletelyDefined}
     function  OnStopInvoke(stopCode: TProc): IOmniParallelLoop<T>;
-  {$ENDIF OTL_FixedGenericIncompletelyDefined}
     function  PreserveOrder: IOmniParallelLoop<T>;
     function  TaskConfig(const config: IOmniTaskConfig): IOmniParallelLoop<T>;
   end; { TOmniParallelLoop<T> }
@@ -1125,9 +1121,7 @@ type
     function  NumTasks(numTasks: integer): IOmniParallelMapper<T1,T2>;
     function  OnStop(stopCode: TProc): IOmniParallelMapper<T1,T2>; overload;
     function  OnStop(stopCode: TOmniTaskStopDelegate): IOmniParallelMapper<T1,T2>; overload;
-  {$IFDEF OTL_FixedGenericIncompletelyDefined}
     function  OnStopInvoke(stopCode: TProc): IOmniParallelMapper<T1,T2>;
-  {$ENDIF OTL_FixedGenericIncompletelyDefined}
     function  Result: TArray<T2>;
     function  Source(const data: TArray<T1>; makeCopy: boolean = false): IOmniParallelMapper<T1,T2>;
     function  TaskConfig(const config: IOmniTaskConfig): IOmniParallelMapper<T1,T2>;
@@ -1156,9 +1150,7 @@ type
     function  NumTasks(numTasks: integer): IOmniParallelMapper<T1,T2>;
     function  OnStop(stopCode: TProc): IOmniParallelMapper<T1,T2>; overload;
     function  OnStop(stopCode: TOmniTaskStopDelegate): IOmniParallelMapper<T1,T2>; overload;
-  {$IFDEF OTL_FixedGenericIncompletelyDefined}
     function  OnStopInvoke(stopCode: TProc): IOmniParallelMapper<T1,T2>;
-  {$ENDIF OTL_FixedGenericIncompletelyDefined}
     function  Result: TArray<T2>;
     function  Source(const data: TArray<T1>; makeCopy: boolean = false): IOmniParallelMapper<T1,T2>;
     function  TaskConfig(const config: IOmniTaskConfig): IOmniParallelMapper<T1,T2>;
@@ -3138,7 +3130,6 @@ begin
   Result := Self;
 end; { TOmniParallelLoop }
 
-{$IFDEF OTL_FixedGenericIncompletelyDefined}
 function TOmniParallelLoop<T>.OnStopInvoke(stopCode: TProc): IOmniParallelLoop<T>;
 begin
   Result := OnStop(
@@ -3154,7 +3145,6 @@ begin
           end);
     end);
 end; { TOmniParallelLoop<T>.OnStopInvoke }
-{$ENDIF OTL_FixedGenericIncompletelyDefined}
 
 function TOmniParallelLoop<T>.OnTaskCreate(
   taskCreateDelegate: TOmniTaskCreateDelegate): IOmniParallelLoop<T>;
@@ -5111,7 +5101,6 @@ begin
   Result := Self;
 end; { TOmniParallelMapper<T1,T2 }
 
-{$IFDEF OTL_FixedGenericIncompletelyDefined}
 function TOmniParallelMapper<T1, T2>.OnStopInvoke(stopCode: TProc):
   IOmniParallelMapper<T1,T2>;
 begin
@@ -5125,7 +5114,6 @@ begin
         end);
     end);
 end; { TOmniParallelMapper }
-{$ENDIF OTL_FixedGenericIncompletelyDefined}
 
 function TOmniParallelMapper<T1,T2>.Result: TArray<T2>;
 begin

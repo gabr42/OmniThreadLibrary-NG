@@ -387,7 +387,6 @@ type
     {$ENDIF MSWINDOWS}
   end; { IOmniCancellationToken }
 
-  {$IFDEF OTL_HasLightweightMREW}
   TLightweightMREWEx = record
   private
     FRWLock        : TLightweightMREW;
@@ -439,7 +438,6 @@ type
     {$IFEND LINUX or ANDROID}
     procedure EndWrite;
   end; { TLightweightMREWEx }
-  {$ENDIF OTL_HasLightweightMREW}
 
   Atomic<T> = class
     type TFactory = reference to function: T;
@@ -457,7 +455,7 @@ type
     // If an instance of Locked<T> is access via property, it will bo copied.
     // If FLock or FLockCount would be non-referenced objects, this copying
     // would break the connection between the original Locked<T> and its copy.
-    FLock     : {$IFDEF OTL_HasLightweightMREW}ILightweightMREWEx{$ELSE}TOmniCS{$ENDIF};
+    FLock     : ILightweightMREWEx;
     {$IFDEF DEBUG}
     FLockCount: IOmniCounter;
     {$ENDIF DEBUG}
@@ -485,7 +483,6 @@ type
     procedure Locked(proc: TProc); overload; inline;
     procedure Locked(proc: TProcT); overload; inline;
 
-    {$IFDEF OTL_HasLightweightMREW}
     function  BeginRead: T; inline;
     procedure EndRead; inline;
     function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;{$IFEND} inline;
@@ -497,7 +494,6 @@ type
     function  TryBeginWrite: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;
     function  TryBeginWrite(timeout: cardinal): boolean; overload; inline;
     {$IFEND LINUX or ANDROID}
-    {$ENDIF OTL_HasLightweightMREW}
     procedure Free; //inline;
     property IsInitialized: boolean read FInitialized;
     property Value: T read GetValue write SetValue;
@@ -1483,8 +1479,6 @@ begin
     end);
 end; { Atomic<I,T>.Initialize }
 
-{$IFDEF OTL_HasLightweightMREW}
-
 { TLightweightMREWEx }
 
 function TLightweightMREWEx.GetLockOwner: TThreadID; //inline
@@ -1597,7 +1591,6 @@ begin
   end;
 end; { TLightweightMREWEx.TryBeginWrite }
 {$IFEND LINUX or ANDROID}
-{$ENDIF OTL_HasLightweightMREW}
 
 { Locked<T> }
 
@@ -1611,11 +1604,7 @@ end; { Locked }
 
 constructor Locked<T>.Create(const value: T; ownsObject: boolean);
 begin
-  {$IFDEF OTL_HasLightweightMREW}
   FLock := TLightweightMREWExImpl.Create;
-  {$ELSE ~OTL_HasLightweightMREW}
-  FLock.Initialize;
-  {$ENDIF ~OTL_HasLightweightMREW}
   {$IFDEF DEBUG}
   FLockCount := CreateCounter;
   {$ENDIF DEBUG}
@@ -1640,11 +1629,7 @@ end; { Locked<T>.Implicit }
 
 procedure Locked<T>.Acquire;
 begin
-  {$IFDEF OTL_HasLightweightMREW}
   FLock.BeginWrite;
-  {$ELSE ~OTL_HasLightweightMREW}
-  FLock.Acquire;
-  {$ENDIF ~OTL_HasLightweightMREW}
   {$IFDEF DEBUG}
   FLockCount.Increment;
   {$ENDIF DEBUG}
@@ -1661,7 +1646,6 @@ begin
   {$ENDIF DEBUG}
 end; { Locked<T>.AssertLocked }
 
-{$IFDEF OTL_HasLightweightMREW}
 function Locked<T>.BeginRead: T;
 begin
   FLock.BeginRead;
@@ -1679,9 +1663,7 @@ begin
   {$ENDIF DEBUG}
   Result := FValue;
 end; { Locked<T>.BeginWrite }
-{$ENDIF OTL_HasLightweightMREW}
 
-{$IFDEF OTL_HasLightweightMREW}
 procedure Locked<T>.EndRead;
 begin
   FLock.EndRead;
@@ -1697,7 +1679,6 @@ begin
   FLockCount.Decrement;
   {$ENDIF DEBUG}
 end; { Locked<T>.EndWrite }
-{$ENDIF OTL_HasLightweightMREW}
 
 function Locked<T>.Enter: T;
 begin
@@ -1707,11 +1688,7 @@ end; { Locked<T>.Enter }
 
 procedure Locked<T>.Leave;
 begin
-  {$IFDEF OTL_HasLightweightMREW}
   FLock.EndWrite;
-  {$ELSE ~OTL_HasLightweightMREW}
-  FLock.Release;
-  {$ENDIF ~OTL_HasLightweightMREW}
   {$IFDEF DEBUG}
   FLockCount.Decrement;
   {$ENDIF DEBUG}
@@ -1753,11 +1730,7 @@ end; { Locked<T>.SetValue }
 function Locked<T>.Initialize(factory: TFactory): T;
 begin
   if not FInitialized then begin
-    {$IFDEF OTL_HasLightweightMREW}
     FLock := TLightweightMREWExImpl.Create;
-    {$ELSE ~OTL_HasLightweightMREW}
-    FLock.Initialize;
-    {$ENDIF ~OTL_HasLightweightMREW}
     {$IFDEF DEBUG}
     FLockCount := CreateCounter;
     {$ENDIF DEBUG}
@@ -1825,7 +1798,6 @@ begin
   finally Release; end;
 end; { Locked<T>.Locked }
 
-{$IFDEF OTL_HasLightweightMREW}
 function Locked<T>.TryBeginRead: boolean;
 begin
   Result := FLock.TryBeginRead;
@@ -1863,7 +1835,6 @@ begin
   {$ENDIF DEBUG}
 end; { Locked<T>.TryBeginWrite }
 {$IFEND LINUX or ANDROID}
-{$ENDIF OTL_HasLightweightMREW}
 
 { TOmniLockManager<K>.TNotifyPair<K> }
 
@@ -2808,8 +2779,6 @@ begin
   inherited;
 end;
 
-{$IFDEF OTL_HasLightweightMREW }
-
 { TLightweightMREWExImpl }
 
 procedure TLightweightMREWExImpl.BeginRead;
@@ -2855,7 +2824,6 @@ begin
   Result := FLock.TryBeginWrite(timeout);
 end; { TLightweightMREWExImpl.TryBeginWrite }
 {$IFEND LINUX or ANDROID}
-{$ENDIF OTL_HasLightweightMREW}
 
 initialization
   GOmniCancellationToken := CreateOmniCancellationToken;

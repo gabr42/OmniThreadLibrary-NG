@@ -35,10 +35,12 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, scarre, Sean B. Durkin, HHasenack
 ///   Creation date     : 2008-06-12
-///   Last modification : 2025-12-01
-///   Version           : 2.0b
+///   Last modification : 2026-04-12
+///   Version           : 2.0c
 ///</para><para>
 ///   History:
+///     2.0c: 2026-04-12
+///       - Removed transitional version-check conditionals (always true on Delphi 11+).
 ///     2.0b: 2025-12-01
 ///       - Improved LogValue.
 ///     2.0a: 2025-11-12
@@ -673,7 +675,7 @@ type
 
   TOmniCounter = record
   strict private
-    {$IFDEF OTL_MobileSupport}[Volatile]{$ENDIF} ocCounter: IOmniCounter;
+    [Volatile] ocCounter: IOmniCounter;
     function  GetValue: integer;
     procedure SetValue(const value: integer);
   public
@@ -991,16 +993,16 @@ type
     function  Increment: integer; overload; inline;
     function  Increment(value: integer): integer; overload; inline;
     function  Subtract(value: integer): integer; inline;
-    class operator Add(const ai: TOmniAlignedInt32; i: integer): cardinal; {$IFDEF OTL_CanInlineOperators}inline;{$ENDIF}
-    class operator Equal(const ai: TOmniAlignedInt32; i: integer): boolean; {$IFDEF OTL_CanInlineOperators}inline;{$ENDIF}
-    class operator GreaterThan(const ai: TOmniAlignedInt32; i: integer): boolean; {$IFDEF OTL_CanInlineOperators}inline;{$ENDIF}
-    class operator GreaterThanOrEqual(const ai: TOmniAlignedInt32; i: integer): boolean; {$IFDEF OTL_CanInlineOperators}inline;{$ENDIF}
+    class operator Add(const ai: TOmniAlignedInt32; i: integer): cardinal; inline;
+    class operator Equal(const ai: TOmniAlignedInt32; i: integer): boolean; inline;
+    class operator GreaterThan(const ai: TOmniAlignedInt32; i: integer): boolean; inline;
+    class operator GreaterThanOrEqual(const ai: TOmniAlignedInt32; i: integer): boolean; inline;
     class operator Implicit(const ai: TOmniAlignedInt32): integer; inline;
     class operator Implicit(const ai: TOmniAlignedInt32): cardinal; inline;
     class operator Implicit(const ai: TOmniAlignedInt32): PInteger; inline;
-    class operator LessThan(const ai: TOmniAlignedInt32; i: integer): boolean; {$IFDEF OTL_CanInlineOperators}inline;{$ENDIF}
-    class operator LessThanOrEqual(const ai: TOmniAlignedInt32; i: integer): boolean; {$IFDEF OTL_CanInlineOperators}inline;{$ENDIF}
-    class operator NotEqual(const ai: TOmniAlignedInt32; i: integer): boolean; {$IFDEF OTL_CanInlineOperators}inline;{$ENDIF}
+    class operator LessThan(const ai: TOmniAlignedInt32; i: integer): boolean; inline;
+    class operator LessThanOrEqual(const ai: TOmniAlignedInt32; i: integer): boolean; inline;
+    class operator NotEqual(const ai: TOmniAlignedInt32; i: integer): boolean; inline;
     class operator Subtract(const ai: TOmniAlignedInt32; i: integer): cardinal;
     property Value: integer read GetValue write SetValue;
   end; { TOmniAlignedInt32 }
@@ -1395,7 +1397,7 @@ end; { VarToObj }
 {$IFDEF MSWINDOWS}
 function StrPasA(const Str: PAnsiChar): AnsiString;
 begin
-  Result := {$IFDEF OTL_StrPasInAnsiStrings}System.AnsiStrings.{$ENDIF}StrPas(Str);
+  Result := System.AnsiStrings.StrPas(Str);
 end; { StrPasA }
 {$ENDIF}
 
@@ -1838,9 +1840,7 @@ begin
     ovtInteger,
     ovtInt64:   value := ovData;
     ovtNull:    value := 0;
-    {$IFDEF OTL_VariantHasInt64}
     ovtVariant: value := int64(AsVariant);
-    {$ENDIF OTL_VariantHasInt64}
     else Result := false;
   end;
 end; { TOmniValue.TryGetAsInt64 }
@@ -1852,9 +1852,7 @@ begin
     ovtInteger: value := ovData;
     ovtInt64:   value := uint64(ovData);
     ovtNull:    value := 0;
-    {$IFDEF OTL_VariantHasInt64}
     ovtVariant: value := uint64(AsVariant);
-    {$ENDIF OTL_VariantHasInt64}
     else Result := false;
   end;
 end; { TOmniValue.TryCastToUInt64 }
@@ -2013,11 +2011,9 @@ var
   ds      : integer;
   maxValue: uint64;
   ti      : PTypeInfo;
-{$IFDEF OTL_TypeInfoHasTypeData}
 var
   intf    : IInterface;
   value   : TValue;
-{$ENDIF OTL_TypeInfoHasTypeData}
 begin
   ds := 0;
   ti := System.TypeInfo(T);
@@ -2032,7 +2028,6 @@ begin
     if ti.Kind = tkRecord then
       Result := TOmniRecordWrapper<T>(CastToRecord.Value).Value
     else begin
-      {$IFDEF OTL_TypeInfoHasTypeData}
       if (ti.Kind = tkInterface)
          and Supports(AsInterface, ti.TypeData.Guid, intf)
       then begin
@@ -2040,7 +2035,6 @@ begin
         Result := value.AsType<T>;
       end
       else
-      {$ENDIF OTL_TypeInfoHasTypeData}
       Result := AsTValue.AsType<T>;
     end;
   end
