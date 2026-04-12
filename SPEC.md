@@ -243,13 +243,21 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 ### 2.4 OtlThreadPool.pas — Thread pool
 **Files**: `OtlThreadPool.pas`
 
-- [ ] Replace `SuspendThread`/`ResumeThread` with CV-based idle/wake
-- [ ] Worker threads wait on a condition variable when idle; signaled when work arrives
+#### 2.4.0 Remove external dependencies ✅
+- [x] Removed `DSiWin32`, `GpStuff`, `Winapi.Messages` from uses clause
+- [x] Replaced `DSiGetThreadTimes` with direct `GetThreadTimes` WinAPI call (in `{$IFDEF LogThreadPool}` debug blocks)
+- [x] Removed unused `WM_REQUEST_COMPLETED` constant (`WM_USER`-based, never referenced)
+- [x] `GpStuff` was a dead import (zero references)
+- [x] All 61 unit tests pass
+
+#### 2.4.1 Thread lifecycle (deferred)
+- [ ] Replace `SuspendThread`/`ResumeThread` with CV-based idle/wake (note: idle/wake already uses `IOmniCommunicationEndpoint.ReceiveWait`; `SuspendThread`/`ResumeThread` only used for force-killing stuck threads)
+- [x] Worker threads already wait on communication channel when idle; signaled when work arrives
 - [ ] Remove monitor thread if CV-based approach makes it unnecessary
-- [ ] Keep named/separate thread pools
-- [ ] Keep configurable min/max worker count and idle timeout
-- [ ] Remove `WM_USER` message constants
-- [ ] Remove `Winapi.Messages` dependency
+- [x] Keep named/separate thread pools
+- [x] Keep configurable min/max worker count and idle timeout
+- [x] Remove `WM_USER` message constants
+- [x] Remove `Winapi.Messages` dependency
 - [ ] Thread priority via `TThread.Priority`
 
 ---

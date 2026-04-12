@@ -35,10 +35,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin
 ///   Creation date     : 2008-06-12
-///   Last modification : 2022-05
-///   Version           : 3.01
+///   Last modification : 2026-04-12
+///   Version           : 3.02
 /// </para><para>
 ///   History:
+///     3.02: 2026-04-12
+///       - Removed DSiWin32, GpStuff, and Winapi.Messages dependencies.
+///       - Replaced DSiGetThreadTimes with direct WinAPI GetThreadTimes call.
+///       - Removed unused WM_REQUEST_COMPLETED constant.
 ///     2.21: 2022-03-09
 ///       - Avoid range check on 64 CPU systems.
 ///     3.0a: 2018-06-14
@@ -288,11 +292,6 @@ function GlobalOmniThreadPool: IOmniThreadPool;
 implementation
 
 uses
-  {$IFDEF MSWINDOWS}
-  Winapi.Messages,
-  DSiWin32,
-  GpStuff,
-  {$ENDIF}
   System.Math,
   System.SyncObjs,
   System.TypInfo,
@@ -308,8 +307,6 @@ uses
   OtlEventMonitor;
 
 const
-  WM_REQUEST_COMPLETED = {$IFDEF MSWINDOWS}WM_USER{$ELSE}1000{$ENDIF};
-
   MSG_RUN               = 1;
   MSG_THREAD_CREATED    = 2;
   MSG_THREAD_DESTROYING = 3;
@@ -808,6 +805,29 @@ begin
   {$IFDEF LogThreadPool}Log('<<<Execute thread %s', [Description]);{$ENDIF LogThreadPool}
 end; { TOTPWorkerThread.Execute }
 
+{$IFDEF LogThreadPool}
+{$IFDEF MSWINDOWS}
+procedure LocalGetThreadTimes(out creationTime: TDateTime; out userTime_us, kernelTime_us: int64);
+var
+  ftCreation, ftExit, ftKernel, ftUser: TFileTime;
+  sysTime: TSystemTime;
+begin
+  if GetThreadTimes(GetCurrentThread, ftCreation, ftExit, ftKernel, ftUser)
+     and FileTimeToSystemTime(ftCreation, sysTime)
+  then begin
+    creationTime := SystemTimeToDateTime(sysTime);
+    userTime_us := (Int64(ftUser.dwHighDateTime) shl 32 or ftUser.dwLowDateTime) div 10;
+    kernelTime_us := (Int64(ftKernel.dwHighDateTime) shl 32 or ftKernel.dwLowDateTime) div 10;
+  end
+  else begin
+    creationTime := 0;
+    userTime_us := 0;
+    kernelTime_us := 0;
+  end;
+end; { LocalGetThreadTimes }
+{$ENDIF MSWINDOWS}
+{$ENDIF LogThreadPool}
+
 procedure TOTPWorkerThread.ExecuteWorkItem(workItem: TOTPWorkItem);
 {$IFDEF LogThreadPool}
 var
@@ -825,13 +845,13 @@ begin
   try
     Environment.Thread.GroupAffinity := workItem.GroupAffinity;
     {$IFDEF LogThreadPool}Log('Thread %s starting execution of %s', [Description, WorkItem_ref.Description]);
-    DSiGetThreadTimes(creationTime, startUserTime, startKernelTime); {$ENDIF LogThreadPool}
+    LocalGetThreadTimes(creationTime, startUserTime, startKernelTime); {$ENDIF LogThreadPool}
     if assigned(task) then
       with (task as IOmniTaskExecutor) do begin
         SetThreadData(owtThreadData);
         Execute;
       end;
-    {$IFDEF LogThreadPool}DSiGetThreadTimes(creationTime, stopUserTime, stopKernelTime);
+    {$IFDEF LogThreadPool}LocalGetThreadTimes(creationTime, stopUserTime, stopKernelTime);
     Log(
       'Thread %s completed execution of %s; user time = %d ms, kernel time = %d ms',
       [Description, WorkItem_ref.Description, Round
