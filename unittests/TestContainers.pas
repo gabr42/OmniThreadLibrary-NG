@@ -16,13 +16,21 @@ type
     procedure TestBasicQueue;
     [Test]
     procedure TestBasicStack;
+    [Test]
+    procedure TestOneElementQueue;
+    [Test]
+    procedure TestOneElementStack;
+    [Test]
+    procedure TestQueueObserverNotification;
+    [Test]
+    procedure TestStackObserverNotification;
   end;
 
 implementation
 
 uses
-  System.SysUtils,
-  OtlContainers;
+  System.SysUtils, System.SyncObjs,
+  OtlContainers, OtlContainerObserver, OtlSync;
 
 { TestContainers }
 
@@ -127,6 +135,92 @@ begin
       Assert.AreEqual(test, value, 'value.8.' + test.ToString);
       Verify(test = 1, false, '#8.' + test.ToString);
     end;
+  finally FreeAndNil(stack); end;
+end;
+
+procedure TTestContainers.TestOneElementQueue;
+var
+  value: integer;
+begin
+  var queue := TOmniBaseBoundedQueue.Create;
+  try
+    queue.Initialize(1, SizeOf(integer));
+    Assert.IsTrue(queue.IsEmpty);
+    Assert.IsFalse(queue.IsFull);
+
+    value := 42;
+    Assert.IsTrue(queue.Enqueue(value), 'Enqueue first');
+    Assert.IsFalse(queue.IsEmpty);
+    Assert.IsTrue(queue.IsFull);
+
+    // Second enqueue should fail
+    value := 99;
+    Assert.IsFalse(queue.Enqueue(value), 'Enqueue second');
+
+    Assert.IsTrue(queue.Dequeue(value), 'Dequeue');
+    Assert.AreEqual(42, value);
+    Assert.IsTrue(queue.IsEmpty);
+  finally FreeAndNil(queue); end;
+end;
+
+procedure TTestContainers.TestOneElementStack;
+var
+  value: integer;
+begin
+  var stack := TOmniBaseBoundedStack.Create;
+  try
+    stack.Initialize(1, SizeOf(integer));
+    Assert.IsTrue(stack.IsEmpty);
+    Assert.IsFalse(stack.IsFull);
+
+    value := 42;
+    Assert.IsTrue(stack.Push(value), 'Push first');
+    Assert.IsFalse(stack.IsEmpty);
+    Assert.IsTrue(stack.IsFull);
+
+    // Second push should fail
+    value := 99;
+    Assert.IsFalse(stack.Push(value), 'Push second');
+
+    Assert.IsTrue(stack.Pop(value), 'Pop');
+    Assert.AreEqual(42, value);
+    Assert.IsTrue(stack.IsEmpty);
+  finally FreeAndNil(stack); end;
+end;
+
+procedure TTestContainers.TestQueueObserverNotification;
+var
+  value: integer;
+begin
+  var queue := TOmniBoundedQueue.Create(4, SizeOf(integer));
+  try
+    var observer := CreateContainerEventObserver;
+    try
+      queue.ContainerSubject.Attach(observer, coiNotifyOnAllInserts);
+
+      value := 1;
+      queue.Enqueue(value);
+      Assert.IsTrue(observer.GetEvent.WaitFor(0) = wrSignaled,
+        'Observer should be notified on enqueue');
+    finally observer.Free; end;
+  finally FreeAndNil(queue); end;
+end;
+
+procedure TTestContainers.TestStackObserverNotification;
+var
+  value: integer;
+begin
+  var stack := TOmniBoundedStack.Create(4, SizeOf(integer));
+  try
+    var observer := CreateContainerEventObserver;
+    try
+      stack.ContainerSubject.Attach(observer, coiNotifyOnAllInserts);
+
+      value := 1;
+      stack.Push(value);
+      Assert.IsTrue(observer.GetEvent.WaitFor(0) = wrSignaled,
+        'Observer should be notified on push');
+    finally observer.Free; end;
   finally FreeAndNil(stack); end;
 end;
 

@@ -14,6 +14,14 @@ type
     procedure TestTimestamp;
     [Test]
     procedure TestEventWaitFor;
+    [Test]
+    procedure TestThreadID;
+    {$IFDEF MSWINDOWS}
+    [Test]
+    procedure TestAffinityMaskRoundTrip;
+    [Test]
+    procedure TestThreadAffinity;
+    {$ENDIF}
   end;
 
 implementation
@@ -22,6 +30,7 @@ implementation
 
 uses
   System.SysUtils,
+  System.Classes,
   System.Diagnostics,
   OtlPlatform,
   OtlSync;
@@ -71,5 +80,32 @@ begin
   Assert.IsTrue(Time.HasElapsed(time_ms + 1000, 0), 'Should have elapsed: 0');
   Assert.IsFalse(Time.HasElapsed(0, INFINITE), 'Should not have elapsed: INFINITE');
 end;
+
+procedure TPlatformTest.TestThreadID;
+begin
+  var id := TPlatform.ThreadID;
+  Assert.AreEqual<TThreadID>(TThread.Current.ThreadID, id);
+end;
+
+{$IFDEF MSWINDOWS}
+procedure TPlatformTest.TestAffinityMaskRoundTrip;
+begin
+  // Test single CPU
+  var mask: NativeUInt := 1;
+  var s := AffinityMaskToString(mask);
+  Assert.AreEqual<NativeUInt>(mask, StringToAffinityMask(s));
+
+  // Test multiple CPUs
+  mask := 5; // CPUs 0 and 2
+  s := AffinityMaskToString(mask);
+  Assert.AreEqual<NativeUInt>(mask, StringToAffinityMask(s));
+end;
+
+procedure TPlatformTest.TestThreadAffinity;
+begin
+  var affinity := TPlatform.ThreadAffinity;
+  Assert.IsFalse(affinity.IsEmpty, 'Thread affinity should not be empty');
+end;
+{$ENDIF}
 
 end.

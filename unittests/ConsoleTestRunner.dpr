@@ -28,6 +28,10 @@ uses
   , TestContainers in 'TestContainers.pas'
   , TestOtlComm in 'TestOtlComm.pas'
   , TestOtlSync1 in 'TestOtlSync1.pas'
+  , TestOtlCommon1 in 'TestOtlCommon1.pas'
+  , TestContainerObserver1 in 'TestContainerObserver1.pas'
+  , TestSyncUtils1 in 'TestSyncUtils1.pas'
+  , TestBackgroundObserver1 in 'TestBackgroundObserver1.pas'
 //  {$IFDEF MSWindows}, TestTask in 'TestTask.pas'{$ENDIF }
 //  {$IFDEF MSWindows}, TestOtlParallel in 'TestOtlParallel.pas'{$ENDIF }
   ;

@@ -399,75 +399,75 @@ can be implemented and verified independently.
 #### 5.5.1 OtlSync — CancellationToken, CountdownEvent, Locked<T>, LockManager
 Existing TestOtlSync1.pas covers: IOmniEvent, TWaitFor, TOmniCS, TOmniMREW,
 Atomic<T>.Initialize, IOmniResourceCount (Windows). Missing:
-- [ ] `IOmniCancellationToken` — Create, Signal, IsSignalled, Clear, re-signal after Clear, Event property
-- [ ] `IOmniCountdownEvent` — Create with count, Signal decrements, WaitFor blocks until zero, Reset
-- [ ] `Locked<T>` — Create with value, implicit conversion, Initialize with factory, Value property, Free, IsInitialized; MREW access (BeginRead/EndRead, BeginWrite/EndWrite); Locked(proc) callback form
-- [ ] `TLightweightMREWEx` — nested BeginWrite/EndWrite from same thread succeeds; BeginRead while write-locked from another thread blocks
-- [ ] `IOmniLockManager<K>` — Lock/Unlock by key, LockUnlock auto-release, Lock with timeout failure, multiple keys independent
-- [ ] `TOmniSingleThreadUseChecker` — AttachToCurrentThread + Check from same thread OK, Check from different thread raises
+- [x] `IOmniCancellationToken` — Create, Signal, IsSignalled, Clear, re-signal after Clear, Event property
+- [x] `IOmniCountdownEvent` — Create with count, Signal decrements, WaitFor blocks until zero, Reset
+- [x] `Locked<T>` — Create with value, implicit conversion, Initialize with factory, Value property, Free, IsInitialized; MREW access (BeginRead/EndRead, BeginWrite/EndWrite); Locked(proc) callback form
+- [x] `TLightweightMREWEx` — nested BeginWrite/EndWrite from same thread succeeds; BeginRead while write-locked from another thread blocks
+- [x] `IOmniLockManager<K>` — Lock/Unlock by key, LockUnlock auto-release, Lock with timeout failure, multiple keys independent
+- [x] `TOmniSingleThreadUseChecker` — AttachToCurrentThread + Check from same thread OK, Check from different thread raises
 
 #### 5.5.2 OtlCommon — Counter, WaitableValue, IntegerSet, TOmniValue advanced
 Existing TestOmniValue.pas covers: simple types, wrapped types, arrays, interfaces,
 CastTo<IInterface>. Missing:
-- [ ] `IOmniCounter` — Initialize, Increment, Decrement, Take(count), Value property, Take returns false when exhausted
-- [ ] `IOmniWaitableValue` — Create, Signal with value, WaitFor returns value, Reset clears, Signal without value, WaitFor with timeout
-- [ ] `IOmniIntegerSet` — Add, Remove, Contains, Count, IsEmpty, Clear, AsMask, AsArray round-trip, OnChange event fires
-- [ ] `TOmniValue.Wrap<T>` / `Unwrap<T>` — wrap a record, unwrap it, type check with IsRecord
-- [ ] `TOmniValue.FromRecord<T>` / `ToRecord<T>` — round-trip a record through TOmniValue
-- [ ] `TOmniValue.FromArray<T>` / `ToArray<T>` — round-trip TArray<integer> through TOmniValue
-- [ ] `TOmniValue.CastTo<T>` — cast to integer, string, boolean, int64; fail on incompatible cast
-- [ ] `TOmniValue` owned object — AsOwnedObject assigns ownership, OwnsObject property, object freed on Clear
-- [ ] `TOmniValueContainer` — Count, Add, access by index, access by name, Exists, Clear, Lock/IsLocked
+- [x] `IOmniCounter` — Initialize, Increment, Decrement, Take(count), Value property, Take returns false when exhausted
+- [x] `IOmniWaitableValue` — Create, Signal with value, WaitFor returns value, Reset clears, Signal without value, WaitFor with timeout
+- [x] `IOmniIntegerSet` — Add, Remove, Contains, Count, IsEmpty, Clear, AsMask, AsArray round-trip, OnChange event fires
+- [x] `TOmniValue.Wrap<T>` / `Unwrap<T>` — wrap a record, unwrap it, type check with IsRecord
+- [x] `TOmniValue.FromRecord<T>` / `ToRecord<T>` — round-trip a record through TOmniValue
+- [x] `TOmniValue.FromArray<T>` / `ToArray<T>` — round-trip TArray<integer> through TOmniValue
+- [x] `TOmniValue.CastTo<T>` — cast to integer, string, boolean, int64; fail on incompatible cast
+- [x] `TOmniValue` owned object — AsOwnedObject assigns ownership, OwnsObject property, object freed on Clear
+- [x] `TOmniValueContainer` — Count, Add, access by index, access by name, Exists, Clear, Lock/IsLocked
 
 #### 5.5.3 IOmniBlockingCollection — extended coverage
 Existing TestBlockingCollection1.pas covers: CompleteAdding, memory leak tests (3 tests). Missing:
-- [ ] `TryAdd` / `TryTake` with timeout — TryTake with 0 timeout on empty returns false; TryTake with timeout blocks then succeeds when item added from another thread
-- [ ] `Count` and `IsEmpty` — verify count after Add/Take, IsEmpty on fresh and drained collection
-- [ ] `IsCompleted` / `IsFinalized` — IsCompleted after CompleteAdding, IsFinalized after CompleteAdding + drain all items
-- [ ] `GetEnumerator` — for-in iteration over collection items, verify order
-- [ ] `Next` — returns next value, raises on empty finalized collection
+- [x] `TryAdd` / `TryTake` with timeout — TryTake with 0 timeout on empty returns false; TryTake with timeout blocks then succeeds when item added from another thread
+- [x] `Count` and `IsEmpty` — verify count after Add/Take, IsEmpty on fresh and drained collection
+- [x] `IsCompleted` / `IsFinalized` — IsCompleted after CompleteAdding, IsFinalized after CompleteAdding + drain all items
+- [x] `GetEnumerator` — for-in iteration over collection items, verify order
+- [x] `Next` — returns next value, raises on empty finalized collection
 - [ ] `SetThrottling` — high/low watermark; TryAdd blocks when above high watermark, resumes when below low watermark
-- [ ] `FromArray<T>` / `ToArray<T>` — round-trip an integer array through blocking collection
-- [ ] `AddRange<T>` — add array of values, verify all present
+- [x] `FromArray<T>` / `ToArray<T>` — round-trip an integer array through blocking collection
+- [x] `AddRange<T>` — add array of values, verify all present
 
 #### 5.5.4 OtlContainerObserver — observer pattern
 No existing tests. All new:
-- [ ] `TOmniContainerSubject` — Attach observer, Notify fires observer, Detach stops notifications, NotifyOnce fires once then stops, Rearm re-enables after NotifyOnce
-- [ ] `TOmniContainerEventObserver` — Create, Notify signals event, event can be waited on, Deactivate prevents notification
-- [ ] Observer interests — coiNotifyOnAllInserts vs coiNotifyOnAllRemoves respected
+- [x] `TOmniContainerSubject` — Attach observer, Notify fires observer, Detach stops notifications, NotifyOnce fires once then stops, Rearm re-enables after NotifyOnce
+- [x] `TOmniContainerEventObserver` — Create, Notify signals event, event can be waited on, Deactivate prevents notification
+- [x] Observer interests — coiNotifyOnAllInserts vs coiNotifyOnAllRemoves respected
 
 #### 5.5.5 OtlSync.Utils — TOmniSynchronizer<T>
 Used in tests but not tested as standalone. All new:
-- [ ] `Signal` / `WaitFor` — Signal a name, WaitFor returns true; WaitFor before Signal blocks until signaled from another thread
-- [ ] `WaitFor` with timeout — returns false on timeout
-- [ ] `Count` — reflects number of registered signals
-- [ ] `Reset` — after Reset, WaitFor blocks again
+- [x] `Signal` / `WaitFor` — Signal a name, WaitFor returns true; WaitFor before Signal blocks until signaled from another thread
+- [x] `WaitFor` with timeout — returns false on timeout
+- [x] `Count` — reflects number of registered signals
+- [x] `Reset` — after Reset, WaitFor blocks again
 
 #### 5.5.6 OtlContainers — edge cases
 Existing TestContainers.pas covers: basic queue/stack operations. Missing:
-- [ ] 1-element queue — enqueue 1, dequeue 1, verify empty; enqueue 2nd fails
-- [ ] 1-element stack — push 1, pop 1, verify empty; push 2nd fails
-- [ ] Observer notification on queue — attach observer, enqueue triggers notification
-- [ ] Observer notification on stack — attach observer, push triggers notification
+- [x] 1-element queue — enqueue 1, dequeue 1, verify empty; enqueue 2nd fails
+- [x] 1-element stack — push 1, pop 1, verify empty; push 2nd fails
+- [x] Observer notification on queue — attach observer, enqueue triggers notification
+- [x] Observer notification on stack — attach observer, push triggers notification
 
 #### 5.5.7 OtlPlatform — affinity and thread ID
 Existing TestPlatform.pas covers: TTimeSource, IOmniEvent.WaitFor. Missing:
-- [ ] `TPlatform.ThreadID` — returns current thread ID, matches TThread.Current.ThreadID
-- [ ] `AffinityMaskToString` / `StringToAffinityMask` — round-trip conversion (Windows only)
-- [ ] `TPlatform.ThreadAffinity` — get returns non-empty string (Windows only)
+- [x] `TPlatform.ThreadID` — returns current thread ID, matches TThread.Current.ThreadID
+- [x] `AffinityMaskToString` / `StringToAffinityMask` — round-trip conversion (Windows only)
+- [x] `TPlatform.ThreadAffinity` — get returns non-empty string (Windows only)
 
 #### 5.5.8 OtlComm — extended coverage
 Existing TestOtlComm.pas covers: basic queue, event notification, two-way channel, wait. Missing:
-- [ ] `TOmniMessageQueue` — queue of size 1 (boundary), empty dequeue returns false, Dequeue after Empty returns nothing
-- [ ] `IOmniTwoWayChannel` — send multiple messages, verify FIFO order on receive
-- [ ] `TOmniMessageQueueTee` — existing empty fixture; basic tee: enqueue on source, both outputs receive copy
+- [x] `TOmniMessageQueue` — queue of size 1 (boundary), empty dequeue returns false, Dequeue after Empty returns nothing
+- [x] `IOmniTwoWayChannel` — send multiple messages, verify FIFO order on receive
+- [x] `TOmniMessageQueueTee` — existing empty fixture; basic tee: enqueue on source, both outputs receive copy
 
 #### 5.5.9 OtlBackgroundObserver — background thread notification
 No existing tests. All new:
-- [ ] `CreateContainerBackgroundObserver` — create observer, verify non-nil, free without error
-- [ ] `GetNotifyEvent` — returns valid IOmniEvent that can be waited on
-- [ ] `Notify` callback delivery — call Notify, verify callback fires on target thread (Windows: via `SleepEx(0, True)` APC drain; test from same thread for simplicity)
-- [ ] Notification coalescing — multiple Notify calls before drain result in single callback invocation
+- [x] `CreateContainerBackgroundObserver` — create observer, verify non-nil, free without error
+- [x] `GetNotifyEvent` — returns valid IOmniEvent that can be waited on
+- [x] `Notify` callback delivery — call Notify, verify callback fires on target thread (Windows: via `SleepEx(0, True)` APC drain; test from same thread for simplicity)
+- [x] Notification coalescing — multiple Notify calls before drain result in single callback invocation
 - [ ] Deactivate — after Deactivate, Notify no longer delivers callback
 
 ### 5.6 CI pipeline
