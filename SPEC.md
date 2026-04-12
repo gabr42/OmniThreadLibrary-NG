@@ -273,15 +273,18 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] `GpStuff` was a dead import (zero references)
 - [x] All 61 unit tests pass
 
-#### 2.4.1 Thread lifecycle (deferred)
-- [ ] Replace `SuspendThread`/`ResumeThread` with CV-based idle/wake (note: idle/wake already uses `IOmniCommunicationEndpoint.ReceiveWait`; `SuspendThread`/`ResumeThread` only used for force-killing stuck threads)
+#### 2.4.1 Thread lifecycle
+- [x] Replace `SuspendThread`/`ResumeThread` with lock-only safety in Cancel and MaintainanceTimer — `Asy_TerminateWorkItem` already uses `owtWorkItemLock` to safely steal work items
+- [x] Remove deprecated `worker.Suspended := true/false` property usage on non-Windows
+- [x] Windows: keep `TerminateThread` as last resort for stuck threads
+- [x] Non-Windows: `worker.Terminate` sets flag; thread becomes leaked resource if it never exits (no reliable POSIX thread kill — `pthread_cancel` requires cancellation points Delphi doesn't set up)
 - [x] Worker threads already wait on communication channel when idle; signaled when work arrives
-- [ ] Remove monitor thread if CV-based approach makes it unnecessary
+- [x] No separate monitor thread to remove — pool management runs as 1-second timer inside `TOTPWorker` task
 - [x] Keep named/separate thread pools
 - [x] Keep configurable min/max worker count and idle timeout
 - [x] Remove `WM_USER` message constants
 - [x] Remove `Winapi.Messages` dependency
-- [ ] Thread priority via `TThread.Priority`
+- [x] Thread priority: already handled per-task via `IOmniTaskControl.SetPriority` (Step 2.3.4)
 
 ---
 
@@ -338,11 +341,11 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 ### 4.2 OtlHooks.pas ✅
 - [x] Already platform-independent — no changes needed (verified: no Winapi/MSWINDOWS/THandle references)
 
-### 4.3 GpEventBus — separate cross-platform port
-- [ ] GpEventBus stays as a separate project in `GpDelphiUnits`
-- [ ] Port to cross-platform: replace `QueueUserAPC` with condition-variable-based dispatch for background threads
-- [ ] Keep `TThread.Queue` for main thread dispatch
-- [ ] If cross-platform port proves infeasible as external project, create `OtlEventBus.pas` inside OTL NG with the same API
+### 4.3 GpEventBus — no longer needed ✅
+- [x] GpEventBus background-thread dispatch functionality is now covered by `OtlBackgroundObserver.pas` (Step 2.3.7)
+- [x] Cross-platform background notification: Windows uses QueueUserAPC, POSIX uses atomic pending flag + thread-local registry
+- [x] OTL worker task owners get immediate delivery via wait-set injection (IOmniEvent registered in owner's TWaitFor)
+- [x] No separate GpEventBus port required
 
 ---
 

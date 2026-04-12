@@ -1006,11 +1006,6 @@ begin
         ProcessMessages;
         Sleep(10);
       end;
-      {$IFDEF MSWINDOWS}
-      SuspendThread(worker.Handle);
-      {$ELSE}
-      worker.Suspended := true;
-      {$ENDIF ~MSWINDOWS}
       if worker.Asy_TerminateWorkItem(workItem) then begin
         ProcessCompletedWorkItem(workItem);
         {$IFDEF LogThreadPool}Log(
@@ -1027,11 +1022,6 @@ begin
         wasTerminated := false;
       end
       else begin
-        {$IFDEF MSWINDOWS}
-        ResumeThread(worker.Handle);
-        {$ELSE}
-        worker.Suspended := false;
-        {$ENDIF ~MSWINDOWS}
         owIdleWorkers.Add(worker);
         {$IFDEF LogThreadPool}Log(
           'Thread %s moved to the idle list, num idle = %d, num running = %d[%d]',
@@ -1210,19 +1200,6 @@ begin
     if worker.Stopped or ((worker.StartStopping_ms + int64(WaitOnTerminate_sec.Value) * 1000) < Time.Timestamp_ms) then
     begin
       if not worker.Stopped then begin
-        {$IFDEF MSWINDOWS}
-        SuspendThread(worker.Handle);
-        {$ELSE}
-        worker.Suspended := True;
-        {$ENDIF}
-        if worker.Stopped then begin
-          {$IFDEF MSWINDOWS}
-          ResumeThread(worker.Handle);
-          {$ELSE}
-          worker.Suspended := False;
-          {$ENDIF}
-          break; // while
-        end;
         {$IFDEF MSWINDOWS}
         TerminateThread(worker.Handle, cardinal(-1));
         {$ELSE}
