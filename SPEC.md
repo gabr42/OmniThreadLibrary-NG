@@ -462,6 +462,14 @@ Existing TestOtlComm.pas covers: basic queue, event notification, two-way channe
 - [ ] `IOmniTwoWayChannel` — send multiple messages, verify FIFO order on receive
 - [ ] `TOmniMessageQueueTee` — existing empty fixture; basic tee: enqueue on source, both outputs receive copy
 
+#### 5.5.9 OtlBackgroundObserver — background thread notification
+No existing tests. All new:
+- [ ] `CreateContainerBackgroundObserver` — create observer, verify non-nil, free without error
+- [ ] `GetNotifyEvent` — returns valid IOmniEvent that can be waited on
+- [ ] `Notify` callback delivery — call Notify, verify callback fires on target thread (Windows: via `SleepEx(0, True)` APC drain; test from same thread for simplicity)
+- [ ] Notification coalescing — multiple Notify calls before drain result in single callback invocation
+- [ ] Deactivate — after Deactivate, Notify no longer delivers callback
+
 ### 5.6 CI pipeline
 - [ ] GitHub Actions: Windows (Win32 + Win64) build and test
 - [ ] GitHub Actions: Linux64 build (when Delphi Linux compiler available in CI)
