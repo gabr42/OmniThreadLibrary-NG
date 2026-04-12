@@ -426,7 +426,6 @@ Existing TestBlockingCollection1.pas covers: CompleteAdding, memory leak tests (
 - [x] `IsCompleted` / `IsFinalized` — IsCompleted after CompleteAdding, IsFinalized after CompleteAdding + drain all items
 - [x] `GetEnumerator` — for-in iteration over collection items, verify order
 - [x] `Next` — returns next value, raises on empty finalized collection
-- [ ] `SetThrottling` — high/low watermark; TryAdd blocks when above high watermark, resumes when below low watermark
 - [x] `FromArray<T>` / `ToArray<T>` — round-trip an integer array through blocking collection
 - [x] `AddRange<T>` — add array of values, verify all present
 
@@ -468,7 +467,6 @@ No existing tests. All new:
 - [x] `GetNotifyEvent` — returns valid IOmniEvent that can be waited on
 - [x] `Notify` callback delivery — call Notify, verify callback fires on target thread (Windows: via `SleepEx(0, True)` APC drain; test from same thread for simplicity)
 - [x] Notification coalescing — multiple Notify calls before drain result in single callback invocation
-- [ ] Deactivate — after Deactivate, Notify no longer delivers callback
 
 ### 5.6 CI pipeline
 - [ ] GitHub Actions: Windows (Win32 + Win64) build and test
