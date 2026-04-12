@@ -290,10 +290,12 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Removed unused `DSiWin32` import
 - [x] All 61 unit tests pass
 
-#### 3.2.1 Further cleanup (deferred)
-- [ ] Replace `WaitForMultipleObjects` with CV-based wait
-- [ ] Replace `THandle` arrays (`obsWaitHandles`) with `IOmniEvent` arrays
-- [ ] Replace `SetEvent` calls with `IOmniEvent.SetEvent`
+#### 3.2.1 Further cleanup ✅
+- [x] Unified `TOmniOutputBufferSet` to use `TWaitFor` on all platforms
+- [x] Removed `WaitForMultipleObjects` / `WAIT_OBJECT_0` / `THandle` arrays
+- [x] Removed `Winapi.Windows` from implementation uses (no longer needed)
+- [x] Moved `System.Contnrs` out of `{$IFDEF MSWINDOWS}` block
+- [x] All 61 unit tests pass
 
 ### 3.3 Future parallel patterns (deferred)
 - [ ] `Parallel.Channel` (Go-style CSP)

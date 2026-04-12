@@ -37,9 +37,13 @@
 ///
 ///   Creation date     : 2010-04-13
 ///   Last modification : 2026-04-12
-///   Version           : 2.02
+///   Version           : 2.03
 ///</para><para>
 ///   History:
+///     2.03: 2026-04-12
+///       - Unified TOmniOutputBufferSet to use TWaitFor on all platforms,
+///         removing WaitForMultipleObjects/THandle dependency.
+///       - Removed Winapi.Windows from implementation uses.
 ///     2.02: 2026-04-12
 ///       - Removed unused DSiWin32 import.
 ///     2.01: 2018-06-14
@@ -146,10 +150,7 @@ function  CreateDataManager(sourceProvider: TOmniSourceProvider; numWorkers: int
 implementation
 
 uses
-{$IFDEF MSWINDOWS}
-  Winapi.Windows,
   System.Contnrs,
-{$ENDIF}
   System.Generics.Collections,
   System.SysUtils,
   System.Classes,
@@ -312,12 +313,7 @@ type
     obsActiveBuffer_ref: TOmniOutputBufferImpl;
     obsShareLock       : IOmniCriticalSection;
     obsBuffers         : array [1..CNumBuffersInSet] of TOmniOutputBufferImpl;
-    {$IFDEF MSWINDOWS}
-    obsActiveIndex     : integer;
-    obsWaitHandles     : array[1..CNumBuffersInSet] of THandle;
-    {$ELSE}
     obsWaitEvents      : TWaitFor;
-    {$ENDIF}
   public
     constructor Create(owner: TOmniBaseDataManager; output: IOmniBlockingCollection);
     destructor  Destroy; override;
@@ -925,27 +921,17 @@ end; { TOmniOutputBufferImpl.Submit }
 constructor TOmniOutputBufferSet.Create(owner: TOmniBaseDataManager;
   output: IOmniBlockingCollection);
 var
-  iBuffer: integer;
-  {$IFNDEF MSWINDOWS}
-  Events: array of IOmniSynchro;
-  {$ENDIF ~MSWINDOWS}
+  events  : array of IOmniSynchro;
+  iBuffer : integer;
 begin
   inherited Create;
   obsShareLock := CreateOmniCriticalSection;
-  {$IFNDEF MSWINDOWS}
-  SetLength(Events, CNumBuffersInSet);
-  {$ENDIF}
+  SetLength(events, CNumBuffersInSet);
   for iBuffer := 1 to CNumBuffersInSet do begin
     obsBuffers[iBuffer] := TOmniOutputBufferImpl.Create(owner, output);
-    {$IFDEF MSWINDOWS}
-    obsWaitHandles[iBuffer] := obsBuffers[iBuffer].EmptyEvent.Handle;
-    {$ELSE}
-    Events[iBuffer-1] := obsBuffers[iBuffer].EmptyEvent;
-    {$ENDIF ~MSWINDOWS}
+    events[iBuffer-1] := obsBuffers[iBuffer].EmptyEvent;
   end;
-  {$IFNDEF MSWINDOWS}
-  obsWaitEvents := TWaitFor.Create(Events, obsShareLock);
-  {$ENDIF}
+  obsWaitEvents := TWaitFor.Create(events, obsShareLock);
   ActivateBuffer;
 end; { TOmniOutputBufferSet.Create }
 
@@ -955,35 +941,22 @@ var
 begin
   for iBuffer := 1 to CNumBuffersInSet do
     obsBuffers[iBuffer].Free;
-  {$IFNDEF MSWINDOWS}
   FreeAndNil(obsWaitEvents);
-  {$ENDIF ~MSWINDOWS}
   inherited;
 end; { TOmniOutputBufferSet.Destroy }
 
 procedure TOmniOutputBufferSet.ActivateBuffer;
 var
-  {$IFDEF MSWINDOWS}
-  awaited: cardinal;
-  {$ELSE}
-  Signaller: IOmniSynchro;
+  signaller: IOmniSynchro;
   iBuffer  : integer;
-  {$ENDIF}
 begin
-  {$IFDEF MSWINDOWS}
-  awaited := WaitForMultipleObjects(CNumBuffersInSet, @obsWaitHandles, false, INFINITE);
-  Assert({(awaited >= WAIT_OBJECT_0) and } (awaited < (WAIT_OBJECT_0 + CNumBuffersInSet)));
-  obsActiveIndex := awaited - WAIT_OBJECT_0 + 1;
-  obsActiveBuffer_ref := obsBuffers[obsActiveIndex];
-  {$ELSE}
-  obsWaitEvents.WaitAny(INFINITE, Signaller);
+  obsWaitEvents.WaitAny(INFINITE, signaller);
   for iBuffer := 1 to CNumBuffersInSet do begin
-    if Signaller <> obsBuffers[iBuffer].EmptyEvent then
+    if signaller <> obsBuffers[iBuffer].EmptyEvent then
       continue; //for
     obsActiveBuffer_ref := obsBuffers[iBuffer];
     break; //for
   end;
-  {$ENDIF ~MSWINDOWS}
 end; { TOmniOutputBufferSet.ActivateBuffer }
 
 procedure TOmniOutputBufferSet.Submit(position: int64; const data: TOmniValue);
