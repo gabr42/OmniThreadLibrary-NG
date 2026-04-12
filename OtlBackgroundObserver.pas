@@ -1,0 +1,330 @@
+///<summary>Cross-platform container observer for background thread notification.
+///    Part of the OmniThreadLibrary project.</summary>
+///<author>Primoz Gabrijelcic, Claude</author>
+///<remarks><para>
+///   Home              : http://www.omnithreadlibrary.com
+///   Support           : https://en.delphipraxis.net/forum/32-omnithreadlibrary/
+///   Author            : Primoz Gabrijelcic
+///     E-Mail          : primoz@gabrijelcic.org
+///     Blog            : http://thedelphigeek.com
+///   Creation date     : 2026-04-12
+///   Last modification : 2026-04-12
+///   Version           : 1.01
+///</para><para>
+///   History:
+///     1.01: 2026-04-12
+///       - Cross-platform restructure. Renamed from OtlAPCDispatch.pas.
+///       - Windows: QueueUserAPC-based delivery (unchanged logic).
+///       - POSIX: Atomic pending flag + thread-local registry for semi-automatic
+///         delivery in OTL worker thread owners.
+///       - Fixed bug: removed incorrect CanNotify check from Notify (was silencing
+///         observer after first notification).
+///     1.0: 2026-04-12
+///       - Initial implementation. APC-based container observer for delivering
+///         task notifications to background thread owners on Windows.
+///         Modeled on GpEventBus QueueUserAPC dispatch pattern.
+///</para></remarks>
+
+unit OtlBackgroundObserver;
+
+{$I OtlOptions.inc}
+
+interface
+
+uses
+  System.SysUtils,
+  System.SyncObjs,
+  System.Classes,
+  OtlContainerObserver;
+
+type
+  TOmniContainerBackgroundObserver = class(TOmniContainerObserver)
+  end;
+
+{:Creates a background observer targeting the specified thread.
+  On Windows, uses QueueUserAPC for zero-latency alertable-wait delivery.
+  On POSIX, uses an atomic pending flag that the owner thread drains
+  (automatic in OTL worker threads via thread-local registry).
+  @param   aTargetThreadID OS thread ID of the owner thread.
+  @param   aOnNotify       Callback invoked on the owner thread.
+                            Typically calls ProcessMessages to drain the comm channel.
+  @returns Background observer instance. Caller must free.
+  @since   2026-04-12
+}
+function CreateContainerBackgroundObserver(aTargetThreadID: TThreadID;
+  const aOnNotify: TProc): TOmniContainerBackgroundObserver;
+
+{$IFNDEF OTL_HasAPC}
+{:Registers a background observer in the current thread's registry.
+  Called from CreateInternalMonitor on the owner thread.
+  @since   2026-04-12
+}
+procedure RegisterBackgroundObserver(aObserver: TOmniContainerBackgroundObserver);
+
+{:Unregisters a background observer from the current thread's registry.
+  Called from Terminate cleanup on the owner thread.
+  @since   2026-04-12
+}
+procedure UnregisterBackgroundObserver(aObserver: TOmniContainerBackgroundObserver);
+
+{:Drains all pending background notifications for the current thread.
+  Called from WaitForEvent on POSIX — equivalent of SleepEx(0, TRUE) on Windows.
+  No-op if no observers are registered.
+  @since   2026-04-12
+}
+procedure DrainBackgroundObservers;
+
+{:Frees the current thread's background observer registry.
+  Called from TOmniTaskExecutor.Cleanup to prevent threadvar leaks.
+  @since   2026-04-12
+}
+procedure CleanupBackgroundObserverRegistry;
+{$ENDIF}
+
+implementation
+
+uses
+  {$IFDEF OTL_HasAPC}
+  Winapi.Windows,
+  {$ENDIF OTL_HasAPC}
+  OtlCommon; // needed for inline expansion of TOmniContainerObserver methods
+
+{$IFDEF OTL_HasAPC}
+
+// === Windows implementation: QueueUserAPC-based delivery ===
+
+const
+  THREAD_SET_CONTEXT = $0010;
+
+function OpenThread(dwDesiredAccess: DWORD; bInheritHandle: BOOL;
+  dwThreadId: DWORD): THandle; stdcall; external kernel32;
+
+type
+  PAPCState = ^TAPCState;
+  TAPCState = record
+    RefCount  : integer;  // interlocked; observer=1 ref, each pending APC=1 ref
+    APCPending: integer;  // atomic 0/1 flag; coalesces multiple Notify calls
+    IsActive  : integer;  // atomic 0/1; set to 0 on destroy so stale APCs are no-ops
+    OnNotify  : TProc;    // callback executed on target thread
+  end;
+
+  TOmniContainerAPCObserverImpl = class(TOmniContainerBackgroundObserver)
+  strict private
+    FState       : PAPCState;
+    FThreadHandle: THandle;
+  public
+    constructor Create(aTargetThreadID: TThreadID; const aOnNotify: TProc);
+    destructor  Destroy; override;
+    procedure Notify; override;
+  end;
+
+procedure APCCallback(dwParam: NativeUInt); stdcall;
+var
+  state: PAPCState;
+begin
+  state := PAPCState(dwParam);
+  // Clear pending flag BEFORE executing so new notifications during
+  // execution will queue another APC
+  TInterlocked.Exchange(state.APCPending, 0);
+  try
+    if TInterlocked.CompareExchange(state.IsActive, 1, 1) = 1 then
+      state.OnNotify();
+  finally
+    if TInterlocked.Decrement(state.RefCount) = 0 then begin
+      state.OnNotify := nil;
+      FreeMem(state);
+    end;
+  end;
+end; { APCCallback }
+
+{ TOmniContainerAPCObserverImpl }
+
+constructor TOmniContainerAPCObserverImpl.Create(aTargetThreadID: TThreadID;
+  const aOnNotify: TProc);
+begin
+  inherited Create;
+  FState := AllocMem(SizeOf(TAPCState));
+  FState.RefCount := 1;
+  FState.APCPending := 0;
+  FState.IsActive := 1;
+  FState.OnNotify := aOnNotify;
+  FThreadHandle := OpenThread(THREAD_SET_CONTEXT, false, aTargetThreadID);
+  if FThreadHandle = 0 then
+    raise EOSError.CreateFmt(
+      'TOmniContainerAPCObserverImpl.Create: OpenThread failed for thread %d, error [%d] %s',
+      [aTargetThreadID, Winapi.Windows.GetLastError, SysErrorMessage(Winapi.Windows.GetLastError)]);
+end; { TOmniContainerAPCObserverImpl.Create }
+
+destructor TOmniContainerAPCObserverImpl.Destroy;
+begin
+  if assigned(FState) then begin
+    TInterlocked.Exchange(FState.IsActive, 0);
+    if TInterlocked.Decrement(FState.RefCount) = 0 then begin
+      FState.OnNotify := nil;
+      FreeMem(FState);
+    end;
+    FState := nil;
+  end;
+  if FThreadHandle <> 0 then begin
+    CloseHandle(FThreadHandle);
+    FThreadHandle := 0;
+  end;
+  inherited;
+end; { TOmniContainerAPCObserverImpl.Destroy }
+
+procedure TOmniContainerAPCObserverImpl.Notify;
+begin
+  // No CanNotify check — the APC observer uses its own APCPending atomic
+  // flag for coalescing. CanNotify is only for one-shot interests
+  // (NotifyOnce), not permanent subscriptions like coiNotifyOnAllInserts.
+  // Coalesce: only queue if no APC is already pending
+  if TInterlocked.CompareExchange(FState.APCPending, 1, 0) = 0 then begin
+    TInterlocked.Increment(FState.RefCount);
+    if not QueueUserAPC(@APCCallback, FThreadHandle, NativeUInt(FState)) then begin
+      // APC queue failed (target thread may have terminated)
+      TInterlocked.Exchange(FState.APCPending, 0);
+      if TInterlocked.Decrement(FState.RefCount) = 0 then begin
+        FState.OnNotify := nil;
+        FreeMem(FState);
+        FState := nil;
+      end;
+    end;
+  end;
+end; { TOmniContainerAPCObserverImpl.Notify }
+
+{$ELSE}
+
+// === POSIX implementation: Atomic pending flag + thread-local registry ===
+
+type
+  TOmniContainerCVObserverImpl = class(TOmniContainerBackgroundObserver)
+  strict private
+    FCVPending: integer;  // atomic 0/1 coalescing flag
+    FIsActive : integer;  // atomic 0/1; cleared on destroy
+    FOnNotify : TProc;    // callback executed on owner thread
+  public
+    constructor Create(const aOnNotify: TProc);
+    destructor  Destroy; override;
+    procedure Notify; override;
+    procedure DrainPending;
+  end;
+
+{ TOmniContainerCVObserverImpl }
+
+constructor TOmniContainerCVObserverImpl.Create(const aOnNotify: TProc);
+begin
+  inherited Create;
+  FCVPending := 0;
+  FIsActive := 1;
+  FOnNotify := aOnNotify;
+end; { TOmniContainerCVObserverImpl.Create }
+
+destructor TOmniContainerCVObserverImpl.Destroy;
+begin
+  TInterlocked.Exchange(FIsActive, 0);
+  FOnNotify := nil;
+  inherited;
+end; { TOmniContainerCVObserverImpl.Destroy }
+
+procedure TOmniContainerCVObserverImpl.Notify;
+begin
+  // Coalesce: just set the pending flag. Owner thread drains via DrainPending,
+  // called from WaitForEvent (OTL workers) or ProcessMessages (plain threads).
+  TInterlocked.CompareExchange(FCVPending, 1, 0);
+end; { TOmniContainerCVObserverImpl.Notify }
+
+procedure TOmniContainerCVObserverImpl.DrainPending;
+begin
+  if TInterlocked.CompareExchange(FIsActive, 1, 1) <> 1 then
+    Exit;
+  if TInterlocked.Exchange(FCVPending, 0) = 1 then
+    FOnNotify();
+end; { TOmniContainerCVObserverImpl.DrainPending }
+
+{ Thread-local background observer registry }
+
+type
+  TOmniBackgroundObserverRegistry = class
+  strict private
+    FList: TList;
+  public
+    constructor Create;
+    destructor  Destroy; override;
+    procedure Add(aObserver: TOmniContainerCVObserverImpl);
+    procedure Remove(aObserver: TOmniContainerCVObserverImpl);
+    procedure DrainAll;
+  end;
+
+threadvar
+  _BackgroundObserverRegistry: TOmniBackgroundObserverRegistry;
+
+constructor TOmniBackgroundObserverRegistry.Create;
+begin
+  inherited Create;
+  FList := TList.Create;
+end; { TOmniBackgroundObserverRegistry.Create }
+
+destructor TOmniBackgroundObserverRegistry.Destroy;
+begin
+  FreeAndNil(FList);
+  inherited;
+end; { TOmniBackgroundObserverRegistry.Destroy }
+
+procedure TOmniBackgroundObserverRegistry.Add(aObserver: TOmniContainerCVObserverImpl);
+begin
+  if FList.IndexOf(aObserver) < 0 then
+    FList.Add(aObserver);
+end; { TOmniBackgroundObserverRegistry.Add }
+
+procedure TOmniBackgroundObserverRegistry.Remove(aObserver: TOmniContainerCVObserverImpl);
+begin
+  FList.Remove(aObserver);
+end; { TOmniBackgroundObserverRegistry.Remove }
+
+procedure TOmniBackgroundObserverRegistry.DrainAll;
+var
+  i: integer;
+begin
+  for i := 0 to FList.Count - 1 do
+    TOmniContainerCVObserverImpl(FList[i]).DrainPending;
+end; { TOmniBackgroundObserverRegistry.DrainAll }
+
+procedure RegisterBackgroundObserver(aObserver: TOmniContainerBackgroundObserver);
+begin
+  if not assigned(_BackgroundObserverRegistry) then
+    _BackgroundObserverRegistry := TOmniBackgroundObserverRegistry.Create;
+  _BackgroundObserverRegistry.Add(TOmniContainerCVObserverImpl(aObserver));
+end; { RegisterBackgroundObserver }
+
+procedure UnregisterBackgroundObserver(aObserver: TOmniContainerBackgroundObserver);
+begin
+  if assigned(_BackgroundObserverRegistry) then
+    _BackgroundObserverRegistry.Remove(TOmniContainerCVObserverImpl(aObserver));
+end; { UnregisterBackgroundObserver }
+
+procedure DrainBackgroundObservers;
+begin
+  if assigned(_BackgroundObserverRegistry) then
+    _BackgroundObserverRegistry.DrainAll;
+end; { DrainBackgroundObservers }
+
+procedure CleanupBackgroundObserverRegistry;
+begin
+  FreeAndNil(_BackgroundObserverRegistry);
+end; { CleanupBackgroundObserverRegistry }
+
+{$ENDIF OTL_HasAPC}
+
+{ Factory }
+
+function CreateContainerBackgroundObserver(aTargetThreadID: TThreadID;
+  const aOnNotify: TProc): TOmniContainerBackgroundObserver;
+begin
+  {$IFDEF OTL_HasAPC}
+  Result := TOmniContainerAPCObserverImpl.Create(aTargetThreadID, aOnNotify);
+  {$ELSE}
+  Result := TOmniContainerCVObserverImpl.Create(aOnNotify);
+  {$ENDIF}
+end; { CreateContainerBackgroundObserver }
+
+end.

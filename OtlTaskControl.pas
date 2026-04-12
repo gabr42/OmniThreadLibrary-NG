@@ -42,7 +42,7 @@
 ///       - Added ProcessMessages and WaitForMessage to IOmniTaskControl for
 ///         non-main-thread task owners.
 ///       - On Windows, background thread owners get automatic callback delivery
-///         via QueueUserAPC (new OtlAPCDispatch unit).
+///         via QueueUserAPC (OtlBackgroundObserver unit).
 ///       - Added SleepEx(0, TRUE) to task message loop for APC processing.
 ///       - ForwardTaskTerminated is now guarded against double-firing.
 ///     2.06: 2026-04-12
@@ -770,9 +770,7 @@ type
                                               IOmniTaskControlSharedInfo,
                                               IOmniTaskControlInternals)
   strict private
-    {$IFDEF OTL_HasAPC}
-    otcAPCObserver         : TObject; {TOmniContainerAPCObserver}
-    {$ENDIF OTL_HasAPC}
+    otcBackgroundObserver  : TObject; {TOmniContainerBackgroundObserver}
     otcDebugFlags          : TOmniTaskControlInternalDebugFlags;
     otcDelayedTerminate    : boolean;
     otcDestroyLock         : boolean;
@@ -989,9 +987,7 @@ uses
   {$IFDEF MSWINDOWS}
   Winapi.ActiveX,
   {$ENDIF MSWINDOWS}
-  {$IFDEF OTL_HasAPC}
-  OtlAPCDispatch,
-  {$ENDIF OTL_HasAPC}
+  OtlBackgroundObserver,
   OtlHooks,
   System.Diagnostics,
   OtlPlatform,
@@ -1884,6 +1880,9 @@ begin
   {$IFDEF OTL_Anonymous}
   oteFunc := nil;
   {$ENDIF OTL_Anonymous}
+  {$IFNDEF OTL_HasAPC}
+  CleanupBackgroundObserverRegistry;
+  {$ENDIF}
 end; { TOmniTaskExecutor.Cleanup }
 
 procedure TOmniTaskExecutor.DispatchCommMessage(newMsgHandle: TOmniTransitionEvent;
@@ -2621,6 +2620,9 @@ begin
   {$IFDEF MSWINDOWS}
   SleepEx(0, TRUE); // drain pending APCs — zero cost when none pending
   {$ENDIF MSWINDOWS}
+  {$IFNDEF OTL_HasAPC}
+  DrainBackgroundObservers; // POSIX: drain pending child notifications
+  {$ENDIF}
   {$IFDEF Debug}
   if Result = waFailed then
     OutputDebugString(PChar(Format('*** TOmniTaskExecutor.WaitForEvent failed with error [%d] %s',
@@ -2740,23 +2742,24 @@ end; { TOmniTaskControl.COMInitialize }
 
 procedure TOmniTaskControl.CreateInternalMonitor;
 begin
-  if assigned(otcEventMonitor) {$IFDEF OTL_HasAPC}or assigned(otcAPCObserver){$ENDIF} then
+  if assigned(otcEventMonitor) or assigned(otcBackgroundObserver) then
     Exit;
   if otcOwnerThreadID = MainThreadID then begin
     otcEventMonitorInternal := true;
     otcEventMonitor := GTaskControlEventMonitorPool.Allocate;
     TOmniEventMonitor(otcEventMonitor).Monitor(Self);
   end
-  {$IFDEF OTL_HasAPC}
   else begin
     EnsureCommChannel;
-    otcAPCObserver := CreateContainerAPCObserver(otcOwnerThreadID,
+    otcBackgroundObserver := CreateContainerBackgroundObserver(otcOwnerThreadID,
       procedure begin Self.ProcessMessages end);
     otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Attach(
-      TOmniContainerAPCObserver(otcAPCObserver), coiNotifyOnAllInserts);
-  end
-  {$ENDIF OTL_HasAPC}
-  ;
+      TOmniContainerBackgroundObserver(otcBackgroundObserver), coiNotifyOnAllInserts);
+    {$IFNDEF OTL_HasAPC}
+    RegisterBackgroundObserver(
+      TOmniContainerBackgroundObserver(otcBackgroundObserver));
+    {$ENDIF}
+  end;
 end; { TOmniTaskControl.CreateInternalMonitor }
 
 function TOmniTaskControl.CreateTask: IOmniTask;
@@ -3389,13 +3392,15 @@ begin
     TOmniEventMonitor(otcEventMonitor).ProcessMessages;
     DestroyMonitor;
   end;
-  {$IFDEF OTL_HasAPC}
-  if assigned(otcAPCObserver) then begin
+  if assigned(otcBackgroundObserver) then begin
     otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Detach(
-      TOmniContainerAPCObserver(otcAPCObserver), coiNotifyOnAllInserts);
-    FreeAndNil(otcAPCObserver);
+      TOmniContainerBackgroundObserver(otcBackgroundObserver), coiNotifyOnAllInserts);
+    {$IFNDEF OTL_HasAPC}
+    UnregisterBackgroundObserver(
+      TOmniContainerBackgroundObserver(otcBackgroundObserver));
+    {$ENDIF}
+    FreeAndNil(otcBackgroundObserver);
   end;
-  {$ENDIF OTL_HasAPC}
   if not Result then begin
     if assigned(otcThread) then begin
       {$IFDEF MSWINDOWS}

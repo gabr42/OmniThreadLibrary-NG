@@ -224,7 +224,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] **Plain TThread owner**: On Windows, automatic delivery via `QueueUserAPC` when thread enters alertable wait. On non-Windows, owner must call `ProcessMessages`/`WaitForMessage` explicitly.
 - [x] `IOmniTaskControl.ProcessMessages`: Drains pending messages and executes callbacks. Fires `OnTerminated` if task has stopped. Returns immediately if nothing pending.
 - [x] `IOmniTaskControl.WaitForMessage(timeout_ms)`: Blocks until a message is available, task terminates, or timeout. Returns `TOmniWaitForMessageResult` (wmrMessage/wmrTerminated/wmrTimeout).
-- [x] New unit `OtlAPCDispatch.pas`: Windows-only APC-based container observer (`{$IFDEF OTL_HasAPC}`). Uses ref-counted heap state for safe APC lifetime management. Coalesces multiple notifications into single APC.
+- [x] New unit `OtlBackgroundObserver.pas` (originally `OtlAPCDispatch.pas`): Cross-platform background observer. Windows uses APC with ref-counted heap state; POSIX uses atomic pending flag with thread-local registry. Coalesces multiple notifications.
 - [x] `CreateInternalMonitor` routes: main thread → event monitor, background thread on Windows → APC observer, background thread non-Windows → no-op (polling fallback)
 - [x] `SleepEx(0, TRUE)` added to `WaitForEvent` after `WaitAny` returns — drains pending APCs in OTL worker threads automatically
 
@@ -247,6 +247,16 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 #### 2.3.6 TOmniWorker message dispatch
 - [x] `message` directive pattern stays (it's a Delphi language feature, not Windows-specific)
 - [x] `Dispatch()` method works cross-platform
+
+#### 2.3.7 Cross-platform background observer
+- [x] Rename `OtlAPCDispatch.pas` → `OtlBackgroundObserver.pas`
+- [x] Fix `CanNotify` bug: remove one-shot CAS from APC observer's `Notify` (was silencing observer after first notification)
+- [x] Rename public class `TOmniContainerAPCObserver` → `TOmniContainerBackgroundObserver`
+- [x] Add POSIX `TOmniContainerCVObserverImpl`: atomic pending flag + `DrainPending` method
+- [x] Add thread-local `TOmniBackgroundObserverRegistry` for semi-automatic POSIX delivery
+- [x] Remove `{$IFDEF OTL_HasAPC}` from OtlTaskControl.pas observer field and logic — observer is now unconditional
+- [x] Add `DrainBackgroundObservers` to `WaitForEvent` on POSIX (equivalent of `SleepEx(0, TRUE)`)
+- [x] Update `CompileAllUnits.dpr` with new unit name
 
 ### 2.4 OtlThreadPool.pas — Thread pool
 **Files**: `OtlThreadPool.pas`
