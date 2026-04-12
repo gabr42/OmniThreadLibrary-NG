@@ -37,9 +37,14 @@
 ///   Contributors      : Sean B. Durkin
 ///   Creation date     : 2009-02-19
 ///   Last modification : 2026-04-12
-///   Version           : 1.09
+///   Version           : 1.10
 ///</para><para>
 ///   History:
+///     1.10: 2026-04-12
+///       - Removed TOmniContainerWindowsMessageObserver class and factory function
+///         (replaced by cross-platform TOmniContainerQueueObserver in OtlParallel.pas
+///         and TOmniContainerBackgroundObserver in OtlBackgroundObserver.pas).
+///       - Removed Winapi.Windows dependency.
 ///     1.09: 2026-04-12
 ///       - Removed unused TOmniContainerWindowsEventObserver class and factory function.
 ///     1.08: 2026-04-12
@@ -77,9 +82,6 @@ unit OtlContainerObserver;
 interface
 
 uses
-  {$IFDEF MSWINDOWS}
-  Winapi.Windows,
-  {$ENDIF MSWINDOWS}
   System.Classes,
   System.SyncObjs,
   System.Generics.Collections,
@@ -122,17 +124,6 @@ type
     property MonitorNotify: IOmniEventMonitorNotify read GetMonitorNotify;
   end; { TOmniContainerPlatformObserver }
 
-  // Windows-specific message observer, used by TOmniBackgroundWorker.
-  {$IFDEF MSWINDOWS}
-  TOmniContainerWindowsMessageObserver = class(TOmniContainerObserver)
-  strict protected
-    function  GetHandle: THandle; virtual; abstract;
-  public
-    procedure Send(aMessage: cardinal; wParam: WPARAM; lParam: LPARAM); virtual; abstract;
-    property Handle: THandle read GetHandle;
-  end; { TOmniContainerWindowsMessageObserver }
-  {$ENDIF MSWINDOWS}
-
   TOmniContainerSubject = class
   strict private
     csListLocks    : array [TOmniContainerObserverInterest] of TOmniMREW;
@@ -154,11 +145,6 @@ type
 
   function CreateContainerPlatformObserver(notify: IOmniEventMonitorNotify;
     objectID: int64): TOmniContainerPlatformObserver;
-
-  {$IFDEF MSWINDOWS}
-  function CreateContainerWindowsMessageObserver(hWindow: THandle; msg: cardinal;
-    wParam: WPARAM; lParam: LPARAM): TOmniContainerWindowsMessageObserver;
-  {$ENDIF MSWINDOWS}
 
 implementation
 
@@ -187,23 +173,6 @@ type
     procedure Notify; override;
   end; { TOmniContainerPlatformObserverImpl }
 
-  {$IFDEF MSWINDOWS}
-  TOmniContainerWindowsMessageObserverImpl = class(TOmniContainerWindowsMessageObserver)
-  strict private
-    cwmoHandle  : THandle;
-    cwmoLParam  : LPARAM;
-    cwmoMessage : cardinal;
-    cwmoWParam  : WPARAM;
-  strict protected
-    function  GetHandle: THandle; override;
-    procedure PostWithRetry(msg: UINT; wParam: WPARAM; lParam: LPARAM);
-  public
-    constructor Create(handle: THandle; aMessage: cardinal; wParam: WPARAM; lParam: LPARAM);
-    procedure Send(aMessage: cardinal; wParam: WPARAM; lParam: LPARAM); override;
-    procedure Notify; override;
-  end; { TOmniContainerWindowsMessageObserver }
-  {$ENDIF MSWINDOWS}
-
 { exports }
 
 function CreateContainerEventObserver(const externalEvent: IOmniEvent = nil):
@@ -217,14 +186,6 @@ function CreateContainerPlatformObserver(notify: IOmniEventMonitorNotify;
 begin
   Result := TOmniContainerPlatformObserverImpl.Create(notify, objectID);
 end; { CreateContainerPlatformObserver }
-
-{$IFDEF MSWINDOWS}
-function CreateContainerWindowsMessageObserver(hWindow: THandle; msg: cardinal;
-  wParam: WPARAM; lParam: LPARAM): TOmniContainerWindowsMessageObserver;
-begin
-  Result := TOmniContainerWindowsMessageObserverImpl.Create(hWindow, msg, wParam, lParam);
-end; { CreateContainerWindowsMessageObserver }
-{$ENDIF MSWINDOWS}
 
 { TOmniContainerObserver }
 
@@ -267,66 +228,6 @@ procedure TOmniContainerEventObserverImpl.Notify;
 begin
   ceoEvent.SetEvent;
 end; { TOmniContainerWindowsEventObserverImpl.Notify }
-
-{$IFDEF MSWINDOWS}
-
-{ TOmniContainerWindowsMessageObserver }
-
-constructor TOmniContainerWindowsMessageObserverImpl.Create(handle: THandle; aMessage:
-  cardinal; wParam: WPARAM; lParam: LPARAM);
-begin
-  inherited Create;
-  cwmoHandle := handle;
-  cwmoMessage := aMessage;
-  cwmoWParam := wParam;
-  cwmoLParam := lParam;
-end; { TOmniContainerWindowsMessageObserver.Create }
-
-function TOmniContainerWindowsMessageObserverImpl.GetHandle: THandle;
-begin
-  Result := cwmoHandle;
-end; { TOmniContainerWindowsMessageObserverImpl.GetHandle }
-
-procedure TOmniContainerWindowsMessageObserverImpl.Notify;
-begin
-  PostWithRetry(cwmoMessage, cwmoWParam, cwmoLParam);
-end; { TOmniContainerWindowsMessageObserver.Notify }
-
-procedure TOmniContainerWindowsMessageObserverImpl.PostWithRetry(msg: UINT;
-  wParam: WPARAM; lParam: LPARAM);
-const
-  CInitialSleep = 1 {ms};
-  CSecondSleep  = 5 {ms};
-  CMaxTries     = 1000;
-var
-  lasterr: cardinal;
-  retry  : integer;
-  wait   : integer;
-begin
-  retry := 0;
-  wait := CInitialSleep;
-  while not PostMessage(cwmoHandle, msg, wParam, lParam) do begin
-    Inc(retry);
-    lasterr := GetLastError;
-    if (lasterr = ERROR_NOT_ENOUGH_QUOTA) and (retry < CMaxTries) then begin
-      Sleep(wait);
-      wait := CSecondSleep;
-    end
-    else if lasterr = ERROR_INVALID_WINDOW_HANDLE then
-      RaiseLastOSError(lasterr,
-                       #13#10'Possible cause: Thread that created OmniThreadLibrary task does not exist anymore. Task should be destroyed in the same thread that created it.')
-    else
-      RaiseLastOSError(lasterr);
-  end;
-end; { TOmniContainerWindowsMessageObserverImpl.PostWithRetry }
-
-procedure TOmniContainerWindowsMessageObserverImpl.Send(aMessage: cardinal;
-  wParam: WPARAM; lParam: LPARAM);
-begin
-  PostWithRetry(aMessage, wParam, lParam);
-end; { TOmniContainerWindowsMessageObserverImpl.Send }
-
-{$ENDIF MSWINDOWS}
 
 { TOmniContainerSubject }
 

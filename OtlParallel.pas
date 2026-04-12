@@ -374,9 +374,6 @@ interface
 //   core and that 2*<number of cores> is a good number of threads for this particular task.
 
 uses
-  {$IFDEF MSWINDOWS}
-  Winapi.Messages,
-  {$ENDIF MSWINDOWS}
   System.SysUtils,
   System.TypInfo,
   System.RTTI,
@@ -1299,10 +1296,21 @@ uses
   System.Classes,
   System.Math,
   System.StrUtils,
+  OtlBackgroundObserver,
   OtlComm,
   OtlContainerObserver;
 
 type
+  {:Observer that dispatches notifications to the main thread via TThread.Queue.
+    Used by TOmniBackgroundWorker for main-thread owners.}
+  TOmniContainerQueueObserver = class(TOmniContainerObserver)
+  strict private
+    FOnNotify: TProc;
+  public
+    constructor Create(const aOnNotify: TProc);
+    procedure Notify; override;
+  end; { TOmniContainerQueueObserver }
+
   IOmniPipelineStageEx = interface ['{C34393C7-E9EE-4CE7-895F-EECA553F4E54}']
     function  GetHandleExceptions: boolean;
     function  GetNumTasks: integer;
@@ -1549,11 +1557,6 @@ type
     property Interval: integer read GetInterval write SetInterval;
   end; { TOmniTimedTask }
 
-{$IFDEF MSWINDOWS}
-const
-  MSG_WORK_ITEM_DONE = WM_USER; // used only in internal window created inside TOmniBackgroundWorker
-{$ENDIF MSWINDOWS}
-
 type
   IOmniWorkItemConfigEx = interface ['{42CEC5CB-404F-4868-AE81-6A13AD7E3C6B}']
     function  GetOnExecute: TOmniBackgroundWorkerDelegate;
@@ -1635,26 +1638,21 @@ type
     FCancelAllToID    : TOmniAlignedInt64;
     FDefaultConfig    : IOmniWorkItemConfig;
     FDefaultConfigEx  : IOmniWorkItemConfigEx;
+    FBgObserver       : TObject; {TOmniContainerBackgroundObserver — for non-main-thread owners}
     FNumTasks         : integer;
-    {$IFDEF MSWINDOWS}
     FObserver         : TOmniContainerObserver;
-    {$ENDIF MSWINDOWS}
     FOnStop           : TOmniTaskStopDelegate;
+    FOwnerThreadID    : TThreadID;
     FStopOn           : IOmniCancellationToken;
     FTaskConfig       : IOmniTaskConfig;
     FTaskFinalizer    : TOmniTaskFinalizerDelegate;
     FTaskInitializer  : TOmniTaskInitializerDelegate;
     FUniqueID         : IOmniCounter;
-    {$IFDEF MSWINDOWS}
-    FWindow           : THandle;
-    {$ENDIF MSWINDOWS}
     FWorker           : IOmniPipeline;
   strict protected
     procedure BackgroundWorker(const input, output: IOmniBlockingCollection;
       const task: IOmniTask);
-    {$IFDEF MSWINDOWS}
-    procedure ObserverWndProc(var message: TMessage);
-    {$ENDIF MSWINDOWS}
+    procedure DrainOutput;
   public
     constructor Create;
     destructor  Destroy; override;
@@ -4555,6 +4553,23 @@ begin
   Result := Self;
 end; { TOmniWorkItemConfig.OnRequestDone_Asy }
 
+{ TOmniContainerQueueObserver }
+
+constructor TOmniContainerQueueObserver.Create(const aOnNotify: TProc);
+begin
+  inherited Create;
+  FOnNotify := aOnNotify;
+end; { TOmniContainerQueueObserver.Create }
+
+procedure TOmniContainerQueueObserver.Notify;
+begin
+  TThread.Queue(nil,
+    procedure
+    begin
+      FOnNotify();
+    end);
+end; { TOmniContainerQueueObserver.Notify }
+
 { TOmniBackgroundWorker }
 
 constructor TOmniBackgroundWorker.Create;
@@ -4643,11 +4658,20 @@ begin
                      FOnStop(task);
                  end);
 
-  {$IFDEF MSWINDOWS}
-  FWindow := System.Classes.AllocateHWnd(ObserverWndProc);
-  FObserver := CreateContainerWindowsMessageObserver(FWindow, MSG_WORK_ITEM_DONE, 0, 0);
-  FWorker.Output.ContainerSubject.Attach(FObserver, coiNotifyOnAllInserts);
-  {$ENDIF MSWINDOWS}
+  FOwnerThreadID := TThread.Current.ThreadID;
+  if FOwnerThreadID = MainThreadID then begin
+    FObserver := TOmniContainerQueueObserver.Create(DrainOutput);
+    FWorker.Output.ContainerSubject.Attach(FObserver, coiNotifyOnAllInserts);
+  end
+  else begin
+    FBgObserver := CreateContainerBackgroundObserver(FOwnerThreadID, DrainOutput);
+    FWorker.Output.ContainerSubject.Attach(
+      TOmniContainerBackgroundObserver(FBgObserver), coiNotifyOnAllInserts);
+    {$IFNDEF OTL_HasAPC}
+    RegisterBackgroundObserver(
+      TOmniContainerBackgroundObserver(FBgObserver));
+    {$ENDIF}
+  end;
   FWorker.Run;
   Result := Self;
 end; { TOmniBackgroundWorker.Execute }
@@ -4678,21 +4702,16 @@ begin
   Result := Self;
 end; { TOmniBackgroundWorker.NumTasks }
 
-{$IFDEF MSWINDOWS}
-procedure TOmniBackgroundWorker.ObserverWndProc(var message: TMessage);
+procedure TOmniBackgroundWorker.DrainOutput;
 var
   ovWorkItem: TOmniValue;
   workItem  : IOmniWorkItem;
 begin
-  if message.Msg = MSG_WORK_ITEM_DONE then begin
-    while FWorker.Output.TryTake(ovWorkItem) do begin
-      workItem := ovWorkItem.AsInterface as IOmniWorkItem;
-      ((workItem as IOmniWorkItemEx).Config as IOmniWorkItemConfigEx).GetOnRequestDone()(Self, workItem);
-    end;
-    message.Result := Ord(true);
+  while FWorker.Output.TryTake(ovWorkItem) do begin
+    workItem := ovWorkItem.AsInterface as IOmniWorkItem;
+    ((workItem as IOmniWorkItemEx).Config as IOmniWorkItemConfigEx).GetOnRequestDone()(Self, workItem);
   end;
-end; { TOmniBackgroundWorker.ObserverWndProc }
-{$ENDIF MSWINDOWS}
+end; { TOmniBackgroundWorker.DrainOutput }
 
 function TOmniBackgroundWorker.OnRequestDone(const aTask: TOmniWorkItemDoneDelegate):
   IOmniBackgroundWorker;
@@ -4763,15 +4782,21 @@ end; { TOmniBackgroundWorker.TaskConfig }
 function TOmniBackgroundWorker.Terminate(timeout_ms: cardinal): boolean;
 begin
   Result := WaitFor(timeout_ms);
-  {$IFDEF MSWINDOWS}
   if Result then begin
     if assigned(FObserver) then begin
       FWorker.Output.ContainerSubject.Detach(FObserver, coiNotifyOnAllInserts);
       FreeAndNil(FObserver);
     end;
-    System.Classes.DeallocateHWnd(FWindow);
+    if assigned(FBgObserver) then begin
+      FWorker.Output.ContainerSubject.Detach(
+        TOmniContainerBackgroundObserver(FBgObserver), coiNotifyOnAllInserts);
+      {$IFNDEF OTL_HasAPC}
+      UnregisterBackgroundObserver(
+        TOmniContainerBackgroundObserver(FBgObserver));
+      {$ENDIF}
+      FreeAndNil(FBgObserver);
+    end;
   end;
-  {$ENDIF MSWINDOWS}
 end; { TOmniBackgroundWorker.Terminate }
 
 function TOmniBackgroundWorker.WaitFor(timeout_ms: cardinal): boolean;

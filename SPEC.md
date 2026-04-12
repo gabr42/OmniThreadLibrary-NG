@@ -301,12 +301,15 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Replaced `IFF` (GpStuff) → `IfThen` (System.Math/System.StrUtils)
 - [x] All 61 unit tests pass
 
-#### 3.1.1 Further cleanup (deferred)
-- [ ] **Keep all abstractions**: `Parallel.For`, `Parallel.ForEach`, `Parallel.Join`, `Parallel.Future`, `Parallel.Pipeline`, `Parallel.Map`, `Parallel.TimedTask`, `Parallel.Async`, `Parallel.BackgroundWorker`
+#### 3.1.1 Further cleanup
+- [x] **Keep all abstractions**: `Parallel.For`, `Parallel.ForEach`, `Parallel.Join`, `Parallel.Future`, `Parallel.Pipeline`, `Parallel.Map`, `Parallel.TimedTask`, `Parallel.Async`, `Parallel.BackgroundWorker`
 - [x] **Drop**: `Parallel.ForkJoin`
 - [x] Replace `WaitForSingleObject(FCountStopped.Handle, ...)` with `IOmniEvent.WaitFor`
-- [ ] Replace remaining `THandle` usage with `IOmniEvent`
-- [ ] All `ForEach` configuration options stay (`.NumTasks`, `.NoWait`, `.OnStop`, `.Aggregate`, `.Into`, `.PreserveOrder`, etc.)
+- [x] Replace remaining `THandle` usage — removed hidden window from `TOmniBackgroundWorker`, replaced with `TThread.Queue`-based observer (main thread) and `CreateContainerBackgroundObserver` (background threads)
+- [x] Removed `TOmniContainerWindowsMessageObserver` from `OtlContainerObserver.pas` (dead code after `TOmniBackgroundWorker` change)
+- [x] Removed `Winapi.Messages` dependency from `OtlParallel.pas`
+- [x] Removed `Winapi.Windows` dependency from `OtlContainerObserver.pas`
+- [x] All `ForEach` configuration options stay (`.NumTasks`, `.NoWait`, `.OnStop`, `.Aggregate`, `.Into`, `.PreserveOrder`, etc.)
 - [x] Completion notification via CV/event (not Windows handles)
 
 ### 3.2 OtlDataManager.pas
@@ -353,7 +356,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 
 ### 5.1 Remove dead code
 - [x] Remove all `{$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}` dual paths — already completed (no instances remain in core .pas files)
-- [x] Remove unused Windows-specific observer classes — removed `TOmniContainerWindowsEventObserver` (dead code, never called outside its own unit); `TOmniContainerWindowsMessageObserver` stays (used by `TOmniBackgroundWorker`)
+- [x] Remove unused Windows-specific observer classes — removed `TOmniContainerWindowsEventObserver` and `TOmniContainerWindowsMessageObserver` (both replaced by cross-platform alternatives)
 - [x] Remove package registration files (design-time packages dropped) — removed all pre-Delphi 11 package dirs, design-time .dpk/.dproj/.res, OtlRegister.pas, OtlEventMonitor.dcr; kept Delphi 11 runtime package
 - [x] Remove support for Delphi versions < 11 — removed all transitional defines from OtlOptions.inc and their usage sites across OtlCommon, OtlSync, OtlParallel, OtlEventMonitor, OtlCommon.Utils, TestOmniValue
 
