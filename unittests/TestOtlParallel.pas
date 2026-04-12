@@ -3,7 +3,7 @@ unit TestOtlParallel;
 interface
 
 uses
-  TestFramework, GpStuff, OtlContainers, SysUtils;
+  TestFramework, OtlContainers, SysUtils;
 
 type
   // Test methods for class IOmniBlockingCollection

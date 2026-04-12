@@ -3,7 +3,7 @@ unit TestOtlDataManager1;
 interface
 
 uses
-  TestFramework, OtlCommon, OtlDataManager, OtlCollections, GpStuff;
+  TestFramework, OtlCommon, OtlDataManager, OtlCollections;
 
 type
   TestTOmniDataManager = class(TTestCase)

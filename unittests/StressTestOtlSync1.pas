@@ -3,7 +3,7 @@ unit StressTestOtlSync1;
 interface
 
 uses
-  TestFramework, GpStuff, Windows, DSiWin32, OtlContainers, SysUtils,
+  TestFramework, OtlContainers, SysUtils,
   OtlContainerObserver, OtlCollections, OtlCommon, OtlSync, OtlTask;
 
 type
@@ -23,6 +23,7 @@ implementation
 
 uses
   System.SyncObjs,
+  OtlPlatform,
   OtlTaskControl;
 
 const
@@ -50,10 +51,10 @@ var
   i        : integer;
   startTime: int64;
 begin
-  startTime := DSiTimeGetTime64;
+  startTime := Time.Timestamp_ms;
   // run this thread for 1 sec less than ResourceRelease - if resources are no longer
   // released, the code will hang in Allocate
-  while not DSiHasElapsed64(startTime, (CResourceCountStressTest_sec - 2) * 1000) do
+  while not Time.HasElapsed(startTime, (CResourceCountStressTest_sec - 2) * 1000) do
     for i := 1 to 10 do begin
       FResourceCount.Allocate;
       FQueuedCount.Increment;
@@ -64,8 +65,8 @@ procedure TestOtlSync.ResourceRelease(const task: IOmniTask);
 var
   startTime: int64;
 begin
-  startTime := DSiTimeGetTime64;
-  while not DSiHasElapsed64(startTime, (CResourceCountStressTest_sec - 1) * 1000) do
+  startTime := Time.Timestamp_ms;
+  while not Time.HasElapsed(startTime, (CResourceCountStressTest_sec - 1) * 1000) do
     if FQueuedCount.Value > 0 then begin
       FQueuedCount.Decrement;
       FResourceCount.Release;
@@ -85,7 +86,7 @@ var
   var
     wait: int64;
   begin
-    wait := (CResourceCountStressTest_sec * 1000 + 1000) - DSiElapsedTime64(startTime);
+    wait := (CResourceCountStressTest_sec * 1000 + 1000) - Time.Elapsed_ms(startTime);
     if wait < 0 then
       Result := 0
     else
@@ -105,7 +106,7 @@ begin
       for i := Low(release) to High(release) do
         release[i] := CreateTask(ResourceRelease, 'ResourceRelease');
 
-      startTime := DSiTimeGetTime64;
+      startTime := Time.Timestamp_ms;
       for i := Low(alloc) to High(alloc) do
         alloc[i].Run;
       for i := Low(release) to High(release) do

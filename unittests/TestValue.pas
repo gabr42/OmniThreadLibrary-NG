@@ -2,20 +2,17 @@ unit TestValue;
 
 interface
 
-uses
-  GpStuff;
-
 var
   GTestValueCount: integer;
 
 type
-  ITestValue = interface(IGpTraceable) ['{48E54332-2E07-47F5-A6AE-63CF75168CA6}']
+  ITestValue = interface ['{48E54332-2E07-47F5-A6AE-63CF75168CA6}']
     function  GetValue: integer;
     procedure SetValue(const value: integer);
     property Value: integer read GetValue write SetValue;
   end;
 
-  TTestValue = class(TGpTraceable, ITestValue)
+  TTestValue = class(TInterfacedObject, ITestValue)
   strict private
     FValue: integer;
   protected

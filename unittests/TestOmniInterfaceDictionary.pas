@@ -12,7 +12,7 @@ unit TestOmniInterfaceDictionary;
 interface
 
 uses
-  TestFramework, GpStuff, Classes, SysUtils, Variants,
+  TestFramework, Classes, SysUtils, Variants,
   OtlCommon;
 
 type

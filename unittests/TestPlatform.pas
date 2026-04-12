@@ -20,9 +20,6 @@ implementation
 uses
   System.SysUtils,
   System.Diagnostics,
-  {$IFDEF MSWINDOWS}
-  DSiWin32,
-  {$ENDIF MSWINDOWS}
   OtlPlatform,
   OtlSync;
 

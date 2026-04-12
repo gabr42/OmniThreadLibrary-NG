@@ -12,7 +12,7 @@ unit TestOmniValue;
 interface
 
 uses
-  TestFramework, GpStuff, Classes, SysUtils, Variants,
+  TestFramework, Classes, SysUtils, Variants,
   OtlCommon;
 
 {$I OtlOptions.inc}

@@ -3,7 +3,7 @@ unit TestBlockingCollection1;
 interface
 
 uses
-  TestFramework, GpStuff, OtlContainers, SysUtils,
+  TestFramework, OtlContainers, SysUtils,
   OtlContainerObserver, OtlCollections, OtlCommon, OtlSync;
 
 type

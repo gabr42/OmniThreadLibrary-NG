@@ -4,7 +4,7 @@ interface
 
 {$IFDEF Unicode}
 uses
-  TestFramework, GpStuff, Windows, DSiWin32, OtlContainers, SysUtils,
+  TestFramework, Windows, OtlContainers, SysUtils,
   OtlContainerObserver, OtlCollections, OtlCommon, OtlSync;
 
 type

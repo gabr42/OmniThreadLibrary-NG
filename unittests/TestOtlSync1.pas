@@ -5,10 +5,7 @@ unit TestOtlSync1;
 interface
 
 uses
-  TestFramework, GpStuff,
-  {$IFDEF MSWindows}
-  Windows, DSiWin32,
-  {$ENDIF}
+  TestFramework,
   System.SysUtils, System.SyncObjs, System.Classes, System.Threading, System.Diagnostics,
   OtlContainers,
   OtlContainerObserver, OtlCollections, OtlCommon, OtlSync, OtlSync.Utils,
@@ -586,11 +583,7 @@ end;
 
 procedure TestOtlSync.Asy_AtomicInit(const cancel: IOmniCancellationToken);
 begin
-  {$IFDEF MSWindows}
-  WaitForSingleObject(cancel.Handle, INFINITE);
-  {$ELSE}
   cancel.Event.WaitFor(INFINITE);
-  {$ENDIF}
 
   Atomic<TSingleton>.Initialize(FSingleton,
     function: TSingleton begin Result := TSingleton.Create; end);
@@ -627,11 +620,7 @@ end;
 
 procedure TestOtlSync.Asy_AtomicInitIntf(const cancel: IOmniCancellationToken);
 begin
-  {$IFDEF MSWIndows}
-  WaitForSingleObject(cancel.Handle, INFINITE);
-  {$ELSE}
   cancel.Event.WaitFor(INFINITE);
-  {$ENDIF}
   Atomic<ISingleton>.Initialize(FSingletonIntf,
     function: ISingleton begin Result := TSingleton.Create; end);
 end;

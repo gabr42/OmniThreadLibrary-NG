@@ -8,7 +8,6 @@ uses
   SysUtils,
   {$IFDEF MSWindows}
   Windows,
-  DSiWin32,
   {$ENDIF}
   TestFramework;
 
