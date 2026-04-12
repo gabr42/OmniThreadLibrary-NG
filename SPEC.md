@@ -71,7 +71,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] CAS8/CAS16: Byte-in-word CAS technique with retry loop
 
 #### 1.2.3 Unify TOmniTransitionEvent
-- [ ] `TOmniTransitionEvent = IOmniEvent` on ALL platforms (deferred — cascades to OtlComm.pas)
+- [x] `TOmniTransitionEvent = IOmniEvent` on ALL platforms (completed in Step 2.3)
 - [x] `IOmniEvent` wraps `System.SyncObjs.TEvent` — already cross-platform
 - [x] Remove `IOmniHandleObject` interface (replaced by `IOmniSynchroObject`)
 - [x] Unify `IOmniCancellationToken` — always uses `IOmniEvent` internally
@@ -82,7 +82,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] On Windows: condition variables used for WaitAll/WaitAny; `MsgWaitAny` uses `MsgWaitForMultipleObjectsEx` directly
 - [x] `TWaitFor` class is the single implementation on all platforms
 - [x] Windows-only convenience: `Create(THandle[])`, `SetHandles`, `MsgWaitAny`, `WaitHandles` property
-- [ ] Remove `MsgWaitForMultipleObjectsEx` usage from task loop (see Phase 2)
+- [x] Remove `MsgWaitForMultipleObjectsEx` usage from task loop (completed in Step 2.3.1)
 
 #### 1.2.5 TOmniResourceCount
 - [x] Replace Windows event handle implementation with `IOmniEvent`-based implementation
@@ -207,13 +207,16 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Fixed stale `TSynchroWaitFor` references → `TWaitFor` (renamed in Step 1.2)
 - [x] All 61 unit tests pass
 
-#### 2.3.1 Task execution loop redesign
-- [ ] Replace `MsgWaitForMultipleObjectsEx`-based `WaitForEvent` with CV-based `TWaitFor.WaitAny`
-- [ ] **Deferred from 1.2.4**: Remove `MsgWaitForMultipleObjectsEx` usage from task loop — currently `TWaitFor.MsgWaitAny` wraps it for backward compat
+#### 2.3.1 Task execution loop redesign ✅
+- [x] Replace `MsgWaitForMultipleObjectsEx`-based `WaitForEvent` with CV-based `TWaitFor.WaitAny`
+- [x] **Deferred from 1.2.4**: Remove `MsgWaitForMultipleObjectsEx` usage from task loop — `WaitForEvent` now uses `WaitAny` unconditionally
 - [x] The task loop waits on: communication channel event + termination event + timer timeout + custom wait objects
 - [x] All wait objects are `IOmniEvent` (unified type)
-- [ ] Remove Windows message processing from the task loop (`ProcessThreadMessages`)
+- [x] Remove Windows message processing from the task loop (`ProcessThreadMessages`)
 - [x] Timer dispatch remains polling-based (already platform-independent)
+- [x] Deprecated `MsgWait` and `Alertable` methods (now no-ops)
+- [x] Removed `Winapi.Messages` dependency from OtlTaskControl.pas
+- [x] All 61 unit tests pass
 
 #### 2.3.2 Owner thread notification
 - [ ] **OTL worker threads (owner is OTL task)**: Notification via condition variable wake on the owner's wait loop

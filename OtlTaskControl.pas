@@ -35,9 +35,16 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack
 ///   Last modification : 2026-04-12
-///   Version           : 2.04
+///   Version           : 2.05
 ///</para><para>
 ///   History:
+///     2.05: 2026-04-12
+///       - Replaced MsgWaitForMultipleObjectsEx-based WaitForEvent with
+///         CV-based TWaitFor.WaitAny on all platforms.
+///       - Removed Windows thread message pumping from task loop
+///         (ProcessThreadMessages).
+///       - Removed Winapi.Messages dependency.
+///       - Deprecated MsgWait and Alertable methods (now no-ops).
 ///     2.04: 2026-04-12
 ///       - Unified TOmniTransitionEvent = IOmniEvent on all platforms.
 ///       - Removed all OTL_PlatformIndependent conditionals.
@@ -101,7 +108,6 @@ uses
   OtlCommon,
   {$IFDEF MSWINDOWS}
   Winapi.Windows,
-  Winapi.Messages,
   {$ENDIF ~MSWINDOWS}
   System.Generics.Collections,
   System.SysUtils,
@@ -230,7 +236,7 @@ type
     function  GetUserDataVal(const idxData: TOmniValue): TOmniValue;
     procedure SetUserDataVal(const idxData: TOmniValue; const value: TOmniValue);
   //
-    function  Alertable: IOmniTaskControl;
+    function  Alertable: IOmniTaskControl; deprecated 'No longer needed - task loop uses CV-based waiting';
     function  CancelWith(const token: IOmniCancellationToken): IOmniTaskControl;
     function  ChainTo(const task: IOmniTaskControl; ignoreErrors: boolean = false): IOmniTaskControl;
     function  ClearTimer(timerID: integer): IOmniTaskControl;
@@ -253,7 +259,7 @@ type
     function  Join(const group: IOmniTaskGroup): IOmniTaskControl;
     function  Leave(const group: IOmniTaskGroup): IOmniTaskControl;
     function  MonitorWith(const monitor: IOmniTaskControlMonitor): IOmniTaskControl;
-    function  MsgWait({$IFDEF MSWINDOWS}wakeMask: DWORD = QS_ALLEVENTS{$ELSE}wakeAll: boolean = true{$ENDIF}): IOmniTaskControl;
+    function  MsgWait: IOmniTaskControl; deprecated 'No longer needed - task loop uses CV-based waiting';
     function  NUMANode(numaNodeNumber: integer): IOmniTaskControl;
     function  OnMessage(eventDispatcher: TObject): IOmniTaskControl; overload;
     function  OnMessage(eventHandler: TOmniTaskMessageEvent): IOmniTaskControl; overload;
@@ -545,12 +551,6 @@ type
       NumWaitHandles    : integer;
       WaitHandles       : TOmniSynchroArray;
       Waiter            : TWaitFor;
-      {$IFDEF MSWINDOWS}
-      WaitFlags         : DWORD;
-      WaitWakeMask      : DWORD;
-      {$ELSE}
-      WaitWakeAll       : boolean;
-      {$ENDIF ~MSWINDOWS}
       function  AsString: string;
       function  GetSynchroIndex(WaitResult: TWaitResult; const Handle: IOmniSynchro): integer;
     end;
@@ -578,11 +578,6 @@ type
     oteTerminateHandles  : TList<IOmniSynchro>;
     oteTerminating       : boolean;
     oteTimers            : TList<TPair<int64, TOmniTaskTimerInfo>>;
-    {$IFDEF MSWINDOWS}
-    oteWakeMask          : DWORD;
-    {$ELSE}
-    oteWakeAll           : boolean;
-    {$ENDIF ~MSWINDOWS}
     oteWaitHandlesGen    : int64;
     oteWaitObjectList    : TOmniWaitObjectList;
     oteWorkerInitialized : IOmniEvent;
@@ -609,9 +604,6 @@ type
     procedure Initialize;
     procedure InsertTimer(wakeUpTime_ms: int64; timerInfo: TOmniTaskTimerInfo);
     function  LocateTimer(timerID: integer): integer;
-    {$IFDEF MSWINDOWS}
-    procedure ProcessThreadMessages;
-    {$ENDIF MSWINDOWS}
     procedure RemoveTerminationEvents(const srcMsgInfo: TOmniMessageInfo; var dstMsgInfo:
       TOmniMessageInfo);
     procedure ReportInvalidHandle(msgInfo: TOmniMessageInfo);
@@ -659,11 +651,6 @@ type
     property Priority: TOTLThreadPriority read otePriority write otePriority;
     property TaskException: Exception read oteException write oteException;
     property Terminating: boolean read oteTerminating write oteTerminating;
-    {$IFDEF MSWINDOWS}
-    property WakeMask: DWORD read oteWakeMask write oteWakeMask;
-    {$ELSE}
-    property WakeAll: boolean read oteWakeAll write oteWakeAll;
-    {$ENDIF ~MSWINDOWS}
     property WorkerInitialized: IOmniEvent read oteWorkerInitialized;
     property WorkerInitOK: boolean read oteWorkerInitOK;
     property WorkerIntf: IOmniWorker read oteWorkerIntf;
@@ -820,7 +807,7 @@ type
     constructor Create(worker: TOmniTaskProcedure; const taskName: string); overload;
     constructor Create(worker: TOmniTaskDelegate; const taskName: string); overload;
     destructor  Destroy; override;
-    function  Alertable: IOmniTaskControl;
+    function  Alertable: IOmniTaskControl; deprecated 'No longer needed - task loop uses CV-based waiting';
     function  CancelWith(const token: IOmniCancellationToken): IOmniTaskControl;
     function  ChainTo(const task: IOmniTaskControl; ignoreErrors: boolean = false): IOmniTaskControl;
     function  ClearTimer(timerID: integer = 0): IOmniTaskControl;
@@ -838,7 +825,7 @@ type
     function  Join(const group: IOmniTaskGroup): IOmniTaskControl;
     function  Leave(const group: IOmniTaskGroup): IOmniTaskControl;
     function  MonitorWith(const monitor: IOmniTaskControlMonitor): IOmniTaskControl;
-    function  MsgWait({$IFDEF MSWINDOWS}wakeMask: DWORD = QS_ALLEVENTS{$ELSE}wakeAll: boolean = true{$ENDIF}): IOmniTaskControl;
+    function  MsgWait: IOmniTaskControl; deprecated 'No longer needed - task loop uses CV-based waiting';
     function  NUMANode(numaNodeNumber: integer): IOmniTaskControl;
     function  OnMessage(eventDispatcher: TObject): IOmniTaskControl; overload;
     function  OnMessage(eventHandler: TOmniTaskMessageEvent): IOmniTaskControl; overload;
@@ -1888,15 +1875,8 @@ begin
   rebuildHandles := false;
   if awaited = waFailed then
     // do-nothing; it is possible that the handle was closed and unregistered but handle array was not rebuilt yet and WaitForEvent returned this error
-  else if awaited = waIOCompletion then
-    // do-nothing
   else if awaited = waTimeout then
     CheckTimers
-  else if awaited = waMessage then begin
-    // thread messages are always processed below
-    if assigned(WorkerIntf) then
-      WorkerIntf.ProcessThreadMessages;
-  end
   else if awaited <> waAwaited then
     raise Exception.Create('TOmniTaskExecutor.DispatchEvent: Unexpected TWaitResult')
   else begin
@@ -1929,9 +1909,6 @@ begin
     end;
   end;
 
-  {$IFDEF MSWINDOWS}
-  ProcessThreadMessages;
-  {$ENDIF MSWINDOWS}
   if rebuildHandles then begin
     RebuildWaitHandles(task, msgInfo);
     EmptyMessageQueues(task);
@@ -1955,24 +1932,6 @@ begin
       oteWorkerInitOK := true;
     finally WorkerInitialized.SetEvent; end;
 
-    if tcoMessageWait in Options then
-      {$IFDEF MSWINDOWS}
-      oteMsgInfo.WaitWakeMask := WakeMask
-      {$ELSE}
-      oteMsgInfo.WaitWakeAll := WakeAll
-      {$ENDIF}
-    else
-      {$IFDEF MSWINDOWS}
-      oteMsgInfo.WaitWakeMask := 0;
-      {$ELSE}
-      oteMsgInfo.WaitWakeAll := false;
-      {$ENDIF}
-    {$IFDEF MSWINDOWS}
-    if tcoAlertableWait in Options then
-      oteMsgInfo.WaitFlags := MWMO_ALERTABLE
-    else
-      oteMsgInfo.WaitFlags := 0;
-    {$ENDIF}
     RebuildWaitHandles(task, oteMsgInfo);
     MainMessageLoop(task, oteMsgInfo);
   finally
@@ -2367,18 +2326,6 @@ begin
   finally msgInfo.Waiter.Free; end;
 end; { TOmniTaskExecutor.ProcessMessages }
 
-{$IFDEF MSWINDOWS}
-procedure TOmniTaskExecutor.ProcessThreadMessages;
-var
-  msg: TMsg;
-begin
-  while PeekMessage(Msg, 0, 0, 0, PM_REMOVE) and (Msg.Message <> WM_QUIT) do begin
-    TranslateMessage(Msg);
-    DispatchMessage(Msg);
-  end;
-end; { TOmniTaskExecutor.ProcessThreadMessages }
-{$ENDIF MSWINDOWS}
-
 procedure TOmniTaskExecutor.RebuildWaitHandles(const task: IOmniTask; var msgInfo:
   TOmniMessageInfo);
 var
@@ -2453,12 +2400,6 @@ begin
   dstMsgInfo.IdxLastMessage := srcMsgInfo.IdxLastMessage - offset;
   dstMsgInfo.IdxRebuildHandles := srcMsgInfo.IdxRebuildHandles - offset;
   dstMsgInfo.NumWaitHandles := srcMsgInfo.NumWaitHandles - offset;
-  {$IFDEF MSWINDOWS}
-  dstMsgInfo.WaitFlags := srcMsgInfo.WaitFlags;
-  dstMsgInfo.WaitWakeMask := srcMsgInfo.WaitWakeMask;
-  {$ELSE}
-  dstMsgInfo.WaitWakeAll := srcMsgInfo.WaitWakeAll;
-  {$ENDIF ~MSWINDOWS}
   SetLength(dstMsgInfo.WaitHandles, dstMsgInfo.NumWaitHandles);
   for var i := 0 to dstMsgInfo.NumWaitHandles - 1 do
     dstMsgInfo.WaitHandles[i] := srcMsgInfo.WaitHandles[offset + i];
@@ -2493,11 +2434,6 @@ end; { TOmniTaskExecutor.ReportInvalidHandle}
 
 procedure TOmniTaskExecutor.SetOptions(const value: TOmniTaskControlOptions);
 begin
-  if (([tcoAlertableWait, tcoMessageWait] * Options) <> []) and
-     (oteExecutorType <> etWorker)
-  then
-    raise Exception.Create('TOmniTaskExecutor.SetOptions: ' +
-      'Trying to set IOmniWorker specific option(s)');
   oteOptionsLock.Acquire;
   try
     oteOptions := value;
@@ -2632,11 +2568,7 @@ function TOmniTaskExecutor.WaitForEvent(const msgInfo: TOmniMessageInfo;
 begin
   if assigned(WorkerIntf) then
     WorkerIntf.BeforeWait(timeout_ms);
-  {$IFDEF MSWINDOWS}
-  Result := msgInfo.Waiter.MsgWaitAny(timeout_ms, msgInfo.WaitWakeMask, msgInfo.WaitFlags);
-  {$ELSE}
   Result := msgInfo.Waiter.WaitAny(timeout_ms);
-  {$ENDIF MSWINDOWS}
   {$IFDEF Debug}
   if Result = waFailed then
     OutputDebugString(PChar(Format('*** TOmniTaskExecutor.WaitForEvent failed with error [%d] %s',
@@ -2721,7 +2653,7 @@ end; { TOmniTaskControl.EnsureCommChannel }
 
 function TOmniTaskControl.Alertable: IOmniTaskControl;
 begin
-  Options := Options + [tcoAlertableWait];
+  // No-op: alertable waits are no longer supported in the CV-based task loop.
   Result := Self;
 end; { TOmniTaskControl.Alertable }
 
@@ -3011,14 +2943,9 @@ begin
   Result := Self;
 end; { TOmniTaskControl.MonitorWith }
 
-function TOmniTaskControl.MsgWait({$IFDEF MSWINDOWS}wakeMask: DWORD = QS_ALLEVENTS{$ELSE}wakeAll: boolean = true{$ENDIF}): IOmniTaskControl;
+function TOmniTaskControl.MsgWait: IOmniTaskControl;
 begin
-  Options := Options + [tcoMessageWait];
-  {$IFDEF MSWINDOWS}
-  otcExecutor.WakeMask := wakeMask;
-  {$ELSE}
-  otcExecutor.WakeAll := wakeAll;
-  {$ENDIF ~MSWINDOWS}
+  // No-op: task loop uses CV-based waiting, Windows message pumping removed.
   Result := Self;
 end; { TOmniTaskControl.MsgWait }
 
