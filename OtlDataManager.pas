@@ -1043,10 +1043,12 @@ begin
   finally dmQueueLock.Release; end;
 end; { TOmniBaseDataManager.CreateLocalQueue }
 
+{$HINTS OFF} // H2445: TList<>.GetItem inline not expanded — Delphi compiler limitation
 function TOmniBaseDataManager.GetBufferList(idxBuffer: integer): TOmniOutputBufferImpl;
 begin
   Result := TOmniOutputBufferImpl(dmBufferRangeList[idxBuffer].Value);
 end; { TOmniBaseDataManager.GetBufferList }
+{$HINTS ON}
 
 function TOmniBaseDataManager.GetDataCountForGeneration(generation: integer): integer;
 begin

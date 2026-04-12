@@ -34,9 +34,11 @@ begin
   TestInsight.DUnit.RunRegisteredTests;
 {$ELSE}
   TextTestRunner.RunRegisteredTests;
+  {$WARN SYMBOL_PLATFORM OFF}
   if DebugHook <> 0 then begin
     Write('> ');
     Readln;
   end;
+  {$WARN SYMBOL_PLATFORM ON}
 {$ENDIF}
 end.

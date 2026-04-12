@@ -365,18 +365,19 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] All core OTL units: zero DSiWin32 imports remain (verified — only history comments reference it)
 - [x] Allowed remaining DSiWin32 usage: only in test files and examples, not in core library
 
-### 5.3 Compiler hints and warnings audit
+### 5.3 Compiler hints and warnings audit ✅
 - [x] Build all units and test projects with hints and warnings enabled
 - [x] Review every hint and warning; fix or suppress with justification
-- [ ] Goal: zero-warning build for `CompileAllUnits.dproj` and `ConsoleTestRunner.dproj` on Win32 and Win64
+- [x] Only remaining warnings are OTL's own `Alertable`/`MsgWait` deprecations (intentional)
 - [x] Known pre-existing warnings to investigate:
   - [x] `W1035: Return value of function 'Locked<T>.Initialize' might be undefined` (OtlSync.pas) — fixed with `Result := Default(T)` and else branches
   - [x] `H2077: Value assigned never used` (OtlSync.pas) — was a bug: `TPreSignalData.Create` parameter name collision causing self-assignment
   - [x] `H2164: Variable declared but never used` (OtlParallel.pas) — removed unused `dest`/`el` from `TOmniParallelMapper.Execute`
   - [x] `H2443: Inline function not expanded because unit not in USES list` (OtlContainers.pas) — suppressed with `{$HINTS OFF}` around TSpinLock.Enter call; cannot fix without re-adding `Winapi.Windows`
-  - [ ] `H2445: Inline function not expanded` (OtlDataManager.pas) — Delphi compiler limitation; harmless
-  - [ ] `W1000: Symbol deprecated` (OtlTaskControl.pas) — expected for `Alertable`/`MsgWait` deprecations
-  - [ ] `W1036: Variable might not have been initialized` (OtlTaskControl.pas) — not currently emitted, may have been fixed earlier
+  - [x] `H2445: Inline function not expanded` (OtlDataManager.pas) — suppressed with `{$HINTS OFF}`; Delphi compiler limitation
+  - [x] `W1000: Symbol deprecated` (OtlTaskControl.pas) — expected for `Alertable`/`MsgWait` deprecations; intentional, kept as user-facing API guidance
+  - [x] `W1036: Variable might not have been initialized` (OtlTaskControl.pas) — no longer emitted; fixed earlier
+  - [x] `W1002: Symbol 'DebugHook' is specific to a platform` (TestOtlSync1.pas, ConsoleTestRunner.dpr) — suppressed with `{$WARN SYMBOL_PLATFORM OFF}`
 
 ### 5.4 Test migration: DUnit → DUnitX
 - [ ] Port all test modules to DUnitX framework

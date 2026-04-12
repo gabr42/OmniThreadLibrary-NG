@@ -662,10 +662,12 @@ end;
 
 function TestOtlSync.NumRepeats: integer;
 begin
+  {$WARN SYMBOL_PLATFORM OFF}
   if DebugHook <> 0 then
     Result := 10
   else
     Result := {$IFDEF CONSOLE_TESTRUNNER}100{$ELSE}10{$ENDIF};
+  {$WARN SYMBOL_PLATFORM ON}
 end;
 
 procedure TestOtlSync.SetUp;
