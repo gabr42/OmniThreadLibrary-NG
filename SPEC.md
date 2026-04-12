@@ -234,10 +234,10 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] `SetThreadPriority`: Already cross-platform — uses `Winapi.Windows.SetThreadPriority` on Windows, `TThread.Priority`/`TThread.Policy` on POSIX
 
 #### 2.3.5 COM initialization
-- [ ] Add `IOmniTaskConfig.COMInitialize(apartmentModel)` option
-- [ ] On Windows: calls `CoInitializeEx` in worker thread's `Initialize`, `CoUninitialize` in `Cleanup`
-- [ ] On non-Windows: no-op
-- [ ] Guarded by `{$IFDEF MSWINDOWS}`
+- [x] Add `IOmniTaskControl.COMInitialize(initType: TOmniCOMInitType)` option (citNone/citSTA/citMTA)
+- [x] On Windows: calls `CoInitializeEx` in worker thread's `Asy_Execute`, `CoUninitialize` in finally
+- [x] On non-Windows: no-op (field stored but not acted upon)
+- [x] Guarded by `{$IFDEF MSWINDOWS}`
 
 #### 2.3.6 TOmniWorker message dispatch
 - [x] `message` directive pattern stays (it's a Delphi language feature, not Windows-specific)

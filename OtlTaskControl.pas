@@ -35,9 +35,13 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack
 ///   Last modification : 2026-04-12
-///   Version           : 2.05
+///   Version           : 2.06
 ///</para><para>
 ///   History:
+///     2.06: 2026-04-12
+///       - Added TOmniCOMInitType enum and IOmniTaskControl.COMInitialize method.
+///         On Windows, calls CoInitializeEx/CoUninitialize around task execution.
+///         On non-Windows platforms, the setting is a no-op.
 ///     2.05: 2026-04-12
 ///       - Replaced MsgWaitForMultipleObjectsEx-based WaitForEvent with
 ///         CV-based TWaitFor.WaitAny on all platforms.
@@ -195,6 +199,8 @@ type
 
   IOmniTaskGroup = interface;
 
+  TOmniCOMInitType = (citNone, citSTA, citMTA);
+
   TOmniTaskMessageEvent = procedure(const task: IOmniTaskControl; const msg: TOmniMessage) of object;
   TOmniTaskTerminatedEvent = procedure(const task: IOmniTaskControl) of object;
   TOmniOnMessageFunction = reference to procedure(const task: IOmniTaskControl; const msg: TOmniMessage);
@@ -240,6 +246,7 @@ type
     function  CancelWith(const token: IOmniCancellationToken): IOmniTaskControl;
     function  ChainTo(const task: IOmniTaskControl; ignoreErrors: boolean = false): IOmniTaskControl;
     function  ClearTimer(timerID: integer): IOmniTaskControl;
+    function  COMInitialize(initType: TOmniCOMInitType = citSTA): IOmniTaskControl;
     function  DetachException: Exception;
     /// <summary>
     ///   Run the task code from within in the calling thread
@@ -559,6 +566,7 @@ type
     oteOptionsLock       : TOmniCS;
     oteTimerLock         : TOmniCS;
   strict private
+    oteCOMInitType       : TOmniCOMInitType;
     oteCommList          : TInterfaceList;
     oteCommNewMsgList    : TList<IOmniEvent>;
     oteCommRebuildHandles: IOmniEvent;
@@ -648,6 +656,7 @@ type
     property ExitMessage: string read GetExitMessage;
     property Implementor: TObject read GetImplementor;
     property Options: TOmniTaskControlOptions read GetOptions write SetOptions;
+    property COMInitType: TOmniCOMInitType read oteCOMInitType write oteCOMInitType;
     property Priority: TOTLThreadPriority read otePriority write otePriority;
     property TaskException: Exception read oteException write oteException;
     property Terminating: boolean read oteTerminating write oteTerminating;
@@ -811,6 +820,7 @@ type
     function  CancelWith(const token: IOmniCancellationToken): IOmniTaskControl;
     function  ChainTo(const task: IOmniTaskControl; ignoreErrors: boolean = false): IOmniTaskControl;
     function  ClearTimer(timerID: integer = 0): IOmniTaskControl;
+    function  COMInitialize(initType: TOmniCOMInitType = citSTA): IOmniTaskControl;
     function  DetachException: Exception;
     function  DirectExecute:IOmniTaskControl;
     function  Enforced(forceExecution: boolean = true): IOmniTaskControl;
@@ -958,6 +968,9 @@ type
 implementation
 
 uses
+  {$IFDEF MSWINDOWS}
+  Winapi.ActiveX,
+  {$ENDIF MSWINDOWS}
   OtlHooks,
   System.Diagnostics,
   OtlPlatform,
@@ -1683,20 +1696,35 @@ begin
     end
   end;
   {$ENDIF}
+  {$IFDEF MSWINDOWS}
+  if oteCOMInitType <> citNone then begin
+    if oteCOMInitType = citSTA then
+      CoInitializeEx(nil, COINIT_APARTMENTTHREADED)
+    else
+      CoInitializeEx(nil, COINIT_MULTITHREADED);
+  end;
   try
-    case oteExecutorType of
-      etMethod:
-        oteMethod(task);
-      etProcedure:
-        oteProc(task);
-      etFunction:
-        oteFunc(task);
-      etWorker:
-        DispatchMessages(task);
-      else
-        raise Exception.Create('TOmniTaskExecutor.Asy_Execute: Executor is not set');
-    end;
-  finally Cleanup; end;
+  {$ENDIF MSWINDOWS}
+    try
+      case oteExecutorType of
+        etMethod:
+          oteMethod(task);
+        etProcedure:
+          oteProc(task);
+        etFunction:
+          oteFunc(task);
+        etWorker:
+          DispatchMessages(task);
+        else
+          raise Exception.Create('TOmniTaskExecutor.Asy_Execute: Executor is not set');
+      end;
+    finally Cleanup; end;
+  {$IFDEF MSWINDOWS}
+  finally
+    if oteCOMInitType <> citNone then
+      CoUninitialize;
+  end;
+  {$ENDIF MSWINDOWS}
 end; { TOmniTaskExecutor.Asy_Execute }
 
 procedure TOmniTaskExecutor.Asy_RegisterComm(const comm: IOmniCommunicationEndpoint);
@@ -2679,6 +2707,12 @@ begin
   SetTimer(timerID, 0, 0);
   Result := Self;
 end; { TOmniTaskControl.ClearTimer }
+
+function TOmniTaskControl.COMInitialize(initType: TOmniCOMInitType): IOmniTaskControl;
+begin
+  otcExecutor.COMInitType := initType;
+  Result := Self;
+end; { TOmniTaskControl.COMInitialize }
 
 procedure TOmniTaskControl.CreateInternalMonitor;
 begin

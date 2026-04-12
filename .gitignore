@@ -73,3 +73,5 @@ unittests/Linux64/Debug/
 tests/62_Console/Linux64/Debug/
 
 thmm
+
+*.res
