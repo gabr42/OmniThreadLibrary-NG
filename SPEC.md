@@ -379,15 +379,16 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
   - [x] `W1036: Variable might not have been initialized` (OtlTaskControl.pas) — no longer emitted; fixed earlier
   - [x] `W1002: Symbol 'DebugHook' is specific to a platform` (TestOtlSync1.pas, ConsoleTestRunner.dpr) — suppressed with `{$WARN SYMBOL_PLATFORM OFF}`
 
-### 5.4 Test migration: DUnit → DUnitX
-- [ ] Port all test modules to DUnitX framework
-- [ ] Test modules to port:
-  - `SmokeTest.pas`, `TestTask.pas`, `TestOtlSync1.pas`, `TestOtlComm.pas`
-  - `TestBlockingCollection1.pas`, `TestOtlParallel.pas`, `TestContainers.pas`
-  - `TestOtlDataManager1.pas`, `TestOmniValue.pas`, `TestRegressions.pas`
-  - `StressTest*.pas`
-- [ ] Keep `CompileAllUnits.dpr` for compilation verification
-- [ ] Update `buildandrun.bat` for DUnitX runner
+### 5.4 Test migration: DUnit → DUnitX ✅
+- [x] Port all test modules to DUnitX framework
+  - Converted 10 active test files: TestRegressions, TestPlatform, TestInterlocked, TestContainers, TestBlockingCollection1, TestOmniValue, TestOmniInterfaceDictionary, TestOtlComm, TestOtlSync1, TestOtlDataManager1
+  - Replaced `TestFramework` → `DUnitX.TestFramework`, `TTestCase` → plain class with `[TestFixture]`, `published` → `public` with `[Test]`, `Check*` → `Assert.*`, removed `RegisterTest`
+  - Added explicit generic type parameters (`Assert.AreEqual<T>`) where DUnitX couldn't infer types (int64 vs integer, word vs integer, TOmniValue vs integer, NativeInt vs integer, cardinal vs integer)
+  - Qualified `System.Threading.TTask.Run` and `OtlSync.Atomic<T>.Initialize` to avoid resolution conflicts with DUnitX imports
+  - Fully qualified bare unit references (`SysUtils` → `System.SysUtils`, `Classes` → `System.Classes`, etc.)
+  - Rewrote ConsoleTestRunner.dpr to native DUnitX runner with `UseRTTI := True` for automatic test fixture discovery
+- [x] Keep `CompileAllUnits.dpr` for compilation verification
+- [x] All 61 tests pass with DUnitX runner
 
 ### 5.5 CI pipeline
 - [ ] GitHub Actions: Windows (Win32 + Win64) build and test
@@ -462,7 +463,7 @@ Phase 5: Cleanup & testing (ongoing, but final push here)
   5.1 Dead code removal
   5.2 DSiWin32 reduction
   5.3 Compiler hints and warnings audit
-  5.4 DUnitX migration
+  5.4 DUnitX migration ✅
   5.5 CI pipeline
   5.6 Migration guide
 ```

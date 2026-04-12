@@ -3,23 +3,31 @@ unit TestOtlComm;
 interface
 
 uses
-  TestFramework;
+  DUnitX.TestFramework;
 
 type
-  TestOmniMessageQueue = class(TTestCase)
-  published
+  [TestFixture]
+  TestOmniMessageQueue = class
+  public
+    [Test]
     procedure TestBasics;
+    [Test]
     procedure TestNewMessageEvent;
   end;
 
-  TestIOmniTwoWayChannel = class(TTestCase)
-  published
+  [TestFixture]
+  TestIOmniTwoWayChannel = class
+  public
+    [Test]
     procedure TestSendReceive;
+    [Test]
     procedure TestOtherEndpoint;
+    [Test]
     procedure TestWait;
   end;
 
-  TestIOmniMessageQueueTee = class(TTestCase)
+  [TestFixture]
+  TestIOmniMessageQueueTee = class
   end;
 
 implementation
@@ -43,33 +51,33 @@ var
   var
     msg: TOmniMessage;
   begin
-    CheckEquals(success, mq.TryDequeue(msg), '#' + msgData + '.TryDequeue');
+    Assert.AreEqual<boolean>(success, mq.TryDequeue(msg), '#' + msgData + '.TryDequeue');
     if success then begin
-      CheckEquals(msgId, msg.MsgID, '#' + msgData + '.MsgID');
-      CheckEquals(msgData, msg.MsgData.AsString, '#' + msgData + '.MsgData');
+      Assert.AreEqual<integer>(msgId, msg.MsgID, '#' + msgData + '.MsgID');
+      Assert.AreEqual<string>(msgData, msg.MsgData.AsString, '#' + msgData + '.MsgData');
     end;
   end;
 
 begin
   mq := TOmniMessageQueue.Create(3);
   try
-    CheckTrue(mq.Enqueue(TOmniMessage.Create(11, '11')));
-    CheckTrue(mq.Enqueue(TOmniMessage.Create(12, '12')));
-    CheckTrue(mq.Enqueue(TOmniMessage.Create(13, '13')));
-    CheckFalse(mq.Enqueue(TOmniMessage.Create(14, '14')));
+    Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(11, '11')));
+    Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(12, '12')));
+    Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(13, '13')));
+    Assert.IsFalse(mq.Enqueue(TOmniMessage.Create(14, '14')));
     mq.Empty;
-    CheckTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
-    CheckTrue(mq.Enqueue(TOmniMessage.Create(2, '2')));
-    CheckTrue(mq.Enqueue(TOmniMessage.Create(3, '3')));
-    CheckFalse(mq.Enqueue(TOmniMessage.Create(4, '4')));
+    Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
+    Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(2, '2')));
+    Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(3, '3')));
+    Assert.IsFalse(mq.Enqueue(TOmniMessage.Create(4, '4')));
     CheckDequeue(1, '1', true);
     CheckDequeue(2, '2', true);
     CheckDequeue(3, '3', true);
     CheckDequeue(4, '4', false);
-    CheckTrue(mq.Enqueue(TOmniMessage.Create(9, '9')));
+    Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(9, '9')));
     msg := mq.Dequeue;
-    CheckEquals(9, msg.MsgID, 'MsgID');
-    CheckEquals('9', msg.MsgData.AsString, 'MsgData');
+    Assert.AreEqual<integer>(9, msg.MsgID, 'MsgID');
+    Assert.AreEqual<string>('9', msg.MsgData.AsString, 'MsgData');
   finally FreeAndNil(mq); end;
 end;
 
@@ -81,16 +89,16 @@ var
 
   procedure CheckEvent(state: boolean; const tag: string);
   begin
-    CheckEquals(state, evt.WaitFor(0) = wrSignaled, tag);
+    Assert.AreEqual<boolean>(state, evt.WaitFor(0) = wrSignaled, tag);
   end;
 
 begin
   mq := TOmniMessageQueue.Create(3, true);
   try
     evt := mq.GetNewMessageEvent;
-    CheckNotEquals(0, NativeUInt(evt), 'assigned event');
+    Assert.AreNotEqual<NativeUInt>(0, NativeUInt(evt), 'assigned event');
     CheckEvent(false, '#1');
-    CheckTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
+    Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
     CheckEvent(true, '#2');
     CheckEvent(false, '#3');
     msg := mq.Dequeue;
@@ -109,10 +117,10 @@ var
   var
     msg: TOmniMessage;
   begin
-    CheckEquals(success, endpoint.Receive(msg), tag + '.Receive');
+    Assert.AreEqual<boolean>(success, endpoint.Receive(msg), tag + '.Receive');
     if success then begin
-      CheckEquals(msgID, msg.MsgID, tag + '.MsgID');
-      CheckEquals(msgData, msg.MsgData.AsString, tag + '.MsgData');
+      Assert.AreEqual<integer>(msgID, msg.MsgID, tag + '.MsgID');
+      Assert.AreEqual<string>(msgData, msg.MsgData.AsString, tag + '.MsgData');
     end;
   end;
 
@@ -139,10 +147,10 @@ var
   var
     msg: TOmniMessage;
   begin
-    CheckEquals(success, endpoint.Receive(msg), tag + '.Receive');
+    Assert.AreEqual<boolean>(success, endpoint.Receive(msg), tag + '.Receive');
     if success then begin
-      CheckEquals(msgID, msg.MsgID, tag + '.MsgID');
-      CheckEquals(msgData, msg.MsgData.AsString, tag + '.MsgData');
+      Assert.AreEqual<integer>(msgID, msg.MsgID, tag + '.MsgID');
+      Assert.AreEqual<string>(msgData, msg.MsgData.AsString, tag + '.MsgData');
     end;
   end;
 
@@ -172,23 +180,23 @@ begin
   reader:= chan.Endpoint1;
   writer := chan.Endpoint2;
 
-  writerTask := TTask.Run(
+  writerTask := System.Threading.TTask.Run(
     procedure
     begin
       synch.Signal('W');
       synch.WaitFor('start');
       synch.WaitFor('W:1');
-      CheckTrue(writer.SendWait(1, '1', 0));
+      Assert.IsTrue(writer.SendWait(1, '1', 0));
       synch.WaitFor('W:2');
-      CheckTrue(writer.SendWait(21, '21', 0));
-      CheckTrue(writer.SendWait(22, '22', 0));
-      CheckTrue(writer.SendWait(23, '23', 0));
-      CheckFalse(writer.SendWait(24, '24', 0));
+      Assert.IsTrue(writer.SendWait(21, '21', 0));
+      Assert.IsTrue(writer.SendWait(22, '22', 0));
+      Assert.IsTrue(writer.SendWait(23, '23', 0));
+      Assert.IsFalse(writer.SendWait(24, '24', 0));
       synch.Signal('W:3');
-      CheckTrue(writer.SendWait(25, '25', 1000));
+      Assert.IsTrue(writer.SendWait(25, '25', 1000));
     end);
 
-  readerTask := TTask.Run(
+  readerTask := System.Threading.TTask.Run(
     procedure
     var
       i: integer;
@@ -196,47 +204,42 @@ begin
     begin
       synch.Signal('R');
       synch.WaitFor('start');
-      CheckFalse(reader.ReceiveWait(msg, 0), 'R:Receive.1');
-      CheckFalse(reader.ReceiveWait(msg, 100), 'R:Receive.2');
+      Assert.IsFalse(reader.ReceiveWait(msg, 0), 'R:Receive.1');
+      Assert.IsFalse(reader.ReceiveWait(msg, 100), 'R:Receive.2');
       synch.Signal('R:1');
-      CheckTrue(reader.ReceiveWait(msg, 3000), 'R:Receive.3');
+      Assert.IsTrue(reader.ReceiveWait(msg, 3000), 'R:Receive.3');
       synch.Signal('R:2');
-      CheckEquals(1, msg.MsgID, 'R:MsgID.1');
-      CheckEquals('1', msg.MsgData.AsString, 'R:MsgData.1');
+      Assert.AreEqual<integer>(1, msg.MsgID, 'R:MsgID.1');
+      Assert.AreEqual<string>('1', msg.MsgData.AsString, 'R:MsgData.1');
       synch.WaitFor('W:3');
       for i := 1 to 3 do
-        CheckTrue(reader.ReceiveWait(msg, 500), 'R:Receive.4.' + i.ToString);
-      CheckTrue(reader.ReceiveWait(msg, 500), 'R:Receive.5');
-      CheckEquals(25, msg.MsgID, 'R:MsgID');
-      CheckEquals('25', msg.MsgData.AsString, 'R:MsgData');
+        Assert.IsTrue(reader.ReceiveWait(msg, 500), 'R:Receive.4.' + i.ToString);
+      Assert.IsTrue(reader.ReceiveWait(msg, 500), 'R:Receive.5');
+      Assert.AreEqual<integer>(25, msg.MsgID, 'R:MsgID');
+      Assert.AreEqual<string>('25', msg.MsgData.AsString, 'R:MsgData');
     end);
 
   synch.WaitFor('W');
   synch.WaitFor('R');
   synch.Signal('start');
-  CheckTrue(synch.WaitFor('R:1', 1000), 'WaitFor R:1');
+  Assert.IsTrue(synch.WaitFor('R:1', 1000), 'WaitFor R:1');
   Sleep(100);
   synch.Signal('W:1');
-  CheckTrue(synch.WaitFor('R:2', 3000), 'WaitFor R:2');
+  Assert.IsTrue(synch.WaitFor('R:2', 3000), 'WaitFor R:2');
   synch.Signal('W:2');
 
   try
     readerTask.Wait(5000);
   except
     on E: EAggregateException do
-      Fail('Reader: ' + E.InnerExceptions[0].Message);
+      Assert.Fail('Reader: ' + E.InnerExceptions[0].Message);
   end;
   try
     writerTask.Wait(5000);
   except
     on E: EAggregateException do
-      Fail('Writer: ' + E.InnerExceptions[0].Message);
+      Assert.Fail('Writer: ' + E.InnerExceptions[0].Message);
   end;
 end;
 
-initialization
-  // Register any test cases with the test runner
-  RegisterTest(TestOmniMessageQueue.Suite);
-  RegisterTest(TestIOmniTwoWayChannel.Suite);
-  RegisterTest(TestIOmniMessageQueueTee.Suite);
 end.

@@ -3,25 +3,30 @@ unit TestBlockingCollection1;
 interface
 
 uses
-  TestFramework, OtlContainers, SysUtils,
+  DUnitX.TestFramework, OtlContainers, System.SysUtils,
   OtlContainerObserver, OtlCollections, OtlCommon, OtlSync;
 
 type
   // Test methods for class IOmniBlockingCollection
-  TestIOmniBlockingCollection = class(TTestCase)
+  [TestFixture]
+  TestIOmniBlockingCollection = class
   private
     procedure FillOmniValueWithOwnedObject(VAR lValue:TOmniValue);
-  published
+  public
+    [Test]
     procedure TestCompleteAdding;
+    [Test]
     procedure TestOwnedObjectleak;
+    [Test]
     procedure TestOmniValueObjectleak;
+    [Test]
     procedure TestInterfaceLeak;
   end;
 
 implementation
 
 uses
-  Classes, SyncObjs,
+  System.Classes, System.SyncObjs,
   System.Threading;
 
 type
@@ -75,7 +80,7 @@ begin
   ]);
   join.Wait(INFINITE);
 
-  CheckEquals(lastAdded, lastRead.AsInteger);
+  Assert.AreEqual(lastAdded, lastRead.AsInteger);
 end;
 
 { TMemLeakCheckObj }
@@ -105,14 +110,14 @@ begin
     lCollection.Add(lValue);
   end;
   lValue.Clear;
-  CheckEquals(cTestSize,vMemLeakCheckObjCount);
+  Assert.AreEqual(cTestSize,vMemLeakCheckObjCount);
   for i := 1 to cTestSize do
     lCollection.Take(lValue);
   lCollection := nil;
 
-  CheckEquals(1, vMemLeakCheckObjCount);
+  Assert.AreEqual(1, vMemLeakCheckObjCount);
   lValue.Clear; // drop the last interface in the queue
-  CheckEquals(0, vMemLeakCheckObjCount);
+  Assert.AreEqual(0, vMemLeakCheckObjCount);
 end;
 
 //Using a separate routine to set the AsOwnedObject property is required because
@@ -128,10 +133,10 @@ VAR lValue:TOmniValue;
 begin
   vMemLeakCheckObjCount := 0;
   FillOmniValueWithOwnedObject(lValue);
-  CheckEquals(1, vMemLeakCheckObjCount);
+  Assert.AreEqual(1, vMemLeakCheckObjCount);
   lValue.Clear; // one would expect the owned object to be destroyed here, but it does NOT
 
-  CheckEquals(0, vMemLeakCheckObjCount); // this test Fails
+  Assert.AreEqual(0, vMemLeakCheckObjCount); // this test Fails
 end;
 
 procedure TestIOmniBlockingCollection.TestOwnedObjectleak;
@@ -150,24 +155,21 @@ begin
     lCollection.Add(lValue);
   end;
   lValue.Clear;
-  CheckEquals(cTestSize, vMemLeakCheckObjCount);
+  Assert.AreEqual(cTestSize, vMemLeakCheckObjCount);
 
   for i := 1 to cTestSize do
     lCollection.Take(lValue);
   lCollection := nil;
 
-  CheckEquals(1, vMemLeakCheckObjCount);
+  Assert.AreEqual(1, vMemLeakCheckObjCount);
 
   // drop the last owned object in the queue
   lValue.Clear; // drop the last owned object in the queue
 
   // this test fails for some strange reason, obviously the lValue is not
   // released until the end of the routine eventhough it is actually cleared
-  CheckEquals(0, vMemLeakCheckObjCount);
+  Assert.AreEqual(0, vMemLeakCheckObjCount);
 end;
 
-initialization
-  // Register any test cases with the test runner
-  RegisterTest(TestIOmniBlockingCollection.Suite);
 end.
 

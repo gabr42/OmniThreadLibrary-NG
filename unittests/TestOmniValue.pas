@@ -12,7 +12,7 @@ unit TestOmniValue;
 interface
 
 uses
-  TestFramework, Classes, SysUtils, Variants,
+  DUnitX.TestFramework, System.Classes, System.SysUtils, System.Variants,
   OtlCommon;
 
 {$I OtlOptions.inc}
@@ -20,17 +20,23 @@ uses
 type
   // Test methods for class TOmniValueContainer
 
-  TestTOmniValueContainer = class(TTestCase)
+  [TestFixture]
+  TestTOmniValueContainer = class
   strict protected
     procedure CheckSimpleType(const ov: TOmniValue; expected: array of boolean);
     procedure CheckWrappedType(const ov: TOmniValue; expected: array of boolean);
   public
-    procedure TearDown; override;
-  published
+    [TearDown]
+    procedure TearDown;
+    [Test]
     procedure TestComposed;
+    [Test]
     procedure TestInterface;
+    [Test]
     procedure TestSimpleValues;
+    [Test]
     procedure TestWrappedValues;
+    [Test]
     procedure TestCastToInterface_issue_128;
   end;
 
@@ -57,26 +63,26 @@ type
 procedure TestTOmniValueContainer.CheckSimpleType(const ov: TOmniValue; expected: array
   of boolean);
 begin
-  CheckEquals(4, Length(expected));
-  CheckEquals(expected[0], ov.IsBoolean);
-  CheckEquals(expected[1], ov.IsInteger);
-  CheckEquals(expected[2], ov.IsFloating);
-  CheckEquals(expected[3], ov.IsDateTime);
+  Assert.AreEqual(4, Length(expected));
+  Assert.AreEqual(expected[0], ov.IsBoolean);
+  Assert.AreEqual(expected[1], ov.IsInteger);
+  Assert.AreEqual(expected[2], ov.IsFloating);
+  Assert.AreEqual(expected[3], ov.IsDateTime);
 end;
 
 procedure TestTOmniValueContainer.CheckWrappedType(const ov: TOmniValue;
   expected: array of boolean);
 begin
-  CheckEquals(4, Length(expected));
-  CheckEquals(expected[0], ov.IsObject);
-  CheckEquals(expected[1], ov.IsString);
-  {$IFDEF MSWindows}CheckEquals(expected[2], ov.IsWideString);{$ENDIF}
-  CheckEquals(expected[3], ov.IsVariant);
+  Assert.AreEqual(4, Length(expected));
+  Assert.AreEqual(expected[0], ov.IsObject);
+  Assert.AreEqual(expected[1], ov.IsString);
+  {$IFDEF MSWindows}Assert.AreEqual(expected[2], ov.IsWideString);{$ENDIF}
+  Assert.AreEqual(expected[3], ov.IsVariant);
 end;
 
 procedure TestTOmniValueContainer.TearDown;
 begin
-  CheckEquals(0, GTestValueCount);
+  Assert.AreEqual(0, GTestValueCount);
 end;
 
 procedure TestTOmniValueContainer.TestCastToInterface_issue_128;
@@ -88,7 +94,7 @@ begin
   intf.Value := $42000000000017;
   ov := intf;
   intf := nil;
-  CheckEquals($42000000000017, ov.CastTo<ITestInterface>.Value);
+  Assert.AreEqual($42000000000017, ov.CastTo<ITestInterface>.Value);
 end;
 
 procedure TestTOmniValueContainer.TestComposed;
@@ -96,12 +102,12 @@ var
   ov: TOmniValue;
 begin
   ov := TOmniValue.Create([17, '42']);
-  CheckTrue(ov.IsArray);
-  CheckEquals(integer(17), integer(ov[0]));
-  CheckEquals('42', ov[1]);
+  Assert.IsTrue(ov.IsArray);
+  Assert.AreEqual(integer(17), integer(ov[0]));
+  Assert.AreEqual<string>('42', ov[1]);
   ov := TOmniValue.CreateNamed(['42', 17]);
-  CheckTrue(ov.IsArray);
-  CheckEquals(integer(17), integer(ov['42']));
+  Assert.IsTrue(ov.IsArray);
+  Assert.AreEqual(integer(17), integer(ov['42']));
 end;
 
 procedure TestTOmniValueContainer.TestInterface;
@@ -114,25 +120,25 @@ var
   begin
     intf := TTestValue.Create(42);
     ov.AsInterface := intf;
-    CheckTrue(ov.IsInterface); CheckSimpleType(ov, [false, false, false, false]); CheckWrappedType(ov, [false, false, false, false]);
-    CheckEquals(42, (ov.AsInterface as ITestValue).Value);
+    Assert.IsTrue(ov.IsInterface); CheckSimpleType(ov, [false, false, false, false]); CheckWrappedType(ov, [false, false, false, false]);
+    Assert.AreEqual(42, (ov.AsInterface as ITestValue).Value);
   end;
 
 begin
   TestInterface;
-  ov := true; CheckFalse(ov.IsInterface);
+  ov := true; Assert.IsFalse(ov.IsInterface);
   TestInterface;
-  ov := 17; CheckFalse(ov.IsInterface);
+  ov := 17; Assert.IsFalse(ov.IsInterface);
   TestInterface;
-  ov := 17.42; CheckFalse(ov.IsInterface);
+  ov := 17.42; Assert.IsFalse(ov.IsInterface);
   TestInterface;
-  ov := '17'; CheckFalse(ov.IsInterface);
+  ov := '17'; Assert.IsFalse(ov.IsInterface);
   TestInterface;
-  ov := TTestValue.Create(17); CheckFalse(ov.IsInterface); ov.AsObject.Free;
+  ov := TTestValue.Create(17); Assert.IsFalse(ov.IsInterface); ov.AsObject.Free;
   TestInterface;
-  ov := TOmniValue.Create([17, '42']); CheckFalse(ov.IsInterface);
+  ov := TOmniValue.Create([17, '42']); Assert.IsFalse(ov.IsInterface);
   TestInterface;
-  ov := TOmniValue.CreateNamed(['42', 17]); CheckFalse(ov.IsInterface);
+  ov := TOmniValue.CreateNamed(['42', 17]); Assert.IsFalse(ov.IsInterface);
   TestInterface;
 end;
 
@@ -141,24 +147,24 @@ var
   ov: TOmniValue;
 begin
   ov := true;
-  CheckEquals(true, ov.AsBoolean);
-  CheckSimpleType(ov, [true, false, false, false]); CheckWrappedType(ov, [false, false, false, false]); CheckFalse(ov.IsInterface);
+  Assert.AreEqual(true, ov.AsBoolean);
+  CheckSimpleType(ov, [true, false, false, false]); CheckWrappedType(ov, [false, false, false, false]); Assert.IsFalse(ov.IsInterface);
   ov := false;
-  CheckEquals(false, ov.AsBoolean);
-  CheckSimpleType(ov, [true, false, false, false]); CheckWrappedType(ov, [false, false, false, false]); CheckFalse(ov.IsInterface);
+  Assert.AreEqual(false, ov.AsBoolean);
+  CheckSimpleType(ov, [true, false, false, false]); CheckWrappedType(ov, [false, false, false, false]); Assert.IsFalse(ov.IsInterface);
   ov := 0;
-  CheckEquals(0, ov.AsInteger);
-  CheckSimpleType(ov, [false, true, false, false]); CheckWrappedType(ov, [false, false, false, false]); CheckFalse(ov.IsInterface);
+  Assert.AreEqual(0, ov.AsInteger);
+  CheckSimpleType(ov, [false, true, false, false]); CheckWrappedType(ov, [false, false, false, false]); Assert.IsFalse(ov.IsInterface);
   ov := 42;
-  CheckEquals(42, ov.AsInteger);
-  CheckSimpleType(ov, [false, true, false, false]); CheckWrappedType(ov, [false, false, false, false]); CheckFalse(ov.IsInterface);
+  Assert.AreEqual(42, ov.AsInteger);
+  CheckSimpleType(ov, [false, true, false, false]); CheckWrappedType(ov, [false, false, false, false]); Assert.IsFalse(ov.IsInterface);
   ov := 3.14;
-  CheckEquals(3.14, ov.AsExtended);
-  CheckSimpleType(ov, [false, false, true, false]); CheckWrappedType(ov, [false, false, false, false]); CheckFalse(ov.IsInterface);
+  Assert.AreEqual(3.14, ov.AsExtended);
+  CheckSimpleType(ov, [false, false, true, false]); CheckWrappedType(ov, [false, false, false, false]); Assert.IsFalse(ov.IsInterface);
   ov.AsDateTime := EncodeDate(2011,12,19) + EncodeTime(19,53,42,17);
-  CheckEqualsString(FormatDateTime('yyyy-mm-ddThh:nn:ss.zzz', EncodeDate(2011,12,19) + EncodeTime(19,53,42,17)),
+  Assert.AreEqual(FormatDateTime('yyyy-mm-ddThh:nn:ss.zzz', EncodeDate(2011,12,19) + EncodeTime(19,53,42,17)),
     FormatDateTime('yyyy-mm-ddThh:nn:ss.zzz', ov.AsDateTime));
-  CheckSimpleType(ov, [false, false, false, true]); CheckWrappedType(ov, [false, false, false, false]); CheckFalse(ov.IsInterface);
+  CheckSimpleType(ov, [false, false, false, true]); CheckWrappedType(ov, [false, false, false, false]); Assert.IsFalse(ov.IsInterface);
 end;
 
 procedure TestTOmniValueContainer.TestWrappedValues;
@@ -167,21 +173,21 @@ var
   v : Variant;
 begin
   ov := TTestValue.Create(42);
-  CheckEquals('TTestValue', ov.AsObject.ClassName);
-  CheckWrappedType(ov, [true, false, false, false]); CheckSimpleType(ov, [false, false, false, false]); CheckFalse(ov.IsInterface);
+  Assert.AreEqual('TTestValue', ov.AsObject.ClassName);
+  CheckWrappedType(ov, [true, false, false, false]); CheckSimpleType(ov, [false, false, false, false]); Assert.IsFalse(ov.IsInterface);
   ov.AsObject.Free;
   ov := '42';
-  CheckEquals('42', ov.AsString);
-  CheckWrappedType(ov, [false, true, false, false]); CheckSimpleType(ov, [false, false, false, false]); CheckFalse(ov.IsInterface);
+  Assert.AreEqual('42', ov.AsString);
+  CheckWrappedType(ov, [false, true, false, false]); CheckSimpleType(ov, [false, false, false, false]); Assert.IsFalse(ov.IsInterface);
   {$IFDEF MSWindows}
   ov.AsWideString := '17';
-  CheckEquals('17', ov.AsWideString);
-  CheckWrappedType(ov, [false, false, true, false]); CheckSimpleType(ov, [false, false, false, false]); CheckFalse(ov.IsInterface);
+  Assert.AreEqual('17', ov.AsWideString);
+  CheckWrappedType(ov, [false, false, true, false]); CheckSimpleType(ov, [false, false, false, false]); Assert.IsFalse(ov.IsInterface);
   {$ENDIF}
   v := 127;
   ov := v;
-  CheckEquals(integer(127), integer(ov.AsVariant));
-  CheckWrappedType(ov, [false, false, false, true]); CheckSimpleType(ov, [false, false, false, false]); CheckFalse(ov.IsInterface);
+  Assert.AreEqual(integer(127), integer(ov.AsVariant));
+  CheckWrappedType(ov, [false, false, false, true]); CheckSimpleType(ov, [false, false, false, false]); Assert.IsFalse(ov.IsInterface);
 end;
 
 { TTestInterface }
@@ -196,8 +202,5 @@ begin
   FValue := value;
 end;
 
-initialization
-  // Register any test cases with the test runner
-  RegisterTest(TestTOmniValueContainer.Suite);
 end.
 

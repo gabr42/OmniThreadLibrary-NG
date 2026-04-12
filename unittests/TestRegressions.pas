@@ -3,11 +3,13 @@ unit TestRegressions;
 interface
 
 uses
-  TestFramework;
+  DUnitX.TestFramework;
 
 type
-  TestBugfixes = class(TTestCase)
-  published
+  [TestFixture]
+  TestBugfixes = class
+  public
+    [Test]
     procedure TestTOmniValueArrayInt64Cast;
   end;
 
@@ -32,6 +34,4 @@ begin
   arrOut := ov.CastTo<TArray<Int64>>;
 end;
 
-initialization
-  RegisterTest(TestBugfixes.Suite);
 end.

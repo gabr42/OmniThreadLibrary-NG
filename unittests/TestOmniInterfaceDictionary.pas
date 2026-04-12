@@ -12,31 +12,44 @@ unit TestOmniInterfaceDictionary;
 interface
 
 uses
-  TestFramework, Classes, SysUtils, Variants,
+  DUnitX.TestFramework, System.Classes, System.SysUtils, System.Variants,
   OtlCommon;
 
 type
   // Test methods for class IOmniInterfaceDictionary
 
-  TestIOmniInterfaceDictionary = class(TTestCase)
+  [TestFixture]
+  TestIOmniInterfaceDictionary = class
   strict private
     FIOmniInterfaceDictionary: IOmniInterfaceDictionary;
   strict protected
     procedure CheckContainsRange(low, high: integer);
   public
-    procedure SetUp; override;
-    procedure TearDown; override;
-  published
+    [Setup]
+    procedure SetUp;
+    [TearDown]
+    procedure TearDown;
+    [Test]
     procedure TestClear;
+    [Test]
     procedure TestCount;
+    [Test]
     procedure TestEnumerate;
+    [Test]
     procedure TestRemove1;
+    [Test]
     procedure TestRemove2;
+    [Test]
     procedure TestResize;
+    [Test]
     procedure TestRetrieve1;
+    [Test]
     procedure TestRetrieve2;
+    [Test]
     procedure TestRetrieve3;
+    [Test]
     procedure TestRetrieve4;
+    [Test]
     procedure TestRetrieve5;
   end;
 
@@ -53,7 +66,7 @@ var
   pair  : TOmniInterfaceDictionaryPair;
   values: TList<integer>;
 begin
-  CheckEquals(high-low+1, FIOmniInterfaceDictionary.Count);
+  Assert.AreEqual(high-low+1, FIOmniInterfaceDictionary.Count);
   keys := TList<integer>.Create;
   try
     values := TList<integer>.Create;
@@ -62,12 +75,12 @@ begin
         keys.Add(pair.Key);
         values.Add((pair.Value as ITestValue).Value);
       end;
-      CheckEquals(high-low+1, keys.Count);
-      CheckEquals(high-low+1, values.Count);
+      Assert.AreEqual(high-low+1, keys.Count);
+      Assert.AreEqual(high-low+1, values.Count);
       for i := low to high do begin
-        CheckEquals(keys[i-low], values[i-low]);
-        CheckTrue(keys.Contains(i));
-        CheckTrue(values.Contains(i));
+        Assert.AreEqual(keys[i-low], values[i-low]);
+        Assert.IsTrue(keys.Contains(i));
+        Assert.IsTrue(values.Contains(i));
       end;
     finally values.Free; end;
   finally keys.Free; end;
@@ -81,7 +94,7 @@ end;
 procedure TestIOmniInterfaceDictionary.TearDown;
 begin
   FIOmniInterfaceDictionary := nil;
-  CheckEquals(0, GTestValueCount);
+  Assert.AreEqual(0, GTestValueCount);
 end;
 
 procedure TestIOmniInterfaceDictionary.TestClear;
@@ -91,19 +104,19 @@ begin
   intf := TTestValue.Create(1);
   FIOmniInterfaceDictionary.Add(1, intf);
   FIOmniInterfaceDictionary.Clear;
-  CheckEquals(0, FIOmniInterfaceDictionary.Count);
+  Assert.AreEqual(0, FIOmniInterfaceDictionary.Count);
 end;
 
 procedure TestIOmniInterfaceDictionary.TestCount;
 var
   intf: ITestValue;
 begin
-  CheckEquals(0, FIOmniInterfaceDictionary.Count);
+  Assert.AreEqual(0, FIOmniInterfaceDictionary.Count);
   intf := TTestValue.Create(1);
   FIOmniInterfaceDictionary.Add(1, intf);
-  CheckEquals(1, FIOmniInterfaceDictionary.Count);
+  Assert.AreEqual(1, FIOmniInterfaceDictionary.Count);
   FIOmniInterfaceDictionary.Clear;
-  CheckEquals(0, FIOmniInterfaceDictionary.Count);
+  Assert.AreEqual(0, FIOmniInterfaceDictionary.Count);
 end;
 
 procedure TestIOmniInterfaceDictionary.TestEnumerate;
@@ -127,8 +140,8 @@ begin
   intf := TTestValue.Create(1);
   FIOmniInterfaceDictionary.Add(1, intf);
   FIOmniInterfaceDictionary.Remove(1);
-  CheckNull(FIOmniInterfaceDictionary.ValueOf(1));
-  CheckEquals(0, FIOmniInterfaceDictionary.Count);
+  Assert.IsNull(FIOmniInterfaceDictionary.ValueOf(1));
+  Assert.AreEqual(0, FIOmniInterfaceDictionary.Count);
 end;
 
 procedure TestIOmniInterfaceDictionary.TestRemove2;
@@ -138,8 +151,8 @@ begin
   intf := TTestValue.Create(1);
   FIOmniInterfaceDictionary.Add(1, intf);
   FIOmniInterfaceDictionary.Remove(2);
-  CheckNotNull(FIOmniInterfaceDictionary.ValueOf(1));
-  CheckEquals(1, FIOmniInterfaceDictionary.Count);
+  Assert.IsNotNull(FIOmniInterfaceDictionary.ValueOf(1));
+  Assert.AreEqual(1, FIOmniInterfaceDictionary.Count);
 end;
 
 procedure TestIOmniInterfaceDictionary.TestResize;
@@ -164,8 +177,8 @@ begin
   intf := TTestValue.Create(1);
   FIOmniInterfaceDictionary.Add(1, intf);
   retIntf := FIOmniInterfaceDictionary.ValueOf(1) as ITestValue;
-  CheckNotNull(retIntf);
-  CheckEquals(1, retIntf.Value);
+  Assert.IsNotNull(retIntf);
+  Assert.AreEqual(1, retIntf.Value);
 end;
 
 procedure TestIOmniInterfaceDictionary.TestRetrieve2;
@@ -176,7 +189,7 @@ begin
   intf := TTestValue.Create(1);
   FIOmniInterfaceDictionary.Add(1, intf);
   retIntf := FIOmniInterfaceDictionary.ValueOf(2) as ITestValue;
-  CheckNull(retIntf);
+  Assert.IsNull(retIntf);
 end;
 
 procedure TestIOmniInterfaceDictionary.TestRetrieve3;
@@ -189,8 +202,8 @@ begin
   intf := TTestValue.Create(2);
   FIOmniInterfaceDictionary.Add(2, intf);
   retIntf := FIOmniInterfaceDictionary.ValueOf(1) as ITestValue;
-  CheckNotNull(retIntf);
-  CheckEquals(1, retIntf.Value);
+  Assert.IsNotNull(retIntf);
+  Assert.AreEqual(1, retIntf.Value);
 end;
 
 procedure TestIOmniInterfaceDictionary.TestRetrieve4;
@@ -203,8 +216,8 @@ begin
   intf := TTestValue.Create(1);
   FIOmniInterfaceDictionary.Add(1, intf);
   retIntf := FIOmniInterfaceDictionary.ValueOf(1) as ITestValue;
-  CheckNotNull(retIntf);
-  CheckEquals(1, retIntf.Value);
+  Assert.IsNotNull(retIntf);
+  Assert.AreEqual(1, retIntf.Value);
 end;
 
 procedure TestIOmniInterfaceDictionary.TestRetrieve5;
@@ -217,12 +230,9 @@ begin
   intf := TTestValue.Create(2);
   FIOmniInterfaceDictionary.Add(1, intf);
   retIntf := FIOmniInterfaceDictionary.ValueOf(1) as ITestValue;
-  CheckNotNull(retIntf);
-  CheckEquals(2, retIntf.Value);
+  Assert.IsNotNull(retIntf);
+  Assert.AreEqual(2, retIntf.Value);
 end;
 
-initialization
-  // Register any test cases with the test runner
-  RegisterTest(TestIOmniInterfaceDictionary.Suite);
 end.
 
