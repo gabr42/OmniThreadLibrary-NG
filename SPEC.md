@@ -395,13 +395,13 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [ ] GitHub Actions: Linux64 build (when Delphi Linux compiler available in CI)
 - [ ] Claude Code automated PR review
 
-### 5.6 Migration guide
-- [ ] Document all API changes from OTL v3 to OTL NG
-- [ ] Document removed features (ForkJoin, NUMA, design-time packages)
-- [ ] Document new features (`ProcessMessages`, `WaitForMessage`, COM initialization option)
-- [ ] Document behavioral changes (condition variable waits vs Windows handles, polling requirement for plain TThread owners)
-- [ ] Provide code examples showing before/after for common patterns
-- [ ] File: `MIGRATION.md` in repo root
+### 5.6 Migration guide ✅
+- [x] Document all API changes from OTL v3 to OTL NG
+- [x] Document removed features (ForkJoin, NUMA, design-time packages)
+- [x] Document new features (`ProcessMessages`, `WaitForMessage`, COM initialization option)
+- [x] Document behavioral changes (condition variable waits vs Windows handles, polling requirement for plain TThread owners)
+- [x] Provide code examples showing before/after for common patterns
+- [x] File: `MIGRATION.md` in repo root
 
 ---
 
@@ -465,7 +465,7 @@ Phase 5: Cleanup & testing (ongoing, but final push here)
   5.3 Compiler hints and warnings audit
   5.4 DUnitX migration ✅
   5.5 CI pipeline
-  5.6 Migration guide
+  5.6 Migration guide ✅
 ```
 
 ---
