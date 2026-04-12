@@ -108,6 +108,76 @@ type
     procedure TestMREWWriteTimeoutFailW;
   end;
 
+  [TestFixture]
+  TestCancellationToken = class
+  public
+    [Test]
+    procedure TestCreateAndSignal;
+    [Test]
+    procedure TestClear;
+    [Test]
+    procedure TestEventProperty;
+  end;
+
+  [TestFixture]
+  TestCountdownEvent = class
+  public
+    [Test]
+    procedure TestCountdown;
+    [Test]
+    procedure TestReset;
+  end;
+
+  [TestFixture]
+  TestLockedT = class
+  public
+    [Test]
+    procedure TestCreateAndValue;
+    [Test]
+    procedure TestImplicitConversion;
+    [Test]
+    procedure TestInitializeWithFactory;
+    [Test]
+    procedure TestIsInitialized;
+    [Test]
+    procedure TestMREWAccess;
+    [Test]
+    procedure TestLockedCallback;
+    [Test]
+    procedure TestFree;
+  end;
+
+  [TestFixture]
+  TestLightweightMREWEx = class
+  public
+    [Test]
+    procedure TestNestedWrite;
+    [Test]
+    procedure TestReadBlockedByWrite;
+  end;
+
+  [TestFixture]
+  TestLockManager = class
+  public
+    [Test]
+    procedure TestLockUnlockByKey;
+    [Test]
+    procedure TestLockUnlockAutoRelease;
+    [Test]
+    procedure TestLockTimeoutFailure;
+    [Test]
+    procedure TestMultipleKeysIndependent;
+  end;
+
+  [TestFixture]
+  TestSingleThreadUseChecker = class
+  public
+    [Test]
+    procedure TestSameThreadOK;
+    [Test]
+    procedure TestDifferentThreadRaises;
+  end;
+
 implementation
 
 { TestOtlSync }
@@ -911,6 +981,299 @@ begin
     event2.Signal;
     waiter.Wait(INFINITE);
   finally FreeAndNil(wf); end;
+end;
+
+{ TestCancellationToken }
+
+procedure TestCancellationToken.TestCreateAndSignal;
+var
+  ct: IOmniCancellationToken;
+begin
+  ct := CreateOmniCancellationToken;
+  Assert.IsFalse(ct.IsSignalled, 'initially not signalled');
+  ct.Signal;
+  Assert.IsTrue(ct.IsSignalled, 'signalled after Signal');
+end;
+
+procedure TestCancellationToken.TestClear;
+var
+  ct: IOmniCancellationToken;
+begin
+  ct := CreateOmniCancellationToken;
+  ct.Signal;
+  Assert.IsTrue(ct.IsSignalled, 'signalled');
+  ct.Clear;
+  Assert.IsFalse(ct.IsSignalled, 'cleared');
+  ct.Signal;
+  Assert.IsTrue(ct.IsSignalled, 're-signalled after clear');
+end;
+
+procedure TestCancellationToken.TestEventProperty;
+var
+  ct: IOmniCancellationToken;
+begin
+  ct := CreateOmniCancellationToken;
+  Assert.IsTrue(wrTimeout = ct.Event.WaitFor(0), 'event not set initially');
+  ct.Signal;
+  Assert.IsTrue(wrSignaled = ct.Event.WaitFor(0), 'event set after signal');
+  ct.Clear;
+  Assert.IsTrue(wrTimeout = ct.Event.WaitFor(0), 'event cleared');
+end;
+
+{ TestCountdownEvent }
+
+procedure TestCountdownEvent.TestCountdown;
+var
+  cde: IOmniCountdownEvent;
+begin
+  cde := CreateOmniCountdownEvent(3, 0);
+  Assert.IsTrue(wrTimeout = cde.WaitFor(0), 'not signalled at count=3');
+  cde.BaseCountdown.Signal;
+  Assert.IsTrue(wrTimeout = cde.WaitFor(0), 'not signalled at count=2');
+  cde.BaseCountdown.Signal;
+  Assert.IsTrue(wrTimeout = cde.WaitFor(0), 'not signalled at count=1');
+  cde.BaseCountdown.Signal;
+  Assert.IsTrue(cde.IsSignalled, 'signalled at count=0');
+end;
+
+procedure TestCountdownEvent.TestReset;
+var
+  cde: IOmniCountdownEvent;
+begin
+  cde := CreateOmniCountdownEvent(1, 0);
+  cde.BaseCountdown.Signal;
+  Assert.IsTrue(cde.IsSignalled, 'signalled');
+  cde.Reset;
+  Assert.IsFalse(cde.IsSignalled, 'not signalled after reset');
+  cde.BaseCountdown.Signal;
+  Assert.IsTrue(cde.IsSignalled, 'signalled again');
+end;
+
+{ TestLockedT }
+
+procedure TestLockedT.TestCreateAndValue;
+var
+  li: Locked<integer>;
+begin
+  li := Locked<integer>.Create(42);
+  Assert.AreEqual<integer>(42, li.Value);
+end;
+
+procedure TestLockedT.TestImplicitConversion;
+var
+  li: Locked<integer>;
+  v: integer;
+begin
+  li := Locked<integer>.Create(17);
+  v := li;
+  Assert.AreEqual<integer>(17, v);
+end;
+
+procedure TestLockedT.TestInitializeWithFactory;
+var
+  li: Locked<integer>;
+  v: integer;
+begin
+  FillChar(li, SizeOf(li), 0);
+  v := li.Initialize(
+    function: integer begin Result := 99; end);
+  Assert.AreEqual<integer>(99, v);
+  Assert.AreEqual<integer>(99, li.Value);
+  // Second call returns same value without calling factory again
+  v := li.Initialize(
+    function: integer begin Result := 200; end);
+  Assert.AreEqual<integer>(99, v, 'factory not called on second Initialize');
+end;
+
+procedure TestLockedT.TestIsInitialized;
+var
+  li: Locked<integer>;
+begin
+  FillChar(li, SizeOf(li), 0);
+  Assert.IsFalse(li.IsInitialized, 'not initialized initially');
+  li := Locked<integer>.Create(1);
+  Assert.IsTrue(li.IsInitialized, 'initialized after Create');
+end;
+
+procedure TestLockedT.TestMREWAccess;
+var
+  li: Locked<integer>;
+  v: integer;
+begin
+  li := Locked<integer>.Create(10);
+  v := li.BeginRead;
+  Assert.AreEqual<integer>(10, v);
+  li.EndRead;
+  v := li.BeginWrite;
+  Assert.AreEqual<integer>(10, v);
+  li.EndWrite;
+end;
+
+procedure TestLockedT.TestLockedCallback;
+var
+  li: Locked<integer>;
+  sum: integer;
+begin
+  li := Locked<integer>.Create(5);
+  sum := 0;
+  li.Locked(
+    procedure(const value: integer)
+    begin
+      sum := value + 10;
+    end);
+  Assert.AreEqual<integer>(15, sum);
+end;
+
+procedure TestLockedT.TestFree;
+var
+  li: Locked<TStringList>;
+  sl: TStringList;
+begin
+  sl := TStringList.Create;
+  sl.Add('test');
+  li := Locked<TStringList>.Create(sl, true);
+  Assert.AreEqual<integer>(1, li.Value.Count);
+  li.Free;
+  // After Free, value should be nil
+  Assert.IsTrue(li.Value = nil, 'value nil after Free');
+end;
+
+{ TestLightweightMREWEx }
+
+procedure TestLightweightMREWEx.TestNestedWrite;
+var
+  mrew: TLightweightMREWEx;
+begin
+  mrew.BeginWrite;
+  // Nested write from same thread should succeed
+  mrew.BeginWrite;
+  mrew.EndWrite;
+  mrew.EndWrite;
+  Assert.IsTrue(true, 'nested write succeeded');
+end;
+
+procedure TestLightweightMREWEx.TestReadBlockedByWrite;
+var
+  mrew: ILightweightMREWEx;
+  synch: IOmniSynchronizer<string>;
+  blocked: TOmniAlignedInt32;
+begin
+  mrew := TLightweightMREWExImpl.Create;
+  synch := TOmniSynchronizer<string>.Create;
+  blocked.Value := 0;
+
+  mrew.BeginWrite;
+  System.Threading.TTask.Run(
+    procedure
+    begin
+      synch.Signal('started');
+      blocked.Value := 1;
+      mrew.BeginRead;
+      blocked.Value := 2;
+      mrew.EndRead;
+    end);
+
+  synch.WaitFor('started');
+  Sleep(200);
+  Assert.AreEqual<integer>(1, blocked.Value, 'reader is blocked');
+  mrew.EndWrite;
+  Sleep(200);
+  Assert.AreEqual<integer>(2, blocked.Value, 'reader unblocked after EndWrite');
+end;
+
+{ TestLockManager }
+
+procedure TestLockManager.TestLockUnlockByKey;
+var
+  lm: IOmniLockManager<string>;
+begin
+  lm := TOmniLockManager<string>.CreateInterface;
+  Assert.IsTrue(lm.Lock('key1', 0), 'lock key1');
+  lm.Unlock('key1');
+  Assert.IsTrue(lm.Lock('key1', 0), 're-lock key1 after unlock');
+  lm.Unlock('key1');
+end;
+
+procedure TestLockManager.TestLockUnlockAutoRelease;
+var
+  lm: IOmniLockManager<string>;
+begin
+  lm := TOmniLockManager<string>.CreateInterface;
+  begin
+    var autoUnlock := lm.LockUnlock('key1', 1000);
+    Assert.IsNotNull(autoUnlock, 'auto-unlock acquired');
+  end;
+  // After autoUnlock goes out of scope, lock should be released
+  Assert.IsTrue(lm.Lock('key1', 0), 'lock available after auto-unlock');
+  lm.Unlock('key1');
+end;
+
+procedure TestLockManager.TestLockTimeoutFailure;
+var
+  lm: IOmniLockManager<string>;
+  synch: IOmniSynchronizer<string>;
+begin
+  lm := TOmniLockManager<string>.CreateInterface;
+  synch := TOmniSynchronizer<string>.Create;
+
+  lm.Lock('key1', 0);
+
+  System.Threading.TTask.Run(
+    procedure
+    begin
+      Assert.IsFalse(lm.Lock('key1', 100), 'lock fails with short timeout');
+      synch.Signal('done');
+    end);
+
+  synch.WaitFor('done');
+  lm.Unlock('key1');
+end;
+
+procedure TestLockManager.TestMultipleKeysIndependent;
+var
+  lm: IOmniLockManager<string>;
+begin
+  lm := TOmniLockManager<string>.CreateInterface;
+  Assert.IsTrue(lm.Lock('a', 0), 'lock a');
+  Assert.IsTrue(lm.Lock('b', 0), 'lock b while a locked');
+  lm.Unlock('a');
+  lm.Unlock('b');
+end;
+
+{ TestSingleThreadUseChecker }
+
+procedure TestSingleThreadUseChecker.TestSameThreadOK;
+var
+  checker: TOmniSingleThreadUseChecker;
+begin
+  checker.AttachToCurrentThread;
+  checker.Check;
+  Assert.IsTrue(true, 'Check from same thread OK');
+end;
+
+procedure TestSingleThreadUseChecker.TestDifferentThreadRaises;
+var
+  checker: TOmniSingleThreadUseChecker;
+  synch: IOmniSynchronizer<string>;
+  raised: TOmniAlignedInt32;
+begin
+  synch := TOmniSynchronizer<string>.Create;
+  raised.Value := 0;
+  checker.AttachToCurrentThread;
+
+  System.Threading.TTask.Run(
+    procedure
+    begin
+      try
+        checker.Check;
+      except
+        raised.Value := 1;
+      end;
+      synch.Signal('done');
+    end);
+
+  synch.WaitFor('done');
+  Assert.AreEqual<integer>(1, raised.Value, 'Check from different thread raised exception');
 end;
 
 end.
