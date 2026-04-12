@@ -329,15 +329,15 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 ## Phase 5: Cleanup & Testing
 
 ### 5.1 Remove dead code
-- [ ] Remove all `{$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}` dual paths — keep only the platform-independent path
-- [ ] Remove Windows-specific observer classes
+- [x] Remove all `{$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}` dual paths — already completed (no instances remain in core .pas files)
+- [x] Remove unused Windows-specific observer classes — removed `TOmniContainerWindowsEventObserver` (dead code, never called outside its own unit); `TOmniContainerWindowsMessageObserver` stays (used by `TOmniBackgroundWorker`)
 - [ ] Remove package registration files (design-time packages dropped)
 - [ ] Remove support for Delphi versions < 11
 
-### 5.2 DSiWin32 usage reduction
-- [ ] DSiWin32 remains available via GpDelphiUnits submodule as Windows-specific enhancement
-- [ ] All core OTL units: replace DSiWin32 calls with direct `Winapi.Windows` calls or cross-platform equivalents
-- [ ] Allowed remaining DSiWin32 usage: only in platform-specific enhancement code behind `{$IFDEF MSWINDOWS}`
+### 5.2 DSiWin32 usage reduction ✅
+- [x] DSiWin32 remains available via GpDelphiUnits submodule as Windows-specific enhancement
+- [x] All core OTL units: zero DSiWin32 imports remain (verified — only history comments reference it)
+- [x] Allowed remaining DSiWin32 usage: only in test files and examples, not in core library
 
 ### 5.3 Compiler hints and warnings audit
 - [x] Build all units and test projects with hints and warnings enabled

@@ -37,9 +37,11 @@
 ///   Contributors      : Sean B. Durkin
 ///   Creation date     : 2009-02-19
 ///   Last modification : 2026-04-12
-///   Version           : 1.08
+///   Version           : 1.09
 ///</para><para>
 ///   History:
+///     1.09: 2026-04-12
+///       - Removed unused TOmniContainerWindowsEventObserver class and factory function.
 ///     1.08: 2026-04-12
 ///       - Qualified Winapi.Windows.SetEvent call to avoid ambiguity with OtlSync.SetEvent.
 ///     1.07: 2026-04-11
@@ -120,13 +122,8 @@ type
     property MonitorNotify: IOmniEventMonitorNotify read GetMonitorNotify;
   end; { TOmniContainerPlatformObserver }
 
-  // Windows-specific observers are left in for compatibility with existing codebase.
+  // Windows-specific message observer, used by TOmniBackgroundWorker.
   {$IFDEF MSWINDOWS}
-  TOmniContainerWindowsEventObserver = class(TOmniContainerObserver)
-  public
-    function  GetEvent: THandle; virtual; abstract;
-  end; { TOmniContainerWindowsEventObserver }
-
   TOmniContainerWindowsMessageObserver = class(TOmniContainerObserver)
   strict protected
     function  GetHandle: THandle; virtual; abstract;
@@ -159,8 +156,6 @@ type
     objectID: int64): TOmniContainerPlatformObserver;
 
   {$IFDEF MSWINDOWS}
-  function CreateContainerWindowsEventObserver(externalEvent: THandle = 0):
-    TOmniContainerWindowsEventObserver;
   function CreateContainerWindowsMessageObserver(hWindow: THandle; msg: cardinal;
     wParam: WPARAM; lParam: LPARAM): TOmniContainerWindowsMessageObserver;
   {$ENDIF MSWINDOWS}
@@ -193,17 +188,6 @@ type
   end; { TOmniContainerPlatformObserverImpl }
 
   {$IFDEF MSWINDOWS}
-  TOmniContainerWindowsEventObserverImpl = class(TOmniContainerWindowsEventObserver)
-  strict private
-    cweoEvent          : THandle;
-    cweoEventIsExternal: boolean;
-  public
-    constructor Create(externalEvent: THandle = 0);
-    destructor  Destroy; override;
-    function  GetEvent: THandle; override;
-    procedure Notify; override;
-  end; { TOmniContainerWindowsEventObserverImpl }
-
   TOmniContainerWindowsMessageObserverImpl = class(TOmniContainerWindowsMessageObserver)
   strict private
     cwmoHandle  : THandle;
@@ -235,13 +219,6 @@ begin
 end; { CreateContainerPlatformObserver }
 
 {$IFDEF MSWINDOWS}
-function CreateContainerWindowsEventObserver(externalEvent: THandle):
-  TOmniContainerWindowsEventObserver;
-begin
-
-  Result := TOmniContainerWindowsEventObserverImpl.Create(externalEvent);
-end; { CreateContainerWindowsEventObserver }
-
 function CreateContainerWindowsMessageObserver(hWindow: THandle; msg: cardinal;
   wParam: WPARAM; lParam: LPARAM): TOmniContainerWindowsMessageObserver;
 begin
@@ -292,39 +269,6 @@ begin
 end; { TOmniContainerWindowsEventObserverImpl.Notify }
 
 {$IFDEF MSWINDOWS}
-
-{ TOmniContainerWindowsEventObserverImpl }
-
-constructor TOmniContainerWindowsEventObserverImpl.Create(externalEvent: THandle);
-begin
-  inherited Create;
-  if externalEvent <> 0 then begin
-    cweoEvent := externalEvent;
-    cweoEventIsExternal := true;
-  end
-  else begin
-    cweoEvent := Winapi.Windows.CreateEvent(nil, false, false, nil);
-    cweoEventIsExternal := false;
-  end;
-end; { TOmniContainerWindowsEventObserverImpl.Create }
-
-destructor TOmniContainerWindowsEventObserverImpl.Destroy;
-begin
-  if not cweoEventIsExternal then
-    Winapi.Windows.CloseHandle(cweoEvent);
-  cweoEvent := 0;
-  inherited;
-end; { TOmniContainerWindowsEventObserverImpl.Destroy }
-
-function TOmniContainerWindowsEventObserverImpl.GetEvent: THandle;
-begin
-  Result := cweoEvent;
-end; { TOmniContainerWindowsEventObserverImpl.GetEvent }
-
-procedure TOmniContainerWindowsEventObserverImpl.Notify;
-begin
-  Win32Check(Winapi.Windows.SetEvent(GetEvent));
-end; { TOmniContainerWindowsEventObserverImpl.Notify }
 
 { TOmniContainerWindowsMessageObserver }
 
