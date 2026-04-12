@@ -81,11 +81,7 @@ var
 
   procedure CheckEvent(state: boolean; const tag: string);
   begin
-    {$IFDEF MSWindows}
-    CheckEquals(state, WaitForSingleObject(evt, 0) = WAIT_OBJECT_0, tag);
-    {$ELSE}
-    CheckEquals(state, evt.WaitFor(0) = wrSignaled);
-    {$ENDIF}
+    CheckEquals(state, evt.WaitFor(0) = wrSignaled, tag);
   end;
 
 begin

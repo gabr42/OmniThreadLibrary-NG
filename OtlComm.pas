@@ -347,11 +347,7 @@ end; { TOmniMessageQueue.Enqueue }
 function TOmniMessageQueue.GetNewMessageEvent: TOmniTransitionEvent;
 begin
   AttachEventObserver;
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  Result := mqEventObserver.GetEvent.Handle;
-  {$ELSE}
   Result := mqEventObserver.GetEvent;
-  {$IFEND}
 end; { TOmniMessageQueue.GetNewMessageEvent }
 
 function TOmniMessageQueue.TryDequeue(var msg: TOmniMessage): boolean;

@@ -36,10 +36,15 @@
 ///   Contributors      : GJ, Lee_Nover
 ///
 ///   Creation date     : 2008-06-12
-///   Last modification : 2020-04-26
-///   Version           : 2.0
+///   Last modification : 2026-04-12
+///   Version           : 2.1
 ///</para><para>
 ///   History:
+///     2.1: 2026-04-12
+///       - Unified TOmniTransitionEvent = IOmniEvent on all platforms.
+///       - TOmniWaitObjectList uses TList<IOmniEvent> unconditionally.
+///       - Removed THandle overloads of RegisterWaitObject/UnregisterWaitObject.
+///       - Removed IOmniEventAndProc, TOmniEventProcList, DecorateEvent stubs.
 ///     2.0: 2020-04-26
 ///       - Platform-independent TerminateEvent and TerminatedEvent.
 ///     1.17a: 2019-10-24
@@ -111,7 +116,7 @@ type
   TOmniWaitObjectList = class
   strict private
     owolResponseHandlers: TList<TMethod>;
-    owolWaitObjects     : {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}TList<Int64>{$ELSE}TList<IOmniEvent>{$IFEND};
+    owolWaitObjects     : TList<IOmniEvent>;
   strict protected
     function  GetResponseHandlers(idxHandler: integer): TOmniWaitObjectMethod;
     function  GetWaitObjects(idxWaitObject: integer): TOmniTransitionEvent;
@@ -126,19 +131,7 @@ type
     property WaitObjects[idxWaitObject: integer]: TOmniTransitionEvent read GetWaitObjects;
   end; { TOmniWaitObjectList }
 
-  {$IF not Defined(MSWINDOWS) or Defined(OTL_PlatformIndependent)}
-  IOmniEventAndProc = interface(IOmniEvent) ['{2CA14FE0-4616-41CC-BDED-EEDE88BC6492}']
-    function BaseEvent: IOmniEvent;
-    function Proc: TOmniWaitObjectMethod;
-  end; { IOmniEventAndProc }
-
   TOmniSynchroArray = TArray<IOmniSynchro>;
-  TOmniEventProcList = class(TList<IOmniEventAndProc>)
-  public
-    function  AsSyncroArray: TOmniSynchroArray;
-    procedure RemoveBaseEvent(const Base: IOmniEvent);
-  end;
-  {$IFEND}
 
   TOmniTaskInvokeFunction = reference to procedure;
 //  TOmniTaskInvokeFunctionEx = reference to procedure(const task: IOmniTaskControl);
@@ -161,10 +154,7 @@ type
     procedure InvokeOnSelf(remoteFunc: TOmniTaskInvokeFunction);
 //    procedure Invoke(remoteFunc: TOmniTaskInvokeFunctionEx); overload;
     procedure RegisterComm(const comm: IOmniCommunicationEndpoint);
-    {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-    procedure RegisterWaitObject(waitObject: THandle; responseHandler: TOmniWaitObjectMethod); overload;
-    {$IFEND}
-    procedure RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod); overload;
+    procedure RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod);
     procedure SetException(exceptionObject: pointer);
     procedure SetExitStatus(exitCode: integer; const exitMessage: string);
     procedure SetProcessorGroup(procGroupNumber: integer);
@@ -179,10 +169,7 @@ type
     function  Terminated: boolean;
     function  Stopped: boolean;
     procedure UnregisterComm(const comm: IOmniCommunicationEndpoint);
-    {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-    procedure UnregisterWaitObject(waitObject: THandle); overload;
-    {$IFEND}
-    procedure UnregisterWaitObject(waitObject: IOmniEvent); overload;
+    procedure UnregisterWaitObject(waitObject: IOmniEvent);
     property CancellationToken: IOmniCancellationToken read GetCancellationToken;
     property Comm: IOmniCommunicationEndpoint read GetComm;
     property Counter: IOmniCounter read GetCounter;
@@ -202,28 +189,14 @@ type
 
   TOmniTaskDelegate = reference to procedure(const task: IOmniTask);
 
-{$IF not Defined(MSWINDOWS) or Defined(OTL_PlatformIndependent)}
-  function DecorateEvent(const Base: IOmniEvent; AProc: TOmniWaitObjectMethod): IOmniEventAndProc;
-{$IFEND}
-
 implementation
-
-{ exports }
-
-{$IF not Defined(MSWINDOWS) or Defined(OTL_PlatformIndependent)}
-function DecorateEvent(const Base: IOmniEvent; AProc: TOmniWaitObjectMethod): IOmniEventAndProc;
-begin
-  // TODO Implement
-  raise Exception.Create('Not implemented');
-end;
-{$IFEND}
 
 { TOmniWaitObjectList }
 
 constructor TOmniWaitObjectList.Create;
 begin
   inherited Create;
-  owolWaitObjects := {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}TList<Int64>.Create{$ELSE}TList<IOmniEvent>.Create{$IFEND};
+  owolWaitObjects := TList<IOmniEvent>.Create;
   owolResponseHandlers := TList<TMethod>.Create;
 end; { TOmniWaitObjectList.Create }
 
@@ -269,20 +242,4 @@ begin
   end;
 end; { TOmniWaitObjectList.Remove }
 
-{$IF not Defined(MSWINDOWS) or Defined(OTL_PlatformIndependent)}
-function TOmniEventProcList.AsSyncroArray: TOmniSynchroArray;
-begin
-  //TODO Implement
-  raise Exception.Create('Not implemented');
-end;
-
-procedure TOmniEventProcList.RemoveBaseEvent(const Base: IOmniEvent);
-begin
-  //TODO Implement
-  raise Exception.Create('Not implemented');
-end;
-{$IFEND}
-
-initialization
-  Assert(SizeOf(THandle) <= SizeOf(int64));
 end.

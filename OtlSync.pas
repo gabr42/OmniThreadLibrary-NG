@@ -36,10 +36,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu
 ///   Creation date     : 2009-03-30
-///   Last modification : 2025-11-20
-///   Version           : 2.03a
+///   Last modification : 2026-04-12
+///   Version           : 2.04
 ///</para><para>
 ///   History:
+///     2.04: 2026-04-12
+///       - TOmniTransitionEvent is now unconditionally IOmniEvent on all platforms.
+///       - Added TWaitFor.SetSynchObjects for updating synchro objects after construction.
+///       - Simplified SetEvent(TOmniTransitionEvent) helper (removed conditional).
 ///     2.03a: 2025-11-20
 ///       - Implemented Locked<T>.IsInitialized.
 ///     2.03: 2025-11-11
@@ -289,9 +293,7 @@ type
     procedure Reset;
   end; { IOmniCountdownEvent }
 
-  //At some point this type will be dropped and all the codebase will use
-  //IOmniEvent or something similar.
-  TOmniTransitionEvent = {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}THandle{$ELSE}IOmniEvent{$IFEND};
+  TOmniTransitionEvent = IOmniEvent;
 
   //IOmniHandleObject removed — use IOmniSynchroObject instead
 
@@ -617,6 +619,7 @@ type
     constructor Create(const handles: array of THandle); overload;
     {$ENDIF MSWINDOWS}
     destructor  Destroy; override;
+    procedure SetSynchObjects(const synchObjects: array of IOmniSynchro);
     {$IFDEF MSWINDOWS}
     function  MsgWaitAny(timeout_ms, wakeMask, flags: cardinal): TWaitForResult;
     procedure SetHandles(const handles: array of THandle);
@@ -858,13 +861,8 @@ var
 function SetEvent(event: TOmniTransitionEvent): boolean;
 begin
   Result := true;
-  {$IF Defined(MSWINDOWS) and not Defined(OTL_PlatformIndependent)}
-  if event <> 0 then
-    Result := Winapi.Windows.SetEvent(event);
-  {$ELSE}
   if assigned(event) then
     event.SetEvent;
-  {$IFEND}
 end; { SetEvent }
 
 { exports }
@@ -2260,6 +2258,15 @@ begin
     Result := waFailed;
   end;
 end; { TWaitFor.MsgWaitAny }
+
+procedure TWaitFor.SetSynchObjects(const synchObjects: array of IOmniSynchro);
+var
+  member: IOmniSynchro;
+begin
+  FSynchObjects.Clear;
+  for member in synchObjects do
+    FSynchObjects.Add(member);
+end; { TWaitFor.SetSynchObjects }
 
 procedure TWaitFor.SetHandles(const handles: array of THandle);
 var

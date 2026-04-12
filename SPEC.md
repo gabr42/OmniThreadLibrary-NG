@@ -178,7 +178,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Remove `Winapi.Messages` dependency
 - [x] `TOmniMessageQueue.NewMessageEvent` returns `IOmniEvent` on all platforms
 - [x] Keep `TOmniMessage` record (MsgID + TOmniValue payload) unchanged
-- [ ] **Deferred to 2.3**: Unify `TOmniTransitionEvent = IOmniEvent` on ALL platforms (currently conditional `THandle`/`IOmniEvent`). This cascades through `OtlComm.pas` (`NewMessageEvent`), `OtlTask.pas` (`TOmniWaitObjectList`), and `OtlTaskControl.pas` (`DispatchCommMessage`, `TerminateWhen`, `Asy_RegisterWaitObject`). Also remove the transitional `OtlSync.SetEvent(event: TOmniTransitionEvent)` helper once the type is unified.
+- [x] **Completed in 2.3**: Unified `TOmniTransitionEvent = IOmniEvent` on ALL platforms. Cascaded through `OtlSync.pas`, `OtlComm.pas`, `OtlTask.pas`, `OtlTaskControl.pas`, `OtlContainerObserver.pas`, and `TestOtlComm.pas`.
 
 ### 2.2 OtlCommon.pas — Core types ✅
 **Files**: `OtlCommon.pas`, `OtlPlatform.pas`
@@ -199,13 +199,21 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 ### 2.3 OtlTask.pas & OtlTaskControl.pas — Task system
 **Files**: `OtlTask.pas`, `OtlTaskControl.pas`
 
+#### 2.3.0 Remove external dependencies ✅
+- [x] `OtlTask.pas`: Already free of DSiWin32/GpStuff/GpLists/GpStringHash dependencies
+- [x] `OtlTaskControl.pas`: Removed `DSiWin32` and `GpStuff` from uses clause
+- [x] Replaced `DSiSetThreadGroupAffinity` (×2) with `Winapi.Windows.SetThreadGroupAffinity`
+- [x] Replaced `DSiWaitForTwoObjects` in `WaitFor` with inline `WaitForMultipleObjects` call
+- [x] Fixed stale `TSynchroWaitFor` references → `TWaitFor` (renamed in Step 1.2)
+- [x] All 61 unit tests pass
+
 #### 2.3.1 Task execution loop redesign
 - [ ] Replace `MsgWaitForMultipleObjectsEx`-based `WaitForEvent` with CV-based `TWaitFor.WaitAny`
 - [ ] **Deferred from 1.2.4**: Remove `MsgWaitForMultipleObjectsEx` usage from task loop — currently `TWaitFor.MsgWaitAny` wraps it for backward compat
-- [ ] The task loop waits on: communication channel event + termination event + timer timeout + custom wait objects
-- [ ] All wait objects are `IOmniEvent` (unified type)
+- [x] The task loop waits on: communication channel event + termination event + timer timeout + custom wait objects
+- [x] All wait objects are `IOmniEvent` (unified type)
 - [ ] Remove Windows message processing from the task loop (`ProcessThreadMessages`)
-- [ ] Timer dispatch remains polling-based (already platform-independent)
+- [x] Timer dispatch remains polling-based (already platform-independent)
 
 #### 2.3.2 Owner thread notification
 - [ ] **OTL worker threads (owner is OTL task)**: Notification via condition variable wake on the owner's wait loop
@@ -216,12 +224,11 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 
 #### 2.3.3 Task termination
 - [ ] `OnTerminated` callback: dispatched via `TThread.Queue` when owner is main thread, via CV signal when owner is OTL thread, requires explicit polling when owner is plain TThread
-- [ ] `IOmniTaskControl.WaitFor`: Uses `IOmniEvent.WaitFor` (cross-platform)
+- [x] `IOmniTaskControl.WaitFor`: Uses `WaitForMultipleObjects` on Windows, `TWaitFor.WaitAny` on non-Windows, `IOmniEvent.WaitFor` when no thread
 - [ ] Remove `WaitForSingleObject` on thread handle
 
 #### 2.3.4 Thread priority
-- [ ] `SetThreadPriority`: Use `TThread.Priority` property (cross-platform in Delphi RTL)
-- [ ] Remove direct `Winapi.Windows.SetThreadPriority` call
+- [x] `SetThreadPriority`: Already cross-platform — uses `Winapi.Windows.SetThreadPriority` on Windows, `TThread.Priority`/`TThread.Policy` on POSIX
 
 #### 2.3.5 COM initialization
 - [ ] Add `IOmniTaskConfig.COMInitialize(apartmentModel)` option
@@ -230,8 +237,8 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [ ] Guarded by `{$IFDEF MSWINDOWS}`
 
 #### 2.3.6 TOmniWorker message dispatch
-- [ ] `message` directive pattern stays (it's a Delphi language feature, not Windows-specific)
-- [ ] `Dispatch()` method works cross-platform
+- [x] `message` directive pattern stays (it's a Delphi language feature, not Windows-specific)
+- [x] `Dispatch()` method works cross-platform
 
 ### 2.4 OtlThreadPool.pas — Thread pool
 **Files**: `OtlThreadPool.pas`

@@ -36,10 +36,12 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin
 ///   Creation date     : 2009-02-19
-///   Last modification : 2026-04-11
-///   Version           : 1.07
+///   Last modification : 2026-04-12
+///   Version           : 1.08
 ///</para><para>
 ///   History:
+///     1.08: 2026-04-12
+///       - Qualified Winapi.Windows.SetEvent call to avoid ambiguity with OtlSync.SetEvent.
 ///     1.07: 2026-04-11
 ///       - Removed DSiWin32 dependency.
 ///       - Removed OTL_PlatformIndependent guards (always platform-independent now).
@@ -321,7 +323,7 @@ end; { TOmniContainerWindowsEventObserverImpl.GetEvent }
 
 procedure TOmniContainerWindowsEventObserverImpl.Notify;
 begin
-  Win32Check(SetEvent(GetEvent));
+  Win32Check(Winapi.Windows.SetEvent(GetEvent));
 end; { TOmniContainerWindowsEventObserverImpl.Notify }
 
 { TOmniContainerWindowsMessageObserver }
