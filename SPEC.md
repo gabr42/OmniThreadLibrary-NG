@@ -280,7 +280,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 
 #### 3.1.1 Further cleanup (deferred)
 - [ ] **Keep all abstractions**: `Parallel.For`, `Parallel.ForEach`, `Parallel.Join`, `Parallel.Future`, `Parallel.Pipeline`, `Parallel.Map`, `Parallel.TimedTask`, `Parallel.Async`, `Parallel.BackgroundWorker`
-- [ ] **Drop**: `Parallel.ForkJoin`
+- [x] **Drop**: `Parallel.ForkJoin`
 - [x] Replace `WaitForSingleObject(FCountStopped.Handle, ...)` with `IOmniEvent.WaitFor`
 - [ ] Replace remaining `THandle` usage with `IOmniEvent`
 - [ ] All `ForEach` configuration options stay (`.NumTasks`, `.NoWait`, `.OnStop`, `.Aggregate`, `.Into`, `.PreserveOrder`, etc.)
@@ -315,8 +315,8 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Removed unused `DSiWin32` import
 - [x] Keep main-thread-only constraint
 
-### 4.2 OtlHooks.pas
-- [ ] Already platform-independent — no changes needed
+### 4.2 OtlHooks.pas ✅
+- [x] Already platform-independent — no changes needed (verified: no Winapi/MSWINDOWS/THandle references)
 
 ### 4.3 GpEventBus — separate cross-platform port
 - [ ] GpEventBus stays as a separate project in `GpDelphiUnits`
