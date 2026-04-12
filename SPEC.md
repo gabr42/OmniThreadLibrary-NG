@@ -267,16 +267,30 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 ### 3.1 OtlParallel.pas
 **Files**: `OtlParallel.pas`
 
+#### 3.1.0 Remove external dependencies ✅
+- [x] Removed `DSiWin32` and `GpStuff` from uses clause
+- [x] Unified `WaitForSingleObject(FCountStopped.Handle, ...)` → `FCountStopped.Synchro.WaitFor(...)` (6 call sites)
+- [x] Replaced `DSiYield` → `TThread.Yield`
+- [x] Replaced `DSiAllocateHWnd`/`DSiDeallocateHWnd` → `System.Classes.AllocateHWnd`/`DeallocateHWnd`
+- [x] Replaced `IFF` (GpStuff) → `IfThen` (System.Math/System.StrUtils)
+- [x] All 61 unit tests pass
+
+#### 3.1.1 Further cleanup (deferred)
 - [ ] **Keep all abstractions**: `Parallel.For`, `Parallel.ForEach`, `Parallel.Join`, `Parallel.Future`, `Parallel.Pipeline`, `Parallel.Map`, `Parallel.TimedTask`, `Parallel.Async`, `Parallel.BackgroundWorker`
 - [ ] **Drop**: `Parallel.ForkJoin`
-- [ ] Replace `WaitForSingleObject(FCountStopped.Handle, ...)` with `IOmniEvent.WaitFor`
-- [ ] Replace `THandle` usage with `IOmniEvent`
+- [x] Replace `WaitForSingleObject(FCountStopped.Handle, ...)` with `IOmniEvent.WaitFor`
+- [ ] Replace remaining `THandle` usage with `IOmniEvent`
 - [ ] All `ForEach` configuration options stay (`.NumTasks`, `.NoWait`, `.OnStop`, `.Aggregate`, `.Into`, `.PreserveOrder`, etc.)
-- [ ] Completion notification via CV/event (not Windows handles)
+- [x] Completion notification via CV/event (not Windows handles)
 
 ### 3.2 OtlDataManager.pas
 **Files**: `OtlDataManager.pas`
 
+#### 3.2.0 Remove external dependencies ✅
+- [x] Removed unused `DSiWin32` import
+- [x] All 61 unit tests pass
+
+#### 3.2.1 Further cleanup (deferred)
 - [ ] Replace `WaitForMultipleObjects` with CV-based wait
 - [ ] Replace `THandle` arrays (`obsWaitHandles`) with `IOmniEvent` arrays
 - [ ] Replace `SetEvent` calls with `IOmniEvent.SetEvent`
@@ -291,10 +305,10 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 
 ## Phase 4: Monitoring, Hooks & Event Bus
 
-### 4.1 OtlEventMonitor.pas
-- [ ] Already mostly platform-independent (uses `TThread.Queue`)
-- [ ] Remove any remaining `DSiWin32` dependencies
-- [ ] Keep main-thread-only constraint
+### 4.1 OtlEventMonitor.pas ✅
+- [x] Already mostly platform-independent (uses `TThread.Queue`)
+- [x] Removed unused `DSiWin32` import
+- [x] Keep main-thread-only constraint
 
 ### 4.2 OtlHooks.pas
 - [ ] Already platform-independent — no changes needed

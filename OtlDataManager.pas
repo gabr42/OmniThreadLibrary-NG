@@ -36,10 +36,12 @@
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin
 ///
 ///   Creation date     : 2010-04-13
-///   Last modification : 2018-06-14
-///   Version           : 2.01
+///   Last modification : 2026-04-12
+///   Version           : 2.02
 ///</para><para>
 ///   History:
+///     2.02: 2026-04-12
+///       - Removed unused DSiWin32 import.
 ///     2.01: 2018-06-14
 ///       - TOmniOutputBufferImpl.EmptyEvent changed to IOmniEvent.
 ///     2.0: 2018-04-24
@@ -147,7 +149,6 @@ uses
 {$IFDEF MSWINDOWS}
   Winapi.Windows,
   System.Contnrs,
-  DSiWin32,
 {$ENDIF}
   System.Generics.Collections,
   System.SysUtils,

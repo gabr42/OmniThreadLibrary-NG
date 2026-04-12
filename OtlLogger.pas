@@ -35,10 +35,12 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover
 ///   Creation date     : 2010-07-08
-///   Last modification : 2015-10-04
-///   Version           : 1.02
+///   Last modification : 2026-04-12
+///   Version           : 1.03
 ///</para><para>
 ///   History:
+///     1.03: 2026-04-12
+///       - Removed unused DSiWin32 import.
 ///     1.02: 2015-10-04
 ///       - Adapted for non-Windows platforms.
 ///     1.01: 2010-07-21
@@ -78,7 +80,6 @@ implementation
 
 uses
   System.SysUtils,
-  {$IFDEF MSWINDOWS}DSiWin32,{$ENDIF}
   System.Diagnostics,
   OtlPlatform,
   OtlCommon;

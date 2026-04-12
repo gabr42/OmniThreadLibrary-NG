@@ -36,10 +36,12 @@
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin
 ///
 ///   Creation date     : 2008-06-12
-///   Last modification : 2019-04-14
-///   Version           : 2.0b
+///   Last modification : 2026-04-12
+///   Version           : 2.0c
 ///</para><para>
 ///   History:
+///     2.0c: 2026-04-12
+///       - Removed unused DSiWin32 import.
 ///     2.0b: 2019-04-14
 ///       - Removed last MSWINDOWS IFDEFs.
 ///     2.0a: 2018-05-28
@@ -200,9 +202,6 @@ implementation
 uses
   System.SyncObjs,
   System.Diagnostics,
-  {$IFDEF MSWINDOWS}
-  DSiWin32, // to help with inlining
-  {$ENDIF}
   OtlHooks,
   OtlPlatform;
 
