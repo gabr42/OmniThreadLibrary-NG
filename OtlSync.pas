@@ -37,9 +37,11 @@
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu
 ///   Creation date     : 2009-03-30
 ///   Last modification : 2026-04-12
-///   Version           : 2.04
+///   Version           : 2.05
 ///</para><para>
 ///   History:
+///     2.05: 2026-04-12
+///       - Removed unused GpSync.CondVar import.
 ///     2.04: 2026-04-12
 ///       - TOmniTransitionEvent is now unconditionally IOmniEvent on all platforms.
 ///       - Added TWaitFor.SetSynchObjects for updating synchro objects after construction.
@@ -208,7 +210,6 @@ uses
   {$IFDEF POSIX}
   Posix.Pthread,
   {$ENDIF POSIX}
-  GpSync.CondVar,
   System.Diagnostics,
   OtlCommon;
 
