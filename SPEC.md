@@ -228,7 +228,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 #### 2.3.3 Task termination
 - [ ] `OnTerminated` callback: dispatched via `TThread.Queue` when owner is main thread, via CV signal when owner is OTL thread, requires explicit polling when owner is plain TThread
 - [x] `IOmniTaskControl.WaitFor`: Uses `WaitForMultipleObjects` on Windows, `TWaitFor.WaitAny` on non-Windows, `IOmniEvent.WaitFor` when no thread
-- [ ] Remove `WaitForSingleObject` on thread handle
+- [x] Remove `WaitForSingleObject` on thread handle (completed — no remaining calls in OtlTaskControl)
 
 #### 2.3.4 Thread priority
 - [x] `SetThreadPriority`: Already cross-platform — uses `Winapi.Windows.SetThreadPriority` on Windows, `TThread.Priority`/`TThread.Policy` on POSIX

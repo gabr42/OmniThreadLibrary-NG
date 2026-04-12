@@ -36,7 +36,9 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin, HHasenack, SMelnyk64
 ///   Last modification : 2026-04-12
-///   Version           : 2.0b
+///   Version           : 2.0c
+///     2.0c: 2026-04-12
+///       - Removed Winapi.Windows from implementation uses (not needed).
 ///     2.0b: 2026-04-12
 ///       - Removed DSiWin32 and GpStuff dependencies.
 ///       - Unified WaitForSingleObject(FCountStopped.Handle) to FCountStopped.Synchro.WaitFor.
@@ -370,7 +372,6 @@ interface
 
 uses
   {$IFDEF MSWINDOWS}
-  Winapi.Windows,
   Winapi.Messages,
   {$ENDIF MSWINDOWS}
   System.SysUtils,

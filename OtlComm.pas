@@ -35,10 +35,12 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover
 ///   Creation date     : 2008-06-12
-///   Last modification : 2018-04-24
-///   Version           : 2.0
+///   Last modification : 2026-04-12
+///   Version           : 2.01
 ///</para><para>
 ///   History:
+///     2.01: 2026-04-12
+///       - Removed unused Winapi.Windows import.
 ///     2.0: 2018-04-24
 ///       - DSiTimeGetTime64 replaced with OtlPlatform.Time.
 ///     1.13a: 2018-01-16
@@ -95,9 +97,6 @@ unit OtlComm;
 interface
 
 uses
-  {$IFDEF MSWINDOWS}
-  Winapi.Windows,
-  {$ENDIF}
   System.Generics.Collections,
   System.SysUtils,
   System.Classes,
