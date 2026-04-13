@@ -26,7 +26,6 @@ type
 
 implementation
 
-{$I OtlOptions.inc}
 
 uses
   System.SysUtils,

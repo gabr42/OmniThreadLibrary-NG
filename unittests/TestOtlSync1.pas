@@ -1,6 +1,5 @@
 unit TestOtlSync1;
 
-{$I OtlOptions.Inc}
 
 interface
 

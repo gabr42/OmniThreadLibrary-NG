@@ -1,25 +1,23 @@
 unit SmokeTest;
 
-{$I OtlOptions.inc}
-
 interface
 
 uses
-  SysUtils,
+  System.SysUtils,
   {$IFDEF MSWindows}
-  Windows,
+  Winapi.Windows,
   {$ENDIF}
-  TestFramework;
+  DUnitX.TestFramework;
 
 type
-  // Regression tests
-  TSmokeTest = class(TTestCase)
-  published
+  [TestFixture]
+  TSmokeTest = class
+  public
     {$IFDEF MSWindows}
-    procedure TestDSiClassWndProcParamSize;
+    [Test] procedure TestDSiClassWndProcParamSize;
     {$ENDIF}
-    procedure TestTOmniValueArrayInt64Cast;
-    procedure TestCancelledFuture;
+    [Test] procedure TestTOmniValueArrayInt64Cast;
+    [Test] procedure TestCancelledFuture;
   end;
 
 implementation
@@ -39,11 +37,11 @@ type
 procedure TSmokeTest.TestDSiClassWndProcParamSize;
 begin
   {$IFDEF CPUX64}
-  CheckEquals(8, SizeOf(TDSiWParam));
-  CheckEquals(8, SizeOf(TDSiLParam));
+  Assert.AreEqual<integer>(8, SizeOf(TDSiWParam));
+  Assert.AreEqual<integer>(8, SizeOf(TDSiLParam));
   {$ELSE}
-  CheckEquals(4, SizeOf(TDSiWParam));
-  CheckEquals(4, SizeOf(TDSiLParam));
+  Assert.AreEqual<integer>(4, SizeOf(TDSiWParam));
+  Assert.AreEqual<integer>(4, SizeOf(TDSiLParam));
   {$ENDIF}
 end;
 {$ENDIF}
@@ -68,10 +66,10 @@ begin
 
   arrOut := ov.CastTo<TArray<Int64>>;
 
-  CheckEquals(Length(arrIn), Length(arrOut));
+  Assert.AreEqual<integer>(Length(arrIn), Length(arrOut));
 
   for i := Low(arrIn) to High(arrIn) do
-    CheckEquals(arrIn[i], arrOut[i]);
+    Assert.AreEqual<int64>(arrIn[i], arrOut[i]);
 end;
 
 procedure TSmokeTest.TestCancelledFuture;
@@ -94,10 +92,8 @@ begin
     Parallel.TaskConfig.CancelWith(token)
   );
 
-  CheckTrue(future.IsCancelled);
-  CheckFalse(executed);
+  Assert.IsTrue(future.IsCancelled);
+  Assert.IsFalse(executed);
 end;
 
-initialization
-  RegisterTest(TSmokeTest.Suite);
 end.

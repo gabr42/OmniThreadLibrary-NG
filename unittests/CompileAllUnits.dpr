@@ -4,7 +4,6 @@ program CompileAllUnits;
 
 {$R *.res}
 
-{$I OtlOptions.inc}
 
 uses
   SysUtils,

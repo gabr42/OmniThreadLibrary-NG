@@ -3,25 +3,24 @@ unit TestTask;
 interface
 
 uses
-  TestFramework,
+  DUnitX.TestFramework,
   OtlSync.Utils;
 
 type
-  // Test methods for class IOmniBlockingCollection
-  TestITaskControl = class(TTestCase)
+  [TestFixture]
+  TestITaskControl = class
   strict private
     Synchronizer: IOmniSynchronizer<string>;
-  protected
-    procedure SetUp; override;
-    procedure TearDown; override;
-  published
-    procedure TestStartTask;
-    procedure TestWait;
-    procedure TestTerminate;
-    procedure TestTerminateWhen;
-    procedure TestWorkerInitialized;
-    procedure TestRegisterWaitObject;
-    procedure TestInvoke;
+  public
+    [Setup] procedure SetUp;
+    [TearDown] procedure TearDown;
+    [Test] procedure TestStartTask;
+    [Test] procedure TestWait;
+    [Test] procedure TestTerminate;
+    [Test] procedure TestTerminateWhen;
+    [Test] procedure TestWorkerInitialized;
+    [Test] procedure TestRegisterWaitObject;
+    [Test] procedure TestInvoke;
   end;
 
 implementation
@@ -42,14 +41,12 @@ type
 
 procedure TestITaskControl.SetUp;
 begin
-  inherited;
   Synchronizer := TOmniSynchronizer<string>.Create;
 end;
 
 procedure TestITaskControl.TearDown;
 begin
   Synchronizer := nil;
-  inherited;
 end;
 
 procedure TestITaskControl.TestStartTask;
@@ -74,12 +71,12 @@ begin
 
   task.Run;
 
-  CheckTrue(task.WaitFor(3000), 'Task did not terminate in 3 seconds');
-  CheckTrue(didRun, 'Task did not run');
+  Assert.IsTrue(task.WaitFor(3000), 'Task did not terminate in 3 seconds');
+  Assert.IsTrue(didRun, 'Task did not run');
 
   sw := TStopwatch.StartNew;
   task.Terminate;
-  CheckTrue(sw.ElapsedMilliseconds < 500, 'Task took long time to terminate');
+  Assert.IsTrue(sw.ElapsedMilliseconds < 500, 'Task took long time to terminate');
   Sleep(0);
 end;
 
@@ -98,17 +95,17 @@ begin
 
   task.Run;
 
-  CheckTrue(Synchronizer.WaitFor('started', 1000), 'Task did not start in 1 second');
-  CheckFalse(task.WaitFor(0), 'WaitFor(0) should not succeed');
-  CheckFalse(task.WaitFor(1000), 'WaitFor(100) should not succeed');
+  Assert.IsTrue(Synchronizer.WaitFor('started', 1000), 'Task did not start in 1 second');
+  Assert.IsFalse(task.WaitFor(0), 'WaitFor(0) should not succeed');
+  Assert.IsFalse(task.WaitFor(1000), 'WaitFor(100) should not succeed');
 
   Synchronizer.Signal('stop');
 
-  CheckTrue(task.WaitFor(3000), 'Task did not terminate in 3 seconds');
+  Assert.IsTrue(task.WaitFor(3000), 'Task did not terminate in 3 seconds');
 
   sw := TStopwatch.StartNew;
   task.Terminate;
-  CheckTrue(sw.ElapsedMilliseconds < 500, 'Task took long time to terminate');
+  Assert.IsTrue(sw.ElapsedMilliseconds < 500, 'Task took long time to terminate');
   Sleep(0);
 end;
 
@@ -128,14 +125,14 @@ begin
 
   task.Run;
 
-  CheckTrue(Synchronizer.WaitFor('started', 1000), 'Task did not start in 1 second');
-  CheckFalse(task.WaitFor(1000), 'Task has terminated prematurely');
+  Assert.IsTrue(Synchronizer.WaitFor('started', 1000), 'Task did not start in 1 second');
+  Assert.IsFalse(task.WaitFor(1000), 'Task has terminated prematurely');
   task.Stop;
-  CheckTrue(task.WaitFor(3000), 'Task did not terminate in 3 seconds');
+  Assert.IsTrue(task.WaitFor(3000), 'Task did not terminate in 3 seconds');
 
   sw := TStopwatch.StartNew;
   task.Terminate;
-  CheckTrue(sw.ElapsedMilliseconds < 500, 'Task took long time to terminate');
+  Assert.IsTrue(sw.ElapsedMilliseconds < 500, 'Task took long time to terminate');
   Sleep(0);
 end;
 
@@ -163,14 +160,14 @@ begin
   task := CreateTask(TTerminateWhenTask.Create(Synchronizer), 'Test task');
   task.TerminateWhen(event).Run;
 
-  CheckTrue(Synchronizer.WaitFor('started', 1000), 'Task did not start in 1 second');
-  CheckFalse(task.WaitFor(1000), 'Task has terminated prematurely');
+  Assert.IsTrue(Synchronizer.WaitFor('started', 1000), 'Task did not start in 1 second');
+  Assert.IsFalse(task.WaitFor(1000), 'Task has terminated prematurely');
   event.SetEvent;
-  CheckTrue(task.WaitFor(3000), 'Task did not terminate in 3 seconds');
+  Assert.IsTrue(task.WaitFor(3000), 'Task did not terminate in 3 seconds');
 
   sw := TStopwatch.StartNew;
   task.Terminate;
-  CheckTrue(sw.ElapsedMilliseconds < 500, 'Task took long time to terminate');
+  Assert.IsTrue(sw.ElapsedMilliseconds < 500, 'Task took long time to terminate');
   Sleep(0);
 end;
 
@@ -202,17 +199,17 @@ begin
   task := CreateTask(TWorkerInitializedTask.Create(Synchronizer), 'Test task');
   task.TerminateWhen(event).Run;
 
-  CheckTrue(Synchronizer.WaitFor('started', 1000), 'Task did not start in 1 second');
+  Assert.IsTrue(Synchronizer.WaitFor('started', 1000), 'Task did not start in 1 second');
   stopwatch := TStopwatch.StartNew;
   Synchronizer.Signal('continue');
   await := task.WaitForInit;
   stopwatch.Stop;
-  CheckTrue(await, 'Task did not initialize correctly');
-  CheckTrue(stopwatch.ElapsedMilliseconds >= 1000, 'WaitForInit has returned too soon');
+  Assert.IsTrue(await, 'Task did not initialize correctly');
+  Assert.IsTrue(stopwatch.ElapsedMilliseconds >= 1000, 'WaitForInit has returned too soon');
 
   stopwatch := TStopwatch.StartNew;
   task.Terminate;
-  CheckTrue(stopwatch.ElapsedMilliseconds < 500, 'Task took long time to terminate');
+  Assert.IsTrue(stopwatch.ElapsedMilliseconds < 500, 'Task took long time to terminate');
   Sleep(0);
 end;
 
@@ -268,7 +265,7 @@ begin
   task.Invoke('Method2', 42);
   task.Invoke('Method3', TOmniValueObj.Create('17'));
 
-  CheckTrue(Synchronizer.WaitFor('done', 5000));
+  Assert.IsTrue(Synchronizer.WaitFor('done', 5000));
 
   task.Terminate;
   Sleep(0);
@@ -302,9 +299,7 @@ begin
   Result := inherited Initialize;
   if Result then begin
     Task.RegisterWaitObject(FWaitObject1, RespondToEvent1);
-    {$IFDEF MSWINDOWS}
-    Task.RegisterWaitObject(FWaitObject2.Handle, RespondToEvent2);
-    {$ENDIF MSWINDOWS}
+    Task.RegisterWaitObject(FWaitObject2, RespondToEvent2);
   end;
 end;
 
@@ -333,14 +328,12 @@ begin
 
   event1.SetEvent;
   event2.SetEvent;
-  CheckTrue(Synchronizer.WaitFor('signal1', 3000), 'Wait object handler 1 was not triggered');
-  {$IFDEF MSWINDOWS}
-  CheckTrue(Synchronizer.WaitFor('signal2', 3000), 'Wait object handler 2 was not triggered');
-  {$ENDIF MSWINDOWS}
+  Assert.IsTrue(Synchronizer.WaitFor('signal1', 3000), 'Wait object handler 1 was not triggered');
+  Assert.IsTrue(Synchronizer.WaitFor('signal2', 3000), 'Wait object handler 2 was not triggered');
 
   sw := TStopwatch.StartNew;
   task.Terminate;
-  CheckTrue(sw.ElapsedMilliseconds < 500, 'Task took long time to terminate');
+  Assert.IsTrue(sw.ElapsedMilliseconds < 500, 'Task took long time to terminate');
   Sleep(0);
 end;
 
@@ -352,6 +345,4 @@ begin
   FSynchronizer := Synchronizer;
 end;
 
-initialization
-  RegisterTest(TestITaskControl.Suite);
 end.

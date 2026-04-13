@@ -15,7 +15,6 @@ uses
   DUnitX.TestFramework, System.Classes, System.SysUtils, System.Variants,
   OtlCommon;
 
-{$I OtlOptions.inc}
 
 type
   // Test methods for class TOmniValueContainer

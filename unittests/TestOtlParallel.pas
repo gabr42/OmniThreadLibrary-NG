@@ -3,41 +3,46 @@ unit TestOtlParallel;
 interface
 
 uses
-  TestFramework, OtlContainers, SysUtils;
+  DUnitX.TestFramework, OtlContainers, System.SysUtils;
 
 type
-  // Test methods for class IOmniBlockingCollection
-  TestParallelFor = class(TTestCase)
-  protected
+  [TestFixture]
+  TestParallelFor = class
+  strict protected
     FTestData: array of integer;
     procedure TestRange(iFrom, iTo, iStep: integer);
     procedure InternalTestStepZero;
-  published
-    procedure TestIncreasingStep;
-    procedure TestIncreasingEndEqStep;
-    procedure TestIncreasingLargeDataStep;
-    procedure TestDecreasingStep;
-    procedure TestDecreasingStartEqStep;
-    procedure TestDecreasingLargeDataStep;
-    procedure TestIncreasingStartEqStep;
-    procedure TestDecreasingEndEqStep;
-    procedure TestNoExecution;
-    procedure TestStepZero;
+  public
+    [Test] procedure TestIncreasingStep;
+    [Test] procedure TestIncreasingEndEqStep;
+    [Test] procedure TestIncreasingLargeDataStep;
+    [Test] procedure TestDecreasingStep;
+    [Test] procedure TestDecreasingStartEqStep;
+    [Test] procedure TestDecreasingLargeDataStep;
+    [Test] procedure TestIncreasingStartEqStep;
+    [Test] procedure TestDecreasingEndEqStep;
+    [Test] procedure TestNoExecution;
+    [Test] procedure TestStepZero;
+    [Test] procedure TestRepeatedDefaultTasks;
+    [Test] procedure TestRepeatedExplicitTasks;
   end;
 
-  TestJoin = class(TTestCase)
-  published
-    procedure TestTerminationAllStuck;
-    procedure TestTerminationPartialStuck;
-    procedure TestTerminationAllTerminated;
+  [TestFixture]
+  TestJoin = class
+  public
+    [Test] procedure TestTerminationAllStuck;
+    [Test] procedure TestTerminationPartialStuck;
+    [Test] procedure TestTerminationAllTerminated;
   end;
 
 implementation
 
 uses
-  Math,
+  System.Math,
   System.Diagnostics,
-  OtlParallel;
+  System.SyncObjs,
+  OtlParallel,
+  OtlCommon;
 
 { TestParallelFor }
 
@@ -97,7 +102,6 @@ begin
     TestRange(i, 10, i);
 end;
 
-
 procedure TestParallelFor.InternalTestStepZero;
 begin
   TestRange(1, 10, 0);
@@ -134,11 +138,10 @@ var
     i: integer;
   begin
     for i := Low(FTestData) to High(FTestData) do
-      CheckEquals(-1, FTestData[i]);
+      Assert.AreEqual<integer>(-1, FTestData[i]);
   end;
 
 begin
-  Status(Format('Testing range %d .. %d, step %d', [iFrom, iTo, iStep]));
   iMin := Min(iFrom, iTo);
   iMax := Max(iFrom, iTo);
   SetLength(FTestData, iMax - iMin + 1);
@@ -155,9 +158,9 @@ begin
       CheckAllEmpty
     else for i := iFrom to iTo do begin
       if ((i-iFrom) mod iStep) = 0 then
-        CheckEquals(i, FTestData[i-iMin], Format('at index %d', [i]))
+        Assert.AreEqual<integer>(i, FTestData[i-iMin], Format('at index %d', [i]))
       else
-        CheckEquals(-1, FTestData[i-iMin], Format('at index %d', [i]));
+        Assert.AreEqual<integer>(-1, FTestData[i-iMin], Format('at index %d', [i]));
     end;
   end
   else begin
@@ -165,16 +168,57 @@ begin
       CheckAllEmpty
     else for i := iFrom downto iTo do begin
       if ((i-iFrom) mod iStep) = 0 then
-        CheckEquals(i, FTestData[i-iMin], Format('at index %d', [i]))
+        Assert.AreEqual<integer>(i, FTestData[i-iMin], Format('at index %d', [i]))
       else
-        CheckEquals(-1, FTestData[i-iMin], Format('at index %d', [i]));
+        Assert.AreEqual<integer>(-1, FTestData[i-iMin], Format('at index %d', [i]));
     end;
+  end;
+end;
+
+procedure TestParallelFor.TestRepeatedDefaultTasks;
+var
+  counter: integer;
+  n      : integer;
+begin
+  // Stress test: repeated Parallel.For with default task count (all cores).
+  // Exercises thread pool reuse and condvar-based TWaitFor signal handling
+  // under high concurrency. Previously deadlocked after ~5 iterations due to
+  // lock-order inversion in PerformObservableAction (SpinLock->FGate vs
+  // FGate->SpinLock in TCondition.Wait).
+  for n := 1 to 50 do begin
+    counter := 0;
+    Parallel.For(1, 10, 1)
+      .Execute(
+        procedure (idx: integer)
+        begin
+          TInterlocked.Increment(counter);
+        end);
+    Assert.AreEqual(10, counter, Format('iteration %d', [n]));
+  end;
+end;
+
+procedure TestParallelFor.TestRepeatedExplicitTasks;
+var
+  counter: integer;
+  n      : integer;
+begin
+  // Stress test with explicit NumTasks(2) and NoThreadPool.
+  for n := 1 to 50 do begin
+    counter := 0;
+    Parallel.For(1, 10, 1).NumTasks(2)
+      .TaskConfig(Parallel.TaskConfig.NoThreadPool)
+      .Execute(
+        procedure (idx: integer)
+        begin
+          TInterlocked.Increment(counter);
+        end);
+    Assert.AreEqual(10, counter, Format('iteration %d', [n]));
   end;
 end;
 
 procedure TestParallelFor.TestStepZero;
 begin
-  CheckException(InternalTestStepZero, Exception);
+  Assert.WillRaise(InternalTestStepZero, Exception);
 end;
 
 { TestJoin }
@@ -210,13 +254,13 @@ begin
 
   join := Parallel.Join(MakeTask(0, true), MakeTask(1, true)).NoWait.Execute;
   sw := TStopwatch.StartNew;
-  CheckFalse(join.Terminate(500), 'Terminate');
-  CheckTrue(sw.ElapsedMilliseconds < 1900, 'Elapsed time');
+  Assert.IsFalse(join.Terminate(500), 'Terminate');
+  Assert.IsTrue(sw.ElapsedMilliseconds < 1900, 'Elapsed time');
 
   Sleep(2000); // in case tasks are not really dead
   for i := 0 to 1 do begin
-    CheckTrue(started[i], 'started ' + IntToStr(i));
-    CheckFalse(stopped[i], 'stopped ' + IntToStr(i));
+    Assert.IsTrue(started[i], 'started ' + IntToStr(i));
+    Assert.IsFalse(stopped[i], 'stopped ' + IntToStr(i));
   end;
 end;
 
@@ -251,12 +295,12 @@ begin
 
   join := Parallel.Join(MakeTask(0, true), MakeTask(1, false)).NoWait.Execute;
   sw := TStopwatch.StartNew;
-  CheckFalse(join.Terminate(500), 'Terminate');
-  CheckTrue(sw.ElapsedMilliseconds < 1900, 'Elapsed time');
+  Assert.IsFalse(join.Terminate(500), 'Terminate');
+  Assert.IsTrue(sw.ElapsedMilliseconds < 1900, 'Elapsed time');
 
   for i := 0 to 1 do begin
-    CheckTrue(started[i], 'started ' + IntToStr(i));
-    CheckEquals(i = 1, stopped[i], 'stopped ' + IntToStr(i));
+    Assert.IsTrue(started[i], 'started ' + IntToStr(i));
+    Assert.AreEqual<boolean>(i = 1, stopped[i], 'stopped ' + IntToStr(i));
   end
 end;
 
@@ -291,17 +335,13 @@ begin
 
   join := Parallel.Join(MakeTask(0, false), MakeTask(1, false)).NoWait.Execute;
   sw := TStopwatch.StartNew;
-  CheckTrue(join.Terminate(500), 'Terminate');
-  CheckTrue(sw.ElapsedMilliseconds < 1900, 'Elapsed time');
+  Assert.IsTrue(join.Terminate(500), 'Terminate');
+  Assert.IsTrue(sw.ElapsedMilliseconds < 1900, 'Elapsed time');
 
   for i := 0 to 1 do begin
-    CheckTrue(started[i], 'started ' + IntToStr(i));
-    CheckTrue(stopped[i], 'stopped ' + IntToStr(i));
+    Assert.IsTrue(started[i], 'started ' + IntToStr(i));
+    Assert.IsTrue(stopped[i], 'stopped ' + IntToStr(i));
   end;
 end;
 
-initialization
-  RegisterTest(TestParallelFor.Suite);
-  RegisterTest(TestJoin.Suite);
 end.
-

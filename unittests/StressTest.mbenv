@@ -2,53 +2,11 @@
 Scratch=c:\0\MultiBuilder\$(EnvironmentName)
 DccFilterSwitch=/FailOnWarning /FailOnHint
 
-[Delphi 2007]
-Path=e:\Delphi\5.0\bin
-
-[Delphi 2009]
-Path=e:\Delphi\6.0\bin
-
-[Delphi 2010]
-Path=e:\Delphi\7.0\bin
-
-[Delphi XE]
-Path=e:\Delphi\8.0\bin
-
-[Delphi XE2]
-Path=e:\Delphi\9.0\bin
-
-[Delphi XE3]
-Path=e:\Delphi\10.0\bin
-
-[Delphi XE4]
-Path=e:\Delphi\11.0\bin
-
-[Delphi XE5]
-Path=e:\Delphi\12.0\bin
-
-[Delphi XE6]
-Path=e:\Delphi\14.0\bin
-
-[Delphi XE7]
-Path=e:\Delphi\15.0\bin
-
-[Delphi XE8]
-Path=e:\Delphi\16.0\bin
-
-[Delphi 10 Seattle]
-Path=e:\Delphi\17.0\bin
-
-[Delphi 10.1 Berlin]
-Path=e:\Delphi\18.0\bin
-
-[Delphi 10.2 Tokyo]
-Path=e:\Delphi\19.0\bin
-
-[Delphi 10.3 Rio]
-Path=e:\Delphi\20.0\bin
-
-[Delphi 10.4 Sydney]
-Path=e:\Delphi\21.0\bin
-
 [Delphi 11 Alexandria]
 Path=e:\Delphi\22.0\bin
+
+[Delphi 12 Athens]
+Path=e:\Delphi\23.0\bin
+
+[Delphi 13 Florence]
+Path=e:\Delphi\37.0\bin

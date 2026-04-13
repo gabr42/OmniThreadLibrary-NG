@@ -50,7 +50,7 @@ unit OtlSync.Utils;
 interface
 
 uses
-  Generics.Collections, SyncObjs, OtlSync;
+  System.Generics.Collections, System.SyncObjs, OtlSync;
 
 type
   IOmniSynchronizer<T> = interface ['{631B2859-8268-464C-8A36-EB5847BE44A5}']
@@ -80,7 +80,7 @@ type
 implementation
 
 uses
-  SysUtils;
+  System.SysUtils;
 
 { TOmniSynchronizer<T> }
 

@@ -1971,8 +1971,14 @@ begin
     RebuildWaitHandles(task, msgInfo);
     EmptyMessageQueues(task);
   end
-  else
+  else begin
     TestForInternalRebuild(task, msgInfo);
+    // Safety net: drain any messages that might have been missed due to
+    // race conditions between ConsumeSignalFromObserver and concurrent
+    // SetEvent on auto-reset comm channel events in the condvar-based TWaitFor.
+    if awaited = waAwaited then
+      EmptyMessageQueues(task);
+  end;
   Result := true;
 end; { TOmniTaskExecutor.DispatchEvent }
 

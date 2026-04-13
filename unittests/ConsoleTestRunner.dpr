@@ -16,7 +16,7 @@ uses
   DUnitX.AutoDetect.Console,
   {$ENDIF }
   DUnitX.TestFramework
-//  {$IFDEF MSWindows}, SmokeTest in 'SmokeTest.pas'{$ENDIF }
+  {$IFDEF MSWindows}, SmokeTest in 'SmokeTest.pas'{$ENDIF }
   , TestRegressions in 'TestRegressions.pas'
   , TestBlockingCollection1 in 'TestBlockingCollection1.pas'
   , TestOtlDataManager1 in 'TestOtlDataManager1.pas'
@@ -35,8 +35,8 @@ uses
   , TestChannel1 in 'TestChannel1.pas'
   , TestSelect1 in 'TestSelect1.pas'
   , TestMergeRace1 in 'TestMergeRace1.pas'
-//  {$IFDEF MSWindows}, TestTask in 'TestTask.pas'{$ENDIF }
-//  {$IFDEF MSWindows}, TestOtlParallel in 'TestOtlParallel.pas'{$ENDIF }
+//  {$IFDEF MSWindows}, TestTask in 'TestTask.pas'{$ENDIF } // TestStartTask still hangs intermittently
+  {$IFDEF MSWindows}, TestOtlParallel in 'TestOtlParallel.pas'{$ENDIF }
   ;
 
 {$IFNDEF TESTINSIGHT}
