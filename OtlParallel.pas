@@ -35,8 +35,14 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin, HHasenack, SMelnyk64
-///   Last modification : 2026-04-12
-///   Version           : 2.0d
+///   Last modification : 2026-04-13
+///   Version           : 2.1
+///     2.1: 2026-04-13
+///       - Implemented Parallel.Channel<T> — Go-style typed, directional, bounded
+///         channel for producer/consumer communication.
+///       - Implemented Parallel.Select / SelectCase — multiplexed channel waiting
+///         (Go-style select). Waits on multiple channels simultaneously, fires
+///         exactly one handler per Wait call.
 ///     2.0d: 2026-04-12
 ///       - Removed Parallel.ForkJoin (Step 3.1.1).
 ///       - Removed unused variables in TOmniParallelMapper<T1,T2>.Execute.
