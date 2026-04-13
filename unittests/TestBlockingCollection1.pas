@@ -37,6 +37,8 @@ type
     procedure TestFromArrayToArray;
     [Test]
     procedure TestAddRange;
+    [Test]
+    procedure TestMultiConsumerTryTake;
   end;
 
 implementation
@@ -304,6 +306,58 @@ begin
   Assert.AreEqual<integer>(10, value.AsInteger);
   coll.Take(value);
   Assert.AreEqual<integer>(20, value.AsInteger);
+end;
+
+procedure TestIOmniBlockingCollection.TestMultiConsumerTryTake;
+// Regression: two threads calling TryTake concurrently on the same collection
+// would race on TWaitFor.FSignalledHandles, causing an AV.
+// Uses a concurrent producer (not pre-fill) so consumers frequently hit
+// the empty-collection path, exercising FTakeWaiter.WaitAny concurrently.
+const
+  CIterations = 200;
+  CCount      = 500;
+var
+  coll         : IOmniBlockingCollection;
+  totalReceived: integer;
+begin
+  for var iter := 1 to CIterations do begin
+    coll := TOmniBlockingCollection.Create;
+    totalReceived := 0;
+
+    // Producer: feed items one at a time (concurrent with consumers)
+    var producer := TTask.Run(
+      procedure
+      begin
+        for var i := 1 to CCount do
+          coll.TryAdd(i);
+        coll.CompleteAdding;
+      end);
+
+    // Two consumers draining concurrently with TryTake(0)
+    var t1 := TTask.Run(
+      procedure
+      var value: TOmniValue;
+      begin
+        while not coll.IsFinalized do
+          if coll.TryTake(value, 0) then
+            TInterlocked.Increment(totalReceived);
+      end);
+
+    var t2 := TTask.Run(
+      procedure
+      var value: TOmniValue;
+      begin
+        while not coll.IsFinalized do
+          if coll.TryTake(value, 0) then
+            TInterlocked.Increment(totalReceived);
+      end);
+
+    producer.Wait(5000);
+    t1.Wait(5000);
+    t2.Wait(5000);
+    Assert.AreEqual<integer>(CCount, totalReceived,
+      Format('Iteration %d: expected %d, got %d', [iter, CCount, totalReceived]));
+  end;
 end;
 
 end.

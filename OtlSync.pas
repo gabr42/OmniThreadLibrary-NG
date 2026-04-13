@@ -2306,10 +2306,13 @@ end; { TWaitFor.WaitAll }
 function TWaitFor.WaitAll(timeout_ms: cardinal; var Signaller: IOmniSynchro): TWaitForResult;
 begin
   Result := MapResult(FAllSignalled.Wait(timeout_ms, Signaller));
-  if Result = waAwaited then
-    PopulateSignalled(Signaller, true)
-  else
-    SetLength(FSignalledHandles, 0);
+  FGate.Acquire;
+  try
+    if Result = waAwaited then
+      PopulateSignalled(Signaller, true)
+    else
+      SetLength(FSignalledHandles, 0);
+  finally FGate.Release; end;
 end; { TWaitFor.WaitAll }
 
 function TWaitFor.WaitAny(timeout_ms: cardinal): TWaitForResult;
@@ -2322,10 +2325,13 @@ end; { TWaitFor.WaitAny }
 function TWaitFor.WaitAny(timeout_ms: cardinal; var Signaller: IOmniSynchro): TWaitForResult;
 begin
   Result := MapResult(FOneSignalled.Wait(timeout_ms, Signaller));
-  if Result = waAwaited then
-    PopulateSignalled(Signaller, false)
-  else
-    SetLength(FSignalledHandles, 0);
+  FGate.Acquire;
+  try
+    if Result = waAwaited then
+      PopulateSignalled(Signaller, false)
+    else
+      SetLength(FSignalledHandles, 0);
+  finally FGate.Release; end;
 end; { TWaitFor.WaitAny }
 
 { TOneCondition }

@@ -2556,8 +2556,18 @@ begin
   lock := FState.Lock;
   capSem := FState.CapSemaphore;
   while true do begin
+    // Fast path — no lock needed for the collection (it serializes internally)
+    if coll.TryTake(ov, 0) then begin
+      Result := ov.CastTo<T>;
+      if assigned(capSem) then
+        capSem.Release;
+      Exit;
+    end;
+    if coll.IsCompleted then
+      raise ECollectionCompleted.Create('Channel is closed');
     lock.Enter;
     try
+      // Recheck under lock to avoid missed signal
       if coll.TryTake(ov, 0) then begin
         Result := ov.CastTo<T>;
         if assigned(capSem) then
@@ -2589,8 +2599,26 @@ begin
   stopWatch := TStopWatch.StartNew;
   remaining := timeout_ms;
   while true do begin
+    // Fast path — no lock needed for the collection (it serializes internally)
+    if coll.TryTake(ov, 0) then begin
+      value := ov.CastTo<T>;
+      if assigned(capSem) then
+        capSem.Release;
+      Exit(true);
+    end;
+    if coll.IsCompleted then
+      Exit(false);
+    if timeout_ms = 0 then
+      Exit(false);
+    if (timeout_ms <> INFINITE) then begin
+      var elapsed := cardinal(stopWatch.ElapsedMilliseconds);
+      if elapsed >= timeout_ms then
+        Exit(false);
+      remaining := timeout_ms - elapsed;
+    end;
     lock.Enter;
     try
+      // Recheck under lock to avoid missed signal
       if coll.TryTake(ov, 0) then begin
         value := ov.CastTo<T>;
         if assigned(capSem) then
@@ -2599,14 +2627,6 @@ begin
       end;
       if coll.IsCompleted then
         Exit(false);
-      if timeout_ms = 0 then
-        Exit(false);
-      if (timeout_ms <> INFINITE) then begin
-        var elapsed := cardinal(stopWatch.ElapsedMilliseconds);
-        if elapsed >= timeout_ms then
-          Exit(false);
-        remaining := timeout_ms - elapsed;
-      end;
       condVar.WaitFor(lock, remaining);
     finally lock.Leave; end;
   end;
