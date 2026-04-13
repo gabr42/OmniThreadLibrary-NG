@@ -36,7 +36,13 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin, HHasenack, SMelnyk64
 ///   Last modification : 2026-04-13
-///   Version           : 2.1
+///   Version           : 2.1a
+///     2.1a: 2026-04-13
+///       - Implemented Parallel.Merge<T> — fan-in convenience merging multiple
+///         channels into a single output channel via background select loop.
+///       - Implemented Parallel.Race<T> / TryRace<T> — returns the first value
+///         received from any of the given channels.
+///       - Added ESelectTimeout exception.
 ///     2.1: 2026-04-13
 ///       - Implemented Parallel.Channel<T> — Go-style typed, directional, bounded
 ///         channel for producer/consumer communication.
@@ -1293,6 +1299,8 @@ type
 
   TOmniSelectResult = (srHandled, srTimeout, srAllClosed, srDefault);
 
+  ESelectTimeout = class(Exception);
+
   IOmniSelectCase = interface
     ['{A1B2C3D4-5E6F-7A8B-9C0D-E1F2A3B4C5D6}']
   end; { IOmniSelectCase }
@@ -1421,6 +1429,18 @@ type
   // Select
     ///	<summary>Creates a multiplexed channel select from an array of cases.</summary>
     class function Select(const cases: array of IOmniSelectCase): IOmniSelect;
+    ///	<summary>Merges multiple channels of the same type into a single output channel.
+    ///  Runs a background select loop; output closes when all inputs are closed and drained.</summary>
+    class function Merge<T>(const receivers: array of IOmniChannelReceiver<T>;
+      capacity: integer = 128): IOmniChannelReceiver<T>;
+    ///	<summary>Returns the first value received from any of the given channels.
+    ///  Raises ECollectionCompleted if all channels close before a value arrives.
+    ///  Raises ESelectTimeout if timeout expires.</summary>
+    class function Race<T>(const receivers: array of IOmniChannelReceiver<T>;
+      timeout_ms: cardinal = INFINITE): T;
+    ///	<summary>Non-raising variant of Race. Returns false on timeout or all-closed.</summary>
+    class function TryRace<T>(const receivers: array of IOmniChannelReceiver<T>;
+      out value: T; timeout_ms: cardinal = INFINITE): boolean;
 
   // task configuration
     ///	<summary>Creates Task configuration block.</summary>
@@ -3059,6 +3079,54 @@ class function SelectCase.Default(const handler: TProc): IOmniSelectCase;
 begin
   Result := TOmniSelectDefaultCase.Create(handler);
 end; { SelectCase.Default }
+
+class function Parallel.Merge<T>(const receivers: array of IOmniChannelReceiver<T>;
+  capacity: integer): IOmniChannelReceiver<T>;
+var
+  cases : TArray<IOmniSelectCase>;
+  output: IOmniChannel<T>;
+begin
+  output := Parallel.Channel<T>(capacity);
+  SetLength(cases, Length(receivers));
+  for var i := 0 to High(receivers) do
+    cases[i] := SelectCase.Receive<T>(receivers[i],
+      procedure(v: T) begin output.Sender.Send(v) end);
+  var thread := TThread.CreateAnonymousThread(
+    procedure
+    var sel: IOmniSelect;
+    begin
+      sel := Parallel.Select(cases);
+      while sel.Wait = srHandled do
+        ;
+      output.Close;
+    end);
+  thread.FreeOnTerminate := true;
+  thread.Start;
+  Result := output.Receiver;
+end; { Parallel.Merge<T> }
+
+class function Parallel.Race<T>(const receivers: array of IOmniChannelReceiver<T>;
+  timeout_ms: cardinal): T;
+begin
+  if not TryRace<T>(receivers, Result, timeout_ms) then
+    raise ESelectTimeout.Create('Parallel.Race: timeout or all channels closed');
+end; { Parallel.Race<T> }
+
+class function Parallel.TryRace<T>(const receivers: array of IOmniChannelReceiver<T>;
+  out value: T; timeout_ms: cardinal): boolean;
+var
+  captured: T;
+  cases   : TArray<IOmniSelectCase>;
+begin
+  SetLength(cases, Length(receivers));
+  for var i := 0 to High(receivers) do
+    cases[i] := SelectCase.Receive<T>(receivers[i],
+      procedure(v: T) begin captured := v end);
+  var sel := Parallel.Select(cases);
+  Result := sel.Wait(timeout_ms) = srHandled;
+  if Result then
+    value := captured;
+end; { Parallel.TryRace<T> }
 
 { TOmniParallelLoopBase }
 

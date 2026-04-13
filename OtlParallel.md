@@ -433,3 +433,120 @@ for var i := 1 to 20 do
   thread while the select loop runs in another.
 - Multiple `IOmniSelect` instances can watch the same channel concurrently
   (each registers its own notifier).
+
+---
+
+## Parallel.Merge&lt;T&gt;
+
+Convenience wrapper around `Select` that merges multiple channels of the same
+type into a single output channel. A background thread runs a select loop,
+forwarding every received value to the output. When all input channels are
+closed and drained, the output channel is closed automatically.
+
+### API
+
+```pascal
+class function Parallel.Merge<T>(
+  const receivers: array of IOmniChannelReceiver<T>;
+  capacity: integer = 128): IOmniChannelReceiver<T>;
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `receivers` | Input channels to merge. All must be the same type `T`. |
+| `capacity` | Buffer size for the output channel (default 128). |
+| **Returns** | The receiver end of the merged output channel. |
+
+### Example — Fan-In
+
+```pascal
+var ch1 := Parallel.Channel<integer>;
+var ch2 := Parallel.Channel<integer>;
+
+// Two producers
+TTask.Run(procedure begin
+  for var i := 1 to 50 do ch1.Sender.Send(i);
+  ch1.Close;
+end);
+TTask.Run(procedure begin
+  for var i := 51 to 100 do ch2.Sender.Send(i);
+  ch2.Close;
+end);
+
+// Merge into a single stream
+var merged := Parallel.Merge<integer>([ch1.Receiver, ch2.Receiver]);
+
+// Read the merged stream
+var value: integer;
+while merged.TryReceive(value, 5000) do
+  ProcessItem(value);
+// All 100 values received in arrival order
+```
+
+### Lifecycle
+
+- A background thread is created to run the select loop. It terminates
+  automatically when all input channels are closed and drained.
+- The output channel is closed when the background thread exits.
+- If the consumer drops the output receiver, the background thread continues
+  until all inputs close (same behavior as Go).
+- Works with any type: integers, strings, records, interfaces.
+
+---
+
+## Parallel.Race&lt;T&gt;
+
+Returns the first value received from any of the given channels. This is
+a single-shot operation — it consumes one value and returns.
+
+### API
+
+```pascal
+// Blocking — raises on timeout or all-closed
+class function Parallel.Race<T>(
+  const receivers: array of IOmniChannelReceiver<T>;
+  timeout_ms: cardinal = INFINITE): T;
+
+// Non-raising — returns false on timeout or all-closed
+class function Parallel.TryRace<T>(
+  const receivers: array of IOmniChannelReceiver<T>;
+  out value: T;
+  timeout_ms: cardinal = INFINITE): boolean;
+```
+
+| Method | On success | On timeout | On all closed |
+|--------|-----------|-----------|---------------|
+| `Race<T>` | Returns value | Raises `ESelectTimeout` | Raises `ESelectTimeout` |
+| `TryRace<T>` | Returns `true`, sets `value` | Returns `false` | Returns `false` |
+
+### Example — First Response Wins
+
+```pascal
+var fast := Parallel.Channel<string>;
+var slow := Parallel.Channel<string>;
+
+TTask.Run(procedure begin Sleep(10);  fast.Sender.Send('fast') end);
+TTask.Run(procedure begin Sleep(200); slow.Sender.Send('slow') end);
+
+var winner := Parallel.Race<string>([fast.Receiver, slow.Receiver], 5000);
+// winner = 'fast'
+```
+
+### Example — Timeout
+
+```pascal
+var ch := Parallel.Channel<integer>;
+
+var value: integer;
+if Parallel.TryRace<integer>([ch.Receiver], value, 100) then
+  Writeln('Got: ', value)
+else
+  Writeln('No data within 100ms');
+```
+
+### Notes
+
+- `Race` internally creates a `Parallel.Select`, calls `Wait` once, and
+  returns the result. No background threads are created.
+- Only one value is consumed. Other channels are not drained.
+- For repeated racing, use `Parallel.Select` directly in a loop.

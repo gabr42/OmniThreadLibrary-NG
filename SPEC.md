@@ -418,8 +418,10 @@ overload resolution in distant code.
 - [x] `IOmniSelectNotifier` cross-channel notification
 - [x] Round-robin fairness
 - [x] Unit tests (10 tests: basic, default, multi-channel, round-robin, all-closed, timeout, loop, fan-in, cross-thread)
-- [ ] `Parallel.Merge<T>` convenience (fan-in) — deferred
-- [ ] `Parallel.Race<T>` convenience (first-wins) — deferred
+- [x] `Parallel.Merge<T>` convenience (fan-in) — background select loop forwarding to output channel
+- [x] `Parallel.Race<T>` / `TryRace<T>` convenience (first-wins) — single-shot select returning first value
+- [x] `ESelectTimeout` exception for Race
+- [x] Unit tests for Merge (5 tests) and Race (7 tests)
 - [ ] `SelectCase.Send<T>` (send-side select) — deferred
 
 ---
