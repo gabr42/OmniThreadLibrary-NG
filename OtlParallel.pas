@@ -1157,6 +1157,12 @@ type
 
   // Channel<T> — typed, directional, bounded channel (Go-style CSP)
 
+  IOmniSelectNotifier = interface
+    ['{E2F3A4B5-6C7D-8E9F-A0B1-C2D3E4F5A6B7}']
+    procedure Notify;
+    procedure WaitFor(timeout_ms: cardinal);
+  end; { IOmniSelectNotifier }
+
   IOmniChannelReceiver<T> = interface ['{A7D3B8E1-4F2C-4D9A-B6E5-1C8F2A3D4E5F}']
     function  GetCount: integer;
     //
@@ -1188,6 +1194,8 @@ type
     function  GetLock: TCriticalSection;
     procedure SignalDataReady;
     procedure SignalClose;
+    procedure RegisterNotifier(const notifier: IOmniSelectNotifier);
+    procedure UnregisterNotifier(const notifier: IOmniSelectNotifier);
     property  CapSemaphore: TSemaphore read GetCapSemaphore;
     property  Collection: IOmniBlockingCollection read GetCollection;
     property  CondVar: TConditionVariableCS read GetCondVar;
@@ -1200,6 +1208,7 @@ type
     FCollection  : IOmniBlockingCollection;
     FCondVar     : TConditionVariableCS;
     FLock        : TCriticalSection;
+    FNotifiers   : TList<IOmniSelectNotifier>;
   protected
     function  GetCapSemaphore: TSemaphore;
     function  GetCollection: IOmniBlockingCollection;
@@ -1210,6 +1219,8 @@ type
     destructor  Destroy; override;
     procedure SignalDataReady;
     procedure SignalClose;
+    procedure RegisterNotifier(const notifier: IOmniSelectNotifier);
+    procedure UnregisterNotifier(const notifier: IOmniSelectNotifier);
     property  CapSemaphore: TSemaphore read GetCapSemaphore;
     property  Collection: IOmniBlockingCollection read GetCollection;
     property  CondVar: TConditionVariableCS read GetCondVar;
@@ -1227,11 +1238,18 @@ type
     property  Current: T read GetCurrent;
   end; { TOmniChannelReceiverEnumerator<T> }
 
-  TOmniChannelReceiver<T> = class(TInterfacedObject, IOmniChannelReceiver<T>)
+  IOmniChannelStateProvider = interface
+    ['{F3A4B5C6-7D8E-9F0A-B1C2-D3E4F5A6B7C8}']
+    function GetChannelState: IOmniChannelState;
+  end; { IOmniChannelStateProvider }
+
+  TOmniChannelReceiver<T> = class(TInterfacedObject, IOmniChannelReceiver<T>,
+    IOmniChannelStateProvider)
   strict private
     FState: IOmniChannelState;
   protected
     function  GetCount: integer;
+    function  GetChannelState: IOmniChannelState;
   public
     constructor Create(const state: IOmniChannelState);
     function  GetEnumerator: TOmniChannelReceiverEnumerator<T>;
@@ -1264,6 +1282,19 @@ type
     function  Receiver: IOmniChannelReceiver<T>;
     function  Sender: IOmniChannelSender<T>;
   end; { TOmniChannel<T> }
+
+  // Select — multiplexed channel waiting (Go-style select)
+
+  TOmniSelectResult = (srHandled, srTimeout, srAllClosed, srDefault);
+
+  IOmniSelectCase = interface
+    ['{A1B2C3D4-5E6F-7A8B-9C0D-E1F2A3B4C5D6}']
+  end; { IOmniSelectCase }
+
+  IOmniSelect = interface
+    ['{B2C3D4E5-6F7A-8B9C-0D1E-F2A3B4C5D6E7}']
+    function Wait(timeout_ms: cardinal = INFINITE): TOmniSelectResult;
+  end; { IOmniSelect }
 
   {$REGION 'Documentation'}
   ///	<summary>Parallel class represents a base class for all high-level language
@@ -1381,6 +1412,10 @@ type
     ///	<summary>Creates a bounded, typed channel for producer/consumer communication.</summary>
     class function Channel<T>(capacity: integer = 128): IOmniChannel<T>;
 
+  // Select
+    ///	<summary>Creates a multiplexed channel select from an array of cases.</summary>
+    class function Select(const cases: array of IOmniSelectCase): IOmniSelect;
+
   // task configuration
     ///	<summary>Creates Task configuration block.</summary>
     class function TaskConfig: IOmniTaskConfig;
@@ -1395,6 +1430,78 @@ type
     class procedure Start(const taskControl: IOmniTaskControl; const taskConfig:
       IOmniTaskConfig);
   end; { Parallel }
+
+  ///	<summary>Factory record for creating select cases (Parallel.Select).</summary>
+  SelectCase = record
+    ///	<summary>Creates a receive case — fires handler when data arrives on the channel.</summary>
+    class function Receive<T>(const receiver: IOmniChannelReceiver<T>;
+      const handler: TProc<T>): IOmniSelectCase; static;
+    ///	<summary>Creates a default (non-blocking) case — fires when no channel is ready.</summary>
+    class function Default(const handler: TProc): IOmniSelectCase; static;
+  end; { SelectCase }
+
+  // Select — internal implementation types (public for compiler visibility)
+
+  IOmniSelectCaseEx = interface(IOmniSelectCase)
+    ['{C3D4E5F6-7A8B-9C0D-E1F2-A3B4C5D6E7F8}']
+    function  TryExecute: boolean;
+    function  IsClosed: boolean;
+    function  GetState: IOmniChannelState;
+    function  IsDefault: boolean;
+    procedure ExecuteDefault;
+  end; { IOmniSelectCaseEx }
+
+  TOmniSelectReceiveCase<T> = class(TInterfacedObject, IOmniSelectCase, IOmniSelectCaseEx)
+  strict private
+    FHandler : TProc<T>;
+    FReceiver: IOmniChannelReceiver<T>;
+    FState   : IOmniChannelState;
+  public
+    constructor Create(const receiver: IOmniChannelReceiver<T>;
+      const handler: TProc<T>);
+    function  TryExecute: boolean;
+    function  IsClosed: boolean;
+    function  GetState: IOmniChannelState;
+    function  IsDefault: boolean;
+    procedure ExecuteDefault;
+  end; { TOmniSelectReceiveCase<T> }
+
+  TOmniSelectDefaultCase = class(TInterfacedObject, IOmniSelectCase, IOmniSelectCaseEx)
+  strict private
+    FHandler: TProc;
+  public
+    constructor Create(const handler: TProc);
+    function  TryExecute: boolean;
+    function  IsClosed: boolean;
+    function  GetState: IOmniChannelState;
+    function  IsDefault: boolean;
+    procedure ExecuteDefault;
+  end; { TOmniSelectDefaultCase }
+
+  TOmniSelectNotifier = class(TInterfacedObject, IOmniSelectNotifier)
+  strict private
+    FCondVar: TConditionVariableCS;
+    FLock   : TCriticalSection;
+  public
+    constructor Create;
+    destructor  Destroy; override;
+    procedure Notify;
+    procedure WaitFor(timeout_ms: cardinal);
+    property  Lock: TCriticalSection read FLock;
+  end; { TOmniSelectNotifier }
+
+  TOmniSelect = class(TInterfacedObject, IOmniSelect)
+  strict private
+    FCases    : TList<IOmniSelectCaseEx>;
+    FDefault  : IOmniSelectCaseEx;
+    FLastIndex: integer;
+    FNotifier : IOmniSelectNotifier;
+    FStates   : TList<IOmniChannelState>;
+  public
+    constructor Create(const cases: array of IOmniSelectCase);
+    destructor  Destroy; override;
+    function  Wait(timeout_ms: cardinal = INFINITE): TOmniSelectResult;
+  end; { TOmniSelect }
 
   IOmniAwait = interface
     procedure Await(proc: TProc);
@@ -2447,12 +2554,14 @@ begin
   FCollection := TOmniBlockingCollection.Create;
   FLock := TCriticalSection.Create;
   FCondVar := TConditionVariableCS.Create;
+  FNotifiers := TList<IOmniSelectNotifier>.Create;
   if capacity > 0 then
     FCapSemaphore := TSemaphore.Create(nil, capacity, capacity, '');
 end; { TOmniChannelState.Create }
 
 destructor TOmniChannelState.Destroy;
 begin
+  FreeAndNil(FNotifiers);
   FreeAndNil(FCapSemaphore);
   FreeAndNil(FCondVar);
   FreeAndNil(FLock);
@@ -2479,11 +2588,29 @@ begin
   Result := FLock;
 end;
 
+procedure TOmniChannelState.RegisterNotifier(const notifier: IOmniSelectNotifier);
+begin
+  FLock.Enter;
+  try
+    FNotifiers.Add(notifier);
+  finally FLock.Leave; end;
+end; { TOmniChannelState.RegisterNotifier }
+
+procedure TOmniChannelState.UnregisterNotifier(const notifier: IOmniSelectNotifier);
+begin
+  FLock.Enter;
+  try
+    FNotifiers.Remove(notifier);
+  finally FLock.Leave; end;
+end; { TOmniChannelState.UnregisterNotifier }
+
 procedure TOmniChannelState.SignalDataReady;
 begin
   FLock.Enter;
   try
     FCondVar.ReleaseAll;
+    for var i := 0 to FNotifiers.Count - 1 do
+      FNotifiers[i].Notify;
   finally FLock.Leave; end;
 end; { TOmniChannelState.SignalDataReady }
 
@@ -2493,6 +2620,8 @@ begin
   FLock.Enter;
   try
     FCondVar.ReleaseAll;
+    for var i := 0 to FNotifiers.Count - 1 do
+      FNotifiers[i].Notify;
   finally FLock.Leave; end;
 end; { TOmniChannelState.SignalClose }
 
@@ -2522,6 +2651,11 @@ begin
   inherited Create;
   FState := state;
 end; { TOmniChannelReceiver<T>.Create }
+
+function TOmniChannelReceiver<T>.GetChannelState: IOmniChannelState;
+begin
+  Result := FState;
+end; { TOmniChannelReceiver<T>.GetChannelState }
 
 function TOmniChannelReceiver<T>.GetCount: integer;
 begin
@@ -2694,6 +2828,231 @@ function TOmniChannel<T>.Sender: IOmniChannelSender<T>;
 begin
   Result := FSender;
 end; { TOmniChannel<T>.Sender }
+
+{ TOmniSelectReceiveCase<T> }
+
+constructor TOmniSelectReceiveCase<T>.Create(
+  const receiver: IOmniChannelReceiver<T>; const handler: TProc<T>);
+var
+  provider: IOmniChannelStateProvider;
+begin
+  inherited Create;
+  FReceiver := receiver;
+  FHandler := handler;
+  if Supports(receiver, IOmniChannelStateProvider, provider) then
+    FState := provider.GetChannelState;
+end; { TOmniSelectReceiveCase<T>.Create }
+
+function TOmniSelectReceiveCase<T>.TryExecute: boolean;
+var
+  value: T;
+begin
+  Result := FReceiver.TryReceive(value, 0);
+  if Result then
+    FHandler(value);
+end; { TOmniSelectReceiveCase<T>.TryExecute }
+
+function TOmniSelectReceiveCase<T>.IsClosed: boolean;
+begin
+  Result := FReceiver.IsClosed and FReceiver.IsEmpty;
+end; { TOmniSelectReceiveCase<T>.IsClosed }
+
+function TOmniSelectReceiveCase<T>.GetState: IOmniChannelState;
+begin
+  Result := FState;
+end; { TOmniSelectReceiveCase<T>.GetState }
+
+function TOmniSelectReceiveCase<T>.IsDefault: boolean;
+begin
+  Result := false;
+end; { TOmniSelectReceiveCase<T>.IsDefault }
+
+procedure TOmniSelectReceiveCase<T>.ExecuteDefault;
+begin
+  // no-op for receive cases
+end; { TOmniSelectReceiveCase<T>.ExecuteDefault }
+
+{ TOmniSelectDefaultCase }
+
+constructor TOmniSelectDefaultCase.Create(const handler: TProc);
+begin
+  inherited Create;
+  FHandler := handler;
+end; { TOmniSelectDefaultCase.Create }
+
+function TOmniSelectDefaultCase.TryExecute: boolean;
+begin
+  Result := false;
+end; { TOmniSelectDefaultCase.TryExecute }
+
+function TOmniSelectDefaultCase.IsClosed: boolean;
+begin
+  Result := false;
+end; { TOmniSelectDefaultCase.IsClosed }
+
+function TOmniSelectDefaultCase.GetState: IOmniChannelState;
+begin
+  Result := nil;
+end; { TOmniSelectDefaultCase.GetState }
+
+function TOmniSelectDefaultCase.IsDefault: boolean;
+begin
+  Result := true;
+end; { TOmniSelectDefaultCase.IsDefault }
+
+procedure TOmniSelectDefaultCase.ExecuteDefault;
+begin
+  FHandler();
+end; { TOmniSelectDefaultCase.ExecuteDefault }
+
+{ TOmniSelectNotifier }
+
+constructor TOmniSelectNotifier.Create;
+begin
+  inherited Create;
+  FLock := TCriticalSection.Create;
+  FCondVar := TConditionVariableCS.Create;
+end; { TOmniSelectNotifier.Create }
+
+destructor TOmniSelectNotifier.Destroy;
+begin
+  FreeAndNil(FCondVar);
+  FreeAndNil(FLock);
+  inherited;
+end; { TOmniSelectNotifier.Destroy }
+
+procedure TOmniSelectNotifier.Notify;
+begin
+  FLock.Enter;
+  try
+    FCondVar.ReleaseAll;
+  finally FLock.Leave; end;
+end; { TOmniSelectNotifier.Notify }
+
+procedure TOmniSelectNotifier.WaitFor(timeout_ms: cardinal);
+begin
+  FLock.Enter;
+  try
+    FCondVar.WaitFor(FLock, timeout_ms);
+  finally FLock.Leave; end;
+end; { TOmniSelectNotifier.WaitFor }
+
+{ TOmniSelect }
+
+constructor TOmniSelect.Create(const cases: array of IOmniSelectCase);
+var
+  caseEx: IOmniSelectCaseEx;
+  state : IOmniChannelState;
+begin
+  inherited Create;
+  FCases := TList<IOmniSelectCaseEx>.Create;
+  FStates := TList<IOmniChannelState>.Create;
+  FNotifier := TOmniSelectNotifier.Create;
+  FLastIndex := -1;
+  for var i := 0 to High(cases) do begin
+    if not Supports(cases[i], IOmniSelectCaseEx, caseEx) then
+      raise Exception.Create('TOmniSelect.Create: Invalid select case');
+    if caseEx.IsDefault then
+      FDefault := caseEx
+    else begin
+      FCases.Add(caseEx);
+      state := caseEx.GetState;
+      if assigned(state) then begin
+        FStates.Add(state);
+        state.RegisterNotifier(FNotifier);
+      end;
+    end;
+  end;
+end; { TOmniSelect.Create }
+
+destructor TOmniSelect.Destroy;
+begin
+  if assigned(FStates) then begin
+    for var i := 0 to FStates.Count - 1 do
+      FStates[i].UnregisterNotifier(FNotifier);
+    FreeAndNil(FStates);
+  end;
+  FreeAndNil(FCases);
+  FNotifier := nil;
+  inherited;
+end; { TOmniSelect.Destroy }
+
+function TOmniSelect.Wait(timeout_ms: cardinal): TOmniSelectResult;
+var
+  stopWatch: TStopWatch;
+
+  function TimeLeft_ms: cardinal;
+  begin
+    if timeout_ms = INFINITE then
+      Result := INFINITE
+    else begin
+      var elapsed := cardinal(stopWatch.ElapsedMilliseconds);
+      if elapsed >= timeout_ms then
+        Result := 0
+      else
+        Result := timeout_ms - elapsed;
+    end;
+  end; { TimeLeft_ms }
+
+begin
+  if FCases.Count = 0 then begin
+    if assigned(FDefault) then begin
+      FDefault.ExecuteDefault;
+      Exit(srDefault);
+    end;
+    Exit(srAllClosed);
+  end;
+
+  stopWatch := TStopWatch.StartNew;
+  repeat
+    // Round-robin poll: start from the index after the last fired case
+    var allClosed := true;
+    for var j := 0 to FCases.Count - 1 do begin
+      var idx := (FLastIndex + 1 + j) mod FCases.Count;
+      if not FCases[idx].IsClosed then begin
+        allClosed := false;
+        if FCases[idx].TryExecute then begin
+          FLastIndex := idx;
+          Exit(srHandled);
+        end;
+      end;
+    end;
+
+    if allClosed then
+      Exit(srAllClosed);
+
+    // Nothing ready — fire default if present
+    if assigned(FDefault) then begin
+      FDefault.ExecuteDefault;
+      Exit(srDefault);
+    end;
+
+    // Block until a channel signals or timeout
+    var remaining := TimeLeft_ms;
+    if remaining = 0 then
+      Exit(srTimeout);
+    FNotifier.WaitFor(remaining);
+  until TimeLeft_ms = 0;
+  Result := srTimeout;
+end; { TOmniSelect.Wait }
+
+{ Parallel — Select factories }
+
+class function Parallel.Select(const cases: array of IOmniSelectCase): IOmniSelect;
+begin
+  Result := TOmniSelect.Create(cases);
+end; { Parallel.Select }
+
+class function SelectCase.Receive<T>(const receiver: IOmniChannelReceiver<T>;
+  const handler: TProc<T>): IOmniSelectCase;
+begin
+  Result := TOmniSelectReceiveCase<T>.Create(receiver, handler);
+end; { SelectCase.Receive<T> }
+
+class function SelectCase.Default(const handler: TProc): IOmniSelectCase;
+begin
+  Result := TOmniSelectDefaultCase.Create(handler);
+end; { SelectCase.Default }
 
 { TOmniParallelLoopBase }
 

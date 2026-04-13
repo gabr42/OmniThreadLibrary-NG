@@ -33,6 +33,7 @@ uses
   , TestSyncUtils1 in 'TestSyncUtils1.pas'
   , TestBackgroundObserver1 in 'TestBackgroundObserver1.pas'
   , TestChannel1 in 'TestChannel1.pas'
+  , TestSelect1 in 'TestSelect1.pas'
 //  {$IFDEF MSWindows}, TestTask in 'TestTask.pas'{$ENDIF }
 //  {$IFDEF MSWindows}, TestOtlParallel in 'TestOtlParallel.pas'{$ENDIF }
   ;

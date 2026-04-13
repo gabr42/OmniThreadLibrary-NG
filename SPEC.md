@@ -376,29 +376,51 @@ to capacity / capacity-1 so `Send` blocks when the channel is full.
 - [ ] `GetEnumerator` — `for-in` iteration until closed and drained
 - [ ] Unit tests: basic send/receive, for-in, close semantics, TrySend/TryReceive timeout, capacity blocking, fan-out (multiple consumers)
 
-#### 3.3.4 Parallel.Select — multiplexed channel waiting (deferred)
+#### 3.3.4 Parallel.Select — multiplexed channel waiting
 
-Dispatcher that waits on multiple channels simultaneously using `TWaitFor`,
-fires exactly one handler per wait. Builder API:
+Go-style select: waits on multiple channels simultaneously, fires exactly one
+handler per `Wait` call. Uses condition-variable-based notification (not
+`TWaitFor`) — each channel signals registered select notifiers on data arrival.
 
+```pascal
+// API
+Parallel.Select(cases: array of IOmniSelectCase): IOmniSelect
+SelectCase.Receive<T>(receiver, handler: TProc<T>): IOmniSelectCase
+SelectCase.Default(handler: TProc): IOmniSelectCase
+IOmniSelect.Wait(timeout_ms = INFINITE): TOmniSelectResult
+// TOmniSelectResult = (srHandled, srTimeout, srAllClosed, srDefault)
 ```
-IOmniSelect
-  OnReceive<T>(receiver, handler: TProc<T>): IOmniSelect
-  OnSend<T>(sender, value, handler: TProc): IOmniSelect
-  OnClosed<T>(receiver, handler: TProc): IOmniSelect
-  Wait(timeout_ms = INFINITE): TOmniSelectResult
-  Run / Run(timeout_ms) / Stop
+
+```pascal
+// Usage — fan-in
+var sel := Parallel.Select([
+  SelectCase.Receive<integer>(ch1.Receiver,
+    procedure(v: integer) begin output.Sender.Send(v) end),
+  SelectCase.Receive<integer>(ch2.Receiver,
+    procedure(v: integer) begin output.Sender.Send(v) end)
+]);
+while sel.Wait(5000) <> srAllClosed do ;
+output.Close;
 ```
 
-Implementation maps channel events to `TWaitFor.WaitAny`, dispatches to the
-matching handler. `Parallel.Merge` = Select + Run forwarding to one output.
-`Parallel.Race` = Select + Wait returning first result.
+Implementation: `IOmniSelectNotifier` interface registered on each channel's
+`IOmniChannelState` via `RegisterNotifier`/`UnregisterNotifier`. `SignalDataReady`
+and `SignalClose` notify all registered select notifiers. Round-robin polling
+prevents starvation when multiple channels are ready.
 
-- [ ] `IOmniSelect` interface and builder
-- [ ] `Parallel.Select` factory
-- [ ] `Parallel.Merge<T>` convenience (fan-in)
-- [ ] `Parallel.Race<T>` convenience (first-wins)
-- [ ] Unit tests
+Note: `SelectCase` is a separate record (not on `Parallel`) because adding
+generic methods to the `Parallel` class triggers a Delphi compiler bug with
+overload resolution in distant code.
+
+- [x] `IOmniSelect` interface
+- [x] `Parallel.Select` factory
+- [x] `SelectCase.Receive<T>` and `SelectCase.Default` case builders
+- [x] `IOmniSelectNotifier` cross-channel notification
+- [x] Round-robin fairness
+- [x] Unit tests (10 tests: basic, default, multi-channel, round-robin, all-closed, timeout, loop, fan-in, cross-thread)
+- [ ] `Parallel.Merge<T>` convenience (fan-in) — deferred
+- [ ] `Parallel.Race<T>` convenience (first-wins) — deferred
+- [ ] `SelectCase.Send<T>` (send-side select) — deferred
 
 ---
 
