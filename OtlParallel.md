@@ -3,10 +3,10 @@
 `OtlParallel.pas` provides the `Parallel` class, the main entry point for
 high-level parallel constructs in OmniThreadLibrary.
 
-This document covers the **Channel** and **Select** constructs. For other
-constructs (`ForEach`, `Join`, `Future`, `Pipeline`, `Map`, `Async`,
-`BackgroundWorker`, `TimedTask`, `ParallelTask`), see the main OTL
-documentation.
+This document covers the **Channel**, **Select**, **Merge**, and **Race**
+constructs. For other constructs (`ForEach`, `Join`, `Future`, `Pipeline`,
+`Map`, `Async`, `BackgroundWorker`, `TimedTask`, `ParallelTask`), see the
+main OTL documentation.
 
 ---
 
