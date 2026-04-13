@@ -32,6 +32,7 @@ uses
   , TestContainerObserver1 in 'TestContainerObserver1.pas'
   , TestSyncUtils1 in 'TestSyncUtils1.pas'
   , TestBackgroundObserver1 in 'TestBackgroundObserver1.pas'
+  , TestChannel1 in 'TestChannel1.pas'
 //  {$IFDEF MSWindows}, TestTask in 'TestTask.pas'{$ENDIF }
 //  {$IFDEF MSWindows}, TestOtlParallel in 'TestOtlParallel.pas'{$ENDIF }
   ;

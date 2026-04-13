@@ -73,10 +73,8 @@ begin
     var observer := CreateContainerEventObserver;
     try
       subject.Attach(observer, coiNotifyOnPartlyEmpty);
-      // Observer must be activated for NotifyOnce to check CanNotify
-      observer.Activate;
 
-      // First NotifyOnce should fire (observer is active) then deactivate it
+      // First NotifyOnce should fire (observer starts active) then deactivate it
       subject.NotifyOnce(coiNotifyOnPartlyEmpty);
       Assert.IsTrue(observer.GetEvent.WaitFor(0) = wrSignaled);
 
@@ -95,7 +93,6 @@ begin
     var observer := CreateContainerEventObserver;
     try
       subject.Attach(observer, coiNotifyOnPartlyEmpty);
-      observer.Activate;
 
       // Fire once — observer gets deactivated by NotifyOnce
       subject.NotifyOnce(coiNotifyOnPartlyEmpty);
@@ -144,7 +141,8 @@ begin
     var observer := CreateContainerEventObserver;
     try
       subject.Attach(observer, coiNotifyOnPartlyEmpty);
-      // Don't activate — observer starts deactivated
+      // Explicitly deactivate — observer starts active from Create
+      observer.Deactivate;
       subject.NotifyOnce(coiNotifyOnPartlyEmpty);
       Assert.IsFalse(observer.GetEvent.WaitFor(0) = wrSignaled);
     finally observer.Free; end;

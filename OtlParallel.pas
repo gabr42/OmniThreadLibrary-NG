@@ -377,6 +377,7 @@ uses
   System.SysUtils,
   System.TypInfo,
   System.RTTI,
+  System.Diagnostics,
   System.SyncObjs,
   System.Generics.Collections,
   OtlCommon,
@@ -1154,6 +1155,116 @@ type
     function  WaitFor(maxWait_ms: cardinal): boolean;
   end; { TOmniParallelMapper<T1,T2> }
 
+  // Channel<T> — typed, directional, bounded channel (Go-style CSP)
+
+  IOmniChannelReceiver<T> = interface ['{A7D3B8E1-4F2C-4D9A-B6E5-1C8F2A3D4E5F}']
+    function  GetCount: integer;
+    //
+    function  Receive: T;
+    function  TryReceive(out value: T; timeout_ms: cardinal = 0): boolean;
+    function  IsClosed: boolean;
+    function  IsEmpty: boolean;
+    property  Count: integer read GetCount;
+  end; { IOmniChannelReceiver<T> }
+
+  IOmniChannelSender<T> = interface ['{B8E4C9F2-5A3D-4E0B-C7F6-2D9A3B4C5D6E}']
+    procedure Send(const value: T);
+    function  TrySend(const value: T; timeout_ms: cardinal = 0): boolean;
+    procedure Close;
+    function  IsClosed: boolean;
+  end; { IOmniChannelSender<T> }
+
+  IOmniChannel<T> = interface ['{C9F5DAA3-6B4E-4F1C-D8A7-3EAB4C5D6E7F}']
+    function  Sender: IOmniChannelSender<T>;
+    function  Receiver: IOmniChannelReceiver<T>;
+    procedure Close;
+  end; { IOmniChannel<T> }
+
+  IOmniChannelState = interface
+    ['{D1E2F3A4-5B6C-7D8E-9F0A-1B2C3D4E5F6A}']
+    function  GetCapSemaphore: TSemaphore;
+    function  GetCollection: IOmniBlockingCollection;
+    function  GetCondVar: TConditionVariableCS;
+    function  GetLock: TCriticalSection;
+    procedure SignalDataReady;
+    procedure SignalClose;
+    property  CapSemaphore: TSemaphore read GetCapSemaphore;
+    property  Collection: IOmniBlockingCollection read GetCollection;
+    property  CondVar: TConditionVariableCS read GetCondVar;
+    property  Lock: TCriticalSection read GetLock;
+  end; { IOmniChannelState }
+
+  TOmniChannelState = class(TInterfacedObject, IOmniChannelState)
+  strict private
+    FCapSemaphore: TSemaphore;
+    FCollection  : IOmniBlockingCollection;
+    FCondVar     : TConditionVariableCS;
+    FLock        : TCriticalSection;
+  protected
+    function  GetCapSemaphore: TSemaphore;
+    function  GetCollection: IOmniBlockingCollection;
+    function  GetCondVar: TConditionVariableCS;
+    function  GetLock: TCriticalSection;
+  public
+    constructor Create(capacity: integer);
+    destructor  Destroy; override;
+    procedure SignalDataReady;
+    procedure SignalClose;
+    property  CapSemaphore: TSemaphore read GetCapSemaphore;
+    property  Collection: IOmniBlockingCollection read GetCollection;
+    property  CondVar: TConditionVariableCS read GetCondVar;
+    property  Lock: TCriticalSection read GetLock;
+  end; { TOmniChannelState }
+
+  TOmniChannelReceiverEnumerator<T> = class
+  strict private
+    FCurrent : T;
+    FReceiver: IOmniChannelReceiver<T>;
+  public
+    constructor Create(const receiver: IOmniChannelReceiver<T>);
+    function  GetCurrent: T;
+    function  MoveNext: boolean;
+    property  Current: T read GetCurrent;
+  end; { TOmniChannelReceiverEnumerator<T> }
+
+  TOmniChannelReceiver<T> = class(TInterfacedObject, IOmniChannelReceiver<T>)
+  strict private
+    FState: IOmniChannelState;
+  protected
+    function  GetCount: integer;
+  public
+    constructor Create(const state: IOmniChannelState);
+    function  GetEnumerator: TOmniChannelReceiverEnumerator<T>;
+    function  IsClosed: boolean;
+    function  IsEmpty: boolean;
+    function  Receive: T;
+    function  TryReceive(out value: T; timeout_ms: cardinal = 0): boolean;
+    property  Count: integer read GetCount;
+  end; { TOmniChannelReceiver<T> }
+
+  TOmniChannelSender<T> = class(TInterfacedObject, IOmniChannelSender<T>)
+  strict private
+    FState: IOmniChannelState;
+  public
+    constructor Create(const state: IOmniChannelState);
+    procedure Close;
+    function  IsClosed: boolean;
+    procedure Send(const value: T);
+    function  TrySend(const value: T; timeout_ms: cardinal = 0): boolean;
+  end; { TOmniChannelSender<T> }
+
+  TOmniChannel<T> = class(TInterfacedObject, IOmniChannel<T>)
+  strict private
+    FReceiver: IOmniChannelReceiver<T>;
+    FSender  : IOmniChannelSender<T>;
+    FState   : IOmniChannelState;
+  public
+    constructor Create(capacity: integer);
+    procedure Close;
+    function  Receiver: IOmniChannelReceiver<T>;
+    function  Sender: IOmniChannelSender<T>;
+  end; { TOmniChannel<T> }
+
   {$REGION 'Documentation'}
   ///	<summary>Parallel class represents a base class for all high-level language
   ///	features in the OmniThreadLibrary. Most features are implemented as factories while
@@ -1265,6 +1376,10 @@ type
     ///	<summary>Maps and array of &lt;T1&gt; to an array of &lt;T2&gt;.</summary>
     class function Map<T1,T2>(const source: TArray<T1>;
       mapper: TMapProc<T1,T2>): TArray<T2>; overload;
+
+  // Channel
+    ///	<summary>Creates a bounded, typed channel for producer/consumer communication.</summary>
+    class function Channel<T>(capacity: integer = 128): IOmniChannel<T>;
 
   // task configuration
     ///	<summary>Creates Task configuration block.</summary>
@@ -2318,6 +2433,247 @@ class function Parallel.TimedTask(const threadName: string): IOmniTimedTask;
 begin
   Result := TOmniTimedTask.Create(threadName);
 end; { Parallel.TimedTask }
+
+class function Parallel.Channel<T>(capacity: integer): IOmniChannel<T>;
+begin
+  Result := TOmniChannel<T>.Create(capacity);
+end; { Parallel.Channel<T> }
+
+{ TOmniChannelState }
+
+constructor TOmniChannelState.Create(capacity: integer);
+begin
+  inherited Create;
+  FCollection := TOmniBlockingCollection.Create;
+  FLock := TCriticalSection.Create;
+  FCondVar := TConditionVariableCS.Create;
+  if capacity > 0 then
+    FCapSemaphore := TSemaphore.Create(nil, capacity, capacity, '');
+end; { TOmniChannelState.Create }
+
+destructor TOmniChannelState.Destroy;
+begin
+  FreeAndNil(FCapSemaphore);
+  FreeAndNil(FCondVar);
+  FreeAndNil(FLock);
+  inherited;
+end; { TOmniChannelState.Destroy }
+
+function TOmniChannelState.GetCapSemaphore: TSemaphore;
+begin
+  Result := FCapSemaphore;
+end;
+
+function TOmniChannelState.GetCollection: IOmniBlockingCollection;
+begin
+  Result := FCollection;
+end;
+
+function TOmniChannelState.GetCondVar: TConditionVariableCS;
+begin
+  Result := FCondVar;
+end;
+
+function TOmniChannelState.GetLock: TCriticalSection;
+begin
+  Result := FLock;
+end;
+
+procedure TOmniChannelState.SignalDataReady;
+begin
+  FLock.Enter;
+  try
+    FCondVar.ReleaseAll;
+  finally FLock.Leave; end;
+end; { TOmniChannelState.SignalDataReady }
+
+procedure TOmniChannelState.SignalClose;
+begin
+  FCollection.CompleteAdding;
+  FLock.Enter;
+  try
+    FCondVar.ReleaseAll;
+  finally FLock.Leave; end;
+end; { TOmniChannelState.SignalClose }
+
+{ TOmniChannelReceiverEnumerator<T> }
+
+constructor TOmniChannelReceiverEnumerator<T>.Create(
+  const receiver: IOmniChannelReceiver<T>);
+begin
+  inherited Create;
+  FReceiver := receiver;
+end; { TOmniChannelReceiverEnumerator<T>.Create }
+
+function TOmniChannelReceiverEnumerator<T>.GetCurrent: T;
+begin
+  Result := FCurrent;
+end; { TOmniChannelReceiverEnumerator<T>.GetCurrent }
+
+function TOmniChannelReceiverEnumerator<T>.MoveNext: boolean;
+begin
+  Result := FReceiver.TryReceive(FCurrent, INFINITE);
+end; { TOmniChannelReceiverEnumerator<T>.MoveNext }
+
+{ TOmniChannelReceiver<T> }
+
+constructor TOmniChannelReceiver<T>.Create(const state: IOmniChannelState);
+begin
+  inherited Create;
+  FState := state;
+end; { TOmniChannelReceiver<T>.Create }
+
+function TOmniChannelReceiver<T>.GetCount: integer;
+begin
+  Result := FState.Collection.Count;
+end; { TOmniChannelReceiver<T>.GetCount }
+
+function TOmniChannelReceiver<T>.GetEnumerator: TOmniChannelReceiverEnumerator<T>;
+begin
+  Result := TOmniChannelReceiverEnumerator<T>.Create(Self);
+end; { TOmniChannelReceiver<T>.GetEnumerator }
+
+function TOmniChannelReceiver<T>.IsClosed: boolean;
+begin
+  Result := FState.Collection.IsCompleted;
+end; { TOmniChannelReceiver<T>.IsClosed }
+
+function TOmniChannelReceiver<T>.IsEmpty: boolean;
+begin
+  Result := FState.Collection.IsEmpty;
+end; { TOmniChannelReceiver<T>.IsEmpty }
+
+function TOmniChannelReceiver<T>.Receive: T;
+var
+  coll   : IOmniBlockingCollection;
+  condVar: TConditionVariableCS;
+  capSem : TSemaphore;
+  lock   : TCriticalSection;
+  ov     : TOmniValue;
+begin
+  coll := FState.Collection;
+  condVar := FState.CondVar;
+  lock := FState.Lock;
+  capSem := FState.CapSemaphore;
+  while true do begin
+    lock.Enter;
+    try
+      if coll.TryTake(ov, 0) then begin
+        Result := ov.CastTo<T>;
+        if assigned(capSem) then
+          capSem.Release;
+        Exit;
+      end;
+      if coll.IsCompleted then
+        raise ECollectionCompleted.Create('Channel is closed');
+      condVar.WaitFor(lock, INFINITE);
+    finally lock.Leave; end;
+  end;
+end; { TOmniChannelReceiver<T>.Receive }
+
+function TOmniChannelReceiver<T>.TryReceive(out value: T;
+  timeout_ms: cardinal): boolean;
+var
+  coll     : IOmniBlockingCollection;
+  condVar  : TConditionVariableCS;
+  capSem   : TSemaphore;
+  lock     : TCriticalSection;
+  ov       : TOmniValue;
+  stopWatch: TStopWatch;
+  remaining: cardinal;
+begin
+  coll := FState.Collection;
+  condVar := FState.CondVar;
+  lock := FState.Lock;
+  capSem := FState.CapSemaphore;
+  stopWatch := TStopWatch.StartNew;
+  remaining := timeout_ms;
+  while true do begin
+    lock.Enter;
+    try
+      if coll.TryTake(ov, 0) then begin
+        value := ov.CastTo<T>;
+        if assigned(capSem) then
+          capSem.Release;
+        Exit(true);
+      end;
+      if coll.IsCompleted then
+        Exit(false);
+      if timeout_ms = 0 then
+        Exit(false);
+      if (timeout_ms <> INFINITE) then begin
+        var elapsed := cardinal(stopWatch.ElapsedMilliseconds);
+        if elapsed >= timeout_ms then
+          Exit(false);
+        remaining := timeout_ms - elapsed;
+      end;
+      condVar.WaitFor(lock, remaining);
+    finally lock.Leave; end;
+  end;
+end; { TOmniChannelReceiver<T>.TryReceive }
+
+{ TOmniChannelSender<T> }
+
+constructor TOmniChannelSender<T>.Create(const state: IOmniChannelState);
+begin
+  inherited Create;
+  FState := state;
+end; { TOmniChannelSender<T>.Create }
+
+procedure TOmniChannelSender<T>.Close;
+begin
+  FState.SignalClose;
+end; { TOmniChannelSender<T>.Close }
+
+function TOmniChannelSender<T>.IsClosed: boolean;
+begin
+  Result := FState.Collection.IsCompleted;
+end; { TOmniChannelSender<T>.IsClosed }
+
+procedure TOmniChannelSender<T>.Send(const value: T);
+begin
+  if assigned(FState.CapSemaphore) then
+    FState.CapSemaphore.Acquire;
+  FState.Collection.Add(TOmniValue.CastFrom<T>(value));
+  FState.SignalDataReady;
+end; { TOmniChannelSender<T>.Send }
+
+function TOmniChannelSender<T>.TrySend(const value: T;
+  timeout_ms: cardinal): boolean;
+begin
+  if assigned(FState.CapSemaphore) then begin
+    if FState.CapSemaphore.WaitFor(timeout_ms) <> wrSignaled then
+      Exit(false);
+  end;
+  Result := FState.Collection.TryAdd(TOmniValue.CastFrom<T>(value));
+  if Result then
+    FState.SignalDataReady;
+end; { TOmniChannelSender<T>.TrySend }
+
+{ TOmniChannel<T> }
+
+constructor TOmniChannel<T>.Create(capacity: integer);
+begin
+  inherited Create;
+  FState := TOmniChannelState.Create(capacity);
+  FSender := TOmniChannelSender<T>.Create(FState);
+  FReceiver := TOmniChannelReceiver<T>.Create(FState);
+end; { TOmniChannel<T>.Create }
+
+procedure TOmniChannel<T>.Close;
+begin
+  FState.SignalClose;
+end; { TOmniChannel<T>.Close }
+
+function TOmniChannel<T>.Receiver: IOmniChannelReceiver<T>;
+begin
+  Result := FReceiver;
+end; { TOmniChannel<T>.Receiver }
+
+function TOmniChannel<T>.Sender: IOmniChannelSender<T>;
+begin
+  Result := FSender;
+end; { TOmniChannel<T>.Sender }
 
 { TOmniParallelLoopBase }
 

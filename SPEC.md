@@ -326,11 +326,79 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Moved `System.Contnrs` out of `{$IFDEF MSWINDOWS}` block
 - [x] All 61 unit tests pass
 
-### 3.3 Future parallel patterns (deferred)
-- [ ] `Parallel.Channel` (Go-style CSP)
-- [ ] `Parallel.Merge`
-- [ ] `Parallel.Race`
-- [ ] To be designed after core NG is working
+### 3.3 Parallel.Channel<T> — typed channel (Go-style CSP)
+
+Generic typed wrapper over `IOmniBlockingCollection` with directional
+sender/receiver ends. Internal `TOmniValue.CastFrom<T>` / `CastTo<T>` for
+storage; all blocking/throttling/completion semantics delegated to the
+existing collection infrastructure.
+
+#### 3.3.1 Interfaces
+
+```
+IOmniChannelReceiver<T>
+  Receive: T                                      — blocks until data or closed
+  TryReceive(out value; timeout_ms = 0): boolean  — non-blocking / bounded wait
+  GetEnumerator: IEnumerator<T>                   — for-in until closed + drained
+  IsClosed: boolean
+  IsEmpty: boolean
+  Count: integer
+
+IOmniChannelSender<T>
+  Send(const value: T)                            — blocks when full (throttled)
+  TrySend(const value: T; timeout_ms = 0): boolean
+  Close                                           — idempotent, signals "no more data"
+  IsClosed: boolean
+
+IOmniChannel<T>
+  Sender: IOmniChannelSender<T>
+  Receiver: IOmniChannelReceiver<T>
+  Close                                           — convenience = Sender.Close
+```
+
+#### 3.3.2 Factory
+
+```
+Parallel.Channel<T>(capacity: integer = 128): IOmniChannel<T>
+```
+
+Creates a bounded channel backed by `TOmniBlockingCollection`. The capacity
+maps to the collection's queue size. Throttling high/low watermarks default
+to capacity / capacity-1 so `Send` blocks when the channel is full.
+
+#### 3.3.3 Implementation tasks
+- [ ] `IOmniChannelReceiver<T>`, `IOmniChannelSender<T>`, `IOmniChannel<T>` interfaces in OtlParallel.pas
+- [ ] `TOmniChannel<T>` implementation wrapping `IOmniBlockingCollection`
+- [ ] `Parallel.Channel<T>` factory method
+- [ ] `Receive` / `TryReceive` — `Take` / `TryTake` + `CastTo<T>`
+- [ ] `Send` / `TrySend` — `CastFrom<T>` + `Add` / `TryAdd` with throttling
+- [ ] `Close` — `CompleteAdding`, idempotent
+- [ ] `GetEnumerator` — `for-in` iteration until closed and drained
+- [ ] Unit tests: basic send/receive, for-in, close semantics, TrySend/TryReceive timeout, capacity blocking, fan-out (multiple consumers)
+
+#### 3.3.4 Parallel.Select — multiplexed channel waiting (deferred)
+
+Dispatcher that waits on multiple channels simultaneously using `TWaitFor`,
+fires exactly one handler per wait. Builder API:
+
+```
+IOmniSelect
+  OnReceive<T>(receiver, handler: TProc<T>): IOmniSelect
+  OnSend<T>(sender, value, handler: TProc): IOmniSelect
+  OnClosed<T>(receiver, handler: TProc): IOmniSelect
+  Wait(timeout_ms = INFINITE): TOmniSelectResult
+  Run / Run(timeout_ms) / Stop
+```
+
+Implementation maps channel events to `TWaitFor.WaitAny`, dispatches to the
+matching handler. `Parallel.Merge` = Select + Run forwarding to one output.
+`Parallel.Race` = Select + Wait returning first result.
+
+- [ ] `IOmniSelect` interface and builder
+- [ ] `Parallel.Select` factory
+- [ ] `Parallel.Merge<T>` convenience (fan-in)
+- [ ] `Parallel.Race<T>` convenience (first-wins)
+- [ ] Unit tests
 
 ---
 

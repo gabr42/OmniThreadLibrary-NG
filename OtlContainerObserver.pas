@@ -214,8 +214,9 @@ end; { TOmniContainerObserver.Deactivate }
 
 constructor TOmniContainerEventObserverImpl.Create(const externalEvent: IOmniEvent);
 begin
+  inherited Create;
   ceoEvent := externalEvent;
-  if not assigned( ceoEvent) then
+  if not assigned(ceoEvent) then
     ceoEvent := CreateOmniEvent(False, False)
 end; { TOmniContainerWindowsEventObserverImpl.Create }
 
