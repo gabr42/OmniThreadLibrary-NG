@@ -35,9 +35,20 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
 ///   Last modification : 2026-04-14
-///   Version           : 3.01
+///   Version           : 3.02
 ///</para><para>
 ///   History:
+///     3.02: 2026-04-14
+///       - Fixed destructor nil dereference on otcSharedInfo fields when
+///         otcSharedInfo is nil.
+///       - Added [Volatile] to cross-thread boolean flags ostiStopped,
+///         ostiTerminating, oteTerminating for ARM correctness.
+///       - Fixed thread object leak after TerminateThread (nil instead of
+///         FreeAndNil).
+///       - Fixed ForwardTaskTerminated double-fire race using
+///         TInterlocked.Exchange.
+///       - Fixed RemoveTerminationEvents not adjusting IdxFirstWaitObject
+///         and IdxLastWaitObject.
 ///     3.01: 2026-04-14
 ///       - Replaced TOmniTransitionEvent with IOmniEvent.
 ///     3.0: 2026-04-12 [OTL-NG]
@@ -404,10 +415,12 @@ type
     ostiMonitorLock       : TOmniCS;
     ostiNUMANode          : integer;
     ostiProcessorGroup    : integer;
+    [Volatile]
     ostiStopped           : boolean;
     ostiTaskName          : string;
     ostiTerminatedEvent   : IOmniEvent;
     ostiTerminateEvent    : IOmniEvent;
+    [Volatile]
     ostiTerminating       : boolean;
     ostiUniqueID          : int64;
   strict protected
@@ -593,6 +606,7 @@ type
     oteProc              : TOmniTaskProcedure;
     oteRttiContext       : TRttiContext;
     oteTerminateHandles  : TList<IOmniSynchro>;
+    [Volatile]
     oteTerminating       : boolean;
     oteTimers            : TList<TPair<int64, TOmniTaskTimerInfo>>;
     oteWaitHandlesGen    : int64;
@@ -789,7 +803,7 @@ type
     otcSharedInfo          : TOmniSharedTaskInfo;
     otcOnTerminatedSimple  : TOmniOnTerminatedFunctionSimple;
     otcTerminateTokens     : TInterfaceList;
-    otcTerminatedForwarded : boolean;
+    otcTerminatedForwarded : integer; // 0=false, 1=true; accessed via TInterlocked
     otcThread              : TOmniThread;
     otcUserData            : TOmniValueContainer;
   strict protected
@@ -2465,6 +2479,8 @@ begin
   dstMsgInfo.IdxLastTerminate := -1;
   dstMsgInfo.IdxFirstMessage := srcMsgInfo.IdxFirstMessage - offset;
   dstMsgInfo.IdxLastMessage := srcMsgInfo.IdxLastMessage - offset;
+  dstMsgInfo.IdxFirstWaitObject := srcMsgInfo.IdxFirstWaitObject - offset;
+  dstMsgInfo.IdxLastWaitObject := srcMsgInfo.IdxLastWaitObject - offset;
   dstMsgInfo.IdxRebuildHandles := srcMsgInfo.IdxRebuildHandles - offset;
   dstMsgInfo.NumWaitHandles := srcMsgInfo.NumWaitHandles - offset;
   SetLength(dstMsgInfo.WaitHandles, dstMsgInfo.NumWaitHandles);
@@ -2687,23 +2703,26 @@ begin
     Terminate;
     FreeAndNil(otcThread);
   end;
-  if assigned(otcSharedInfo) then // TOmniTask.InternalExecute could still own the shared info
+  if assigned(otcSharedInfo) then begin
     otcSharedInfo.MonitorLock.Acquire;
-  try
-    if otcDestroyLock then begin
-      otcSharedInfo.Lock.Free;
-      otcSharedInfo.Lock := nil;
-    end;
-    FreeAndNil(otcExecutor);
-    otcSharedInfo.CommChannel := nil;
-    otcSharedInfo.TerminateEvent := nil;
-    otcSharedInfo.TerminatedEvent := nil;
-    FreeAndNil(otcParameters);
-  finally
-    if assigned(otcSharedInfo) then begin
+    try
+      if otcDestroyLock then begin
+        otcSharedInfo.Lock.Free;
+        otcSharedInfo.Lock := nil;
+      end;
+      FreeAndNil(otcExecutor);
+      otcSharedInfo.CommChannel := nil;
+      otcSharedInfo.TerminateEvent := nil;
+      otcSharedInfo.TerminatedEvent := nil;
+      FreeAndNil(otcParameters);
+    finally
       otcSharedInfo.MonitorLock.Release;
       FreeAndNil(otcSharedInfo);
     end;
+  end
+  else begin
+    FreeAndNil(otcExecutor);
+    FreeAndNil(otcParameters);
   end;
   FreeAndNil(otcUserData);
   FreeAndNil(otcTerminateTokens);
@@ -2882,9 +2901,8 @@ end; { TOmniTaskControl.ForwardTaskMessage }
 
 procedure TOmniTaskControl.ForwardTaskTerminated;
 begin
-  if otcTerminatedForwarded then
+  if TInterlocked.Exchange(otcTerminatedForwarded, 1) = 1 then
     Exit;
-  otcTerminatedForwarded := true;
   if assigned(otcOnTerminatedExec) then begin
     otcInEventHandler := true;
     try
@@ -3451,7 +3469,7 @@ begin
       otcThread.Terminate;
       // TODO 1 -oPrimoz Gabrijelcic : Kill thread Posix way?
       {$ENDIF MSWINDOWS}
-      otcThread := nil;
+      FreeAndNil(otcThread);
     end
     else if assigned(otcOwningPool) then begin
       otcOwningPool.Cancel(UniqueID, 0);

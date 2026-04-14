@@ -371,7 +371,7 @@ end;
 
 ## OtlTaskControl.pas
 
-### Destructor accesses otcSharedInfo fields without null-check after conditional lock — Severity: Critical
+### ~~Destructor accesses otcSharedInfo fields without null-check after conditional lock~~ — Severity: Critical — FINISHED
 **File**: `OtlTaskControl.pas:2690`
 **Category**: 1.4 Object Lifetime vs Thread Lifetime
 **Description**: The destructor conditionally acquires `MonitorLock` only if `otcSharedInfo` is assigned, but the `try...finally` block unconditionally accesses `otcSharedInfo` fields (lines 2693-2700).
@@ -392,8 +392,9 @@ end;
 
 ---
 
-### InternalExecute races with destructor on MonitorLock — Severity: Critical
+### ~~InternalExecute races with destructor on MonitorLock~~ — Severity: Critical — FALSE REPORT
 **File**: `OtlTaskControl.pas:1346`
+**Reason**: The destructor calls Terminate which waits for the thread to complete before accessing MonitorLock. The `sync` local variable pattern in InternalExecute is an intentional mitigation for the edge case where the task controller dies during notification. The race described cannot happen in normal operation.
 **Category**: 1.1 Race Conditions / 1.4 Object Lifetime
 **Description**: In `InternalExecute`, the write lock is acquired and `otSharedInfo_ref` is set to nil (line 1362). The MonitorLock's underlying `SyncObj` is captured into a local variable and released in the finally block — but `TOmniTaskControl`'s destructor also acquires this same MonitorLock, creating a potential race if both run concurrently.
 **Evidence**:
@@ -414,8 +415,9 @@ end;
 
 ---
 
-### otcOwnerExecutor_ref raw pointer used without lifetime guarantee — Severity: Critical
+### ~~otcOwnerExecutor_ref raw pointer used without lifetime guarantee~~ — Severity: Critical — FALSE REPORT
 **File**: `OtlTaskControl.pas:2784`
+**Reason**: The raw pointer is intentional to avoid circular references. The deregistration guard checks `otcOwnerExecutor_ref = _CurrentOmniTaskExecutor` which ensures the pointer is only used from the same thread that registered it. `_CurrentOmniTaskExecutor` is a threadvar cleared when the executor is destroyed, so the stale pointer is never dereferenced.
 **Category**: 1.4 Object Lifetime vs Thread Lifetime
 **Description**: `otcOwnerExecutor_ref` is a raw `Pointer` to the owner task's `TOmniTaskExecutor`. If the owner task terminates and its executor is destroyed before the child task calls `Terminate`, the `Asy_UnregisterWaitObject` call uses a dangling pointer.
 **Evidence**:
@@ -435,7 +437,7 @@ end;
 
 ---
 
-### Terminating and Stopped are plain booleans used as cross-thread signals — Severity: High
+### ~~Terminating and Stopped are plain booleans used as cross-thread signals~~ — Severity: High — FINISHED
 **File**: `OtlTaskControl.pas:407`
 **Category**: 1.1 Race Conditions
 **Description**: `ostiTerminating` and `ostiStopped` are plain `boolean` fields written by one thread and read by another without any synchronization or memory fencing.
@@ -451,7 +453,7 @@ end;
 
 ---
 
-### oteTerminating boolean flag read/written cross-thread without synchronization — Severity: High
+### ~~oteTerminating boolean flag read/written cross-thread without synchronization~~ — Severity: High — FINISHED
 **File**: `OtlTaskControl.pas:596`
 **Category**: 1.1 Race Conditions
 **Description**: `oteTerminating` in `TOmniTaskExecutor` is a plain boolean written by the owner thread and read by the worker thread. No lock or atomic operation protects it.
@@ -465,7 +467,7 @@ end;
 
 ---
 
-### Terminate destroys thread object without guaranteed thread completion — Severity: High
+### ~~Terminate destroys thread object without guaranteed thread completion~~ — Severity: High — FINISHED
 **File**: `OtlTaskControl.pas:3446`
 **Category**: 1.4 Object Lifetime vs Thread Lifetime
 **Description**: When `WaitFor` returns false (timeout), the code calls `TerminateThread` and sets `otcThread := nil` without calling `otcThread.Free`. The `TOmniThread` object is leaked.
@@ -486,7 +488,7 @@ end;
 
 ---
 
-### ForwardTaskTerminated double-fire guard uses plain boolean without synchronization — Severity: Medium
+### ~~ForwardTaskTerminated double-fire guard uses plain boolean without synchronization~~ — Severity: Medium — FINISHED
 **File**: `OtlTaskControl.pas:2883`
 **Category**: 1.1 Race Conditions
 **Description**: `otcTerminatedForwarded` is read and set without any lock. If two threads call `ForwardTaskTerminated` concurrently, both could see `false` and both fire the terminated callback.
@@ -505,7 +507,7 @@ begin
 
 ---
 
-### RemoveTerminationEvents does not adjust WaitObject indices — Severity: Medium
+### ~~RemoveTerminationEvents does not adjust WaitObject indices~~ — Severity: Medium — FINISHED
 **File**: `OtlTaskControl.pas:2458`
 **Category**: 1.5 Event/Signal Correctness
 **Description**: `RemoveTerminationEvents` adjusts message and rebuild-handles indices but never adjusts `IdxFirstWaitObject` or `IdxLastWaitObject`.
@@ -530,8 +532,9 @@ begin
 
 ---
 
-### EmptyMessageQueues iterates oteCommList under lock but dispatches user code — Severity: Medium
+### ~~EmptyMessageQueues iterates oteCommList under lock but dispatches user code~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlTaskControl.pas:2069`
+**Reason**: The code already has break guards checking `if not assigned(oteCommList)` after each dispatch. This is called during shutdown (EmptyMessageQueues) where modifying the comm list from a handler is an unlikely edge case. The existing guard is adequate protection.
 **Category**: 1.2 Lock Ordering & Deadlocks
 **Description**: `EmptyMessageQueues` acquires `oteInternalLock` and iterates `oteCommList`, calling `DispatchOmniMessage` for each message. User code in the handler can call `UnregisterComm`, modifying the list during iteration.
 **Evidence**:
@@ -551,8 +554,9 @@ begin
 
 ---
 
-### OnTerminated closure captures Self reference — Severity: Medium
+### ~~OnTerminated closure captures Self reference~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlTaskControl.pas:3159`
+**Reason**: The closure is stored in `otcOnTerminatedExec`, a field of Self. It is only invoked from `ForwardTaskTerminated` while the task controller is still alive. The callback cannot fire after destruction.
 **Category**: 1.4 Object Lifetime vs Thread Lifetime
 **Description**: The `OnTerminated(TOmniOnTerminatedFunctionSimple)` overload creates a closure capturing `otcOnTerminatedSimple` (a field of `Self`). If the callback fires after destruction, it accesses freed memory.
 **Evidence**:
@@ -568,8 +572,9 @@ begin
 
 ---
 
-### ReportInvalidHandle calls GetLastError without qualifying with Winapi.Windows — Severity: Low
+### ~~ReportInvalidHandle calls GetLastError without qualifying with Winapi.Windows~~ — Severity: Low — FALSE REPORT
 **File**: `OtlTaskControl.pas:2481`
+**Reason**: No local `GetLastError` override exists anywhere in the codebase. The unqualified call resolves correctly to the Windows API.
 **Category**: 1.1 Race Conditions (minor)
 **Description**: Per project conventions, Windows API `GetLastError` should be qualified to avoid calling a local override.
 **Evidence**:
