@@ -34,10 +34,13 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Creation date     : 2020-09-16
-///   Last modification : 2026-04-13
-///   Version           : 1.0b
+///   Last modification : 2026-04-14
+///   Version           : 1.0c
 ///</para><para>
 ///   History:
+///     1.0c: 2026-04-14
+///       - Fixed TEvent leak: TObjectDictionary created with [doOwnsValues]
+///         so TEvent objects are freed when the dictionary is destroyed.
 ///     1.0b: 2026-04-13
 ///       - Fully qualified unit names for cross-platform compatibility.
 ///     1.0a: 2021-02-09
@@ -89,7 +92,7 @@ uses
 constructor TOmniSynchronizer<T>.Create;
 begin
   inherited Create;
-  FEvents := TObjectDictionary<T, TEvent>.Create;
+  FEvents := TObjectDictionary<T, TEvent>.Create([doOwnsValues]);
 end; { TOmniSynchronizer<T>.Create }
 
 destructor TOmniSynchronizer<T>.Destroy;

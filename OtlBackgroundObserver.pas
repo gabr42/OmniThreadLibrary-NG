@@ -36,10 +36,13 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Claude AI
 ///   Creation date     : 2026-04-12
-///   Last modification : 2026-04-12
-///   Version           : 1.0
+///   Last modification : 2026-04-14
+///   Version           : 1.01
 ///</para><para>
 ///   History:
+///     1.01: 2026-04-14
+///       - Fixed FState leak on OpenThread failure in constructor; also
+///         captured GetLastError before FreeMem to preserve error code.
 ///     1.0: 2026-04-12 [OTL-NG]
 ///       - Initial implementation. APC-based container observer for delivering
 ///         task notifications to background thread owners on Windows.
@@ -187,10 +190,14 @@ begin
   FState.IsActive := 1;
   FState.OnNotify := aOnNotify;
   FThreadHandle := OpenThread(THREAD_SET_CONTEXT, false, aTargetThreadID);
-  if FThreadHandle = 0 then
+  if FThreadHandle = 0 then begin
+    var lastErr := Winapi.Windows.GetLastError;
+    FreeMem(FState);
+    FState := nil;
     raise EOSError.CreateFmt(
       'TOmniContainerAPCObserverImpl.Create: OpenThread failed for thread %d, error [%d] %s',
-      [aTargetThreadID, Winapi.Windows.GetLastError, SysErrorMessage(Winapi.Windows.GetLastError)]);
+      [aTargetThreadID, lastErr, SysErrorMessage(lastErr)]);
+  end;
 end; { TOmniContainerAPCObserverImpl.Create }
 
 destructor TOmniContainerAPCObserverImpl.Destroy;

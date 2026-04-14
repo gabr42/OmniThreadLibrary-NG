@@ -1838,6 +1838,8 @@ begin
   oteInternalLock.Acquire;
   try
     idxComm := oteCommList.IndexOf(comm);
+    if idxComm < 0 then
+      raise Exception.Create('TOmniTaskExecutor.Asy_UnregisterComm: Comm endpoint not found');
     oteCommList.Delete(idxComm);
     oteCommNewMsgList.Delete(idxComm);
     if oteCommList.Count = 0 then begin

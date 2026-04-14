@@ -36,10 +36,13 @@
 ///   Contributors      : GJ, Lee_Nover, scarre, Sean B. Durkin
 ///
 ///   Creation date     : 2011-08-31
-///   Last modification : 2026-04-12
-///   Version           : 2.02
+///   Last modification : 2026-04-14
+///   Version           : 2.03
 ///</para><para>
 ///   History:
+///     2.03: 2026-04-14
+///       - Removed OTL_HasTThreadCurrentThread guards (always true in
+///         Delphi 11+), re-enabling SetThreadDescription API support.
 ///     2.02: 2026-04-12
 ///       - Removed OTL_NameThreadHasStringParameter conditional (always true in Delphi 11+).
 ///     2.01: 2026-03-18
@@ -69,16 +72,17 @@ procedure SetThreadName(const name: string);
 implementation
 
 uses
+  {$IFDEF MSWINDOWS}
+  Winapi.Windows,
+  {$ENDIF MSWINDOWS}
   System.Classes;
 
 {$IFDEF MSWINDOWS}
 type
   TSetThreadDescription = function(hThread: THandle; threadDescription: PWideChar): HRESULT; stdcall;
 
-{$IFDEF OTL_HasTThreadCurrentThread}
 var
   GSetThreadDescription: TSetThreadDescription;
-{$ENDIF OTL_HasTThreadCurrentThread}
 {$ENDIF MSWINDOWS}
 
 threadvar
@@ -100,31 +104,24 @@ begin
     Exit;
 
   TThread.NameThreadForDebugging(name);
-  {$IFDEF OTL_HasTThreadCurrentThread}
+  {$IFDEF MSWINDOWS}
   if assigned(GSetThreadDescription) then
     GSetThreadDescription(TThread.CurrentThread.Handle, PChar(name));
-  {$ENDIF OTL_HasTThreadCurrentThread}
+  {$ENDIF MSWINDOWS}
 
   LastThreadName := ansiName;
 end; { SetThreadName }
 {$ENDIF ~OTL_DontSetThreadName}
 
 {$IFDEF MSWINDOWS}
-{$IFDEF OTL_HasTThreadCurrentThread}
 var
   GKernel32: HMODULE;
-{$ENDIF OTL_HasTThreadCurrentThread}
 
 initialization
-  {$IFDEF OTL_HasTThreadCurrentThread}
   GKernel32 := GetModuleHandle('kernel32.dll');
   if GKernel32 <> 0 then
     GSetThreadDescription := GetProcAddress(GKernel32, 'SetThreadDescription');
-  {$ENDIF OTL_HasTThreadCurrentThread}
 finalization
-  {$IFDEF OTL_HasTThreadCurrentThread}
-  if GKernel32 <> 0 then
-    FreeLibrary(GKernel32);
-  {$ENDIF OTL_HasTThreadCurrentThread}
+  GSetThreadDescription := nil;
 {$ENDIF MSWINDOWS}
 end.
