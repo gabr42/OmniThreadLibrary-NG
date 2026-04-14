@@ -40,6 +40,9 @@
 ///</para><para>
 ///   History:
 ///     3.02: 2026-04-14
+///       - Fixed TOmniSynchroObject.Destroy use-after-free: moved inherited
+///         call after the spin lock `with` block to prevent TSynchroSpin
+///         from accessing destroyed Self.
 ///       - Fixed TOmniWrappedEvent: close handle leaked by inherited
 ///         constructor; implement owned-event cleanup in destructor.
 ///       - Fixed TOmniMREW.ExitWriteLock: use TInterlocked.Exchange for ARM
@@ -2525,8 +2528,8 @@ begin
     if FOwnsBase then
       FreeAndNil(FBase);
     FObservers.Free;
-    inherited;
   end;
+  inherited;
 end; { TOmniSynchroObject.Destroy }
 
 class function TOmniSynchroObject.NewInstance: TObject;

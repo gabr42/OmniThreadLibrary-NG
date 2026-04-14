@@ -46,6 +46,8 @@
 ///       - Fixed TrySend not releasing semaphore on TryAdd failure.
 ///       - Fixed OnStopInvoke nil task guard missing in non-generic
 ///         TOmniParallelLoop and TOmniParallelSimpleLoop<T>.
+///       - Fixed TOmniBackgroundWorker.Terminate: detach and free observers
+///         unconditionally, not only on successful WaitFor.
 ///     3.01: 2026-04-13
 ///       - Implemented Parallel.Merge<T> — fan-in convenience merging multiple
 ///         channels into a single output channel via background select loop.
@@ -5613,20 +5615,18 @@ end; { TOmniBackgroundWorker.TaskConfig }
 function TOmniBackgroundWorker.Terminate(timeout_ms: cardinal): boolean;
 begin
   Result := WaitFor(timeout_ms);
-  if Result then begin
-    if assigned(FObserver) then begin
-      FWorker.Output.ContainerSubject.Detach(FObserver, coiNotifyOnAllInserts);
-      FreeAndNil(FObserver);
-    end;
-    if assigned(FBgObserver) then begin
-      FWorker.Output.ContainerSubject.Detach(
-        TOmniContainerBackgroundObserver(FBgObserver), coiNotifyOnAllInserts);
-      {$IFNDEF OTL_HasAPC}
-      UnregisterBackgroundObserver(
-        TOmniContainerBackgroundObserver(FBgObserver));
-      {$ENDIF}
-      FreeAndNil(FBgObserver);
-    end;
+  if assigned(FObserver) then begin
+    FWorker.Output.ContainerSubject.Detach(FObserver, coiNotifyOnAllInserts);
+    FreeAndNil(FObserver);
+  end;
+  if assigned(FBgObserver) then begin
+    FWorker.Output.ContainerSubject.Detach(
+      TOmniContainerBackgroundObserver(FBgObserver), coiNotifyOnAllInserts);
+    {$IFNDEF OTL_HasAPC}
+    UnregisterBackgroundObserver(
+      TOmniContainerBackgroundObserver(FBgObserver));
+    {$ENDIF}
+    FreeAndNil(FBgObserver);
   end;
 end; { TOmniBackgroundWorker.Terminate }
 

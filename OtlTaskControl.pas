@@ -39,6 +39,10 @@
 ///</para><para>
 ///   History:
 ///     3.02: 2026-04-14
+///       - Fixed uninitialized output parameters (taskFunc, msgName, msgData)
+///         in GetMethodNameFromInternalMessage.
+///       - Fixed SetException dangling pointer: assign new value before freeing
+///         old exception to prevent window where freed pointer is visible.
 ///       - Fixed destructor nil dereference on otcSharedInfo fields when
 ///         otcSharedInfo is nil.
 ///       - Added [Volatile] to cross-thread boolean flags ostiStopped,
@@ -1413,9 +1417,12 @@ begin
 end; { TOmniTask.RegisterWaitObject }
 
 procedure TOmniTask.SetException(exceptionObject: pointer);
+var
+  oldException: pointer;
 begin
-  Exception(otExecutor_ref.TaskException).Free;
+  oldException := otExecutor_ref.TaskException;
   otExecutor_ref.TaskException := exceptionObject;
+  Exception(oldException).Free;
 end; { TOmniTask.SetException }
 
 procedure TOmniTask.SetExitStatus(exitCode: integer; const exitMessage: string);
@@ -2297,6 +2304,9 @@ begin
   func := nil;
   funcEx := nil;
   proc := nil;
+  taskFunc := nil;
+  msgName := '';
+  msgData := TOmniValue.Null;
   internalType := TOmniInternalMessage.InternalType(msg);
   case internalType of
     imtStringMsg:

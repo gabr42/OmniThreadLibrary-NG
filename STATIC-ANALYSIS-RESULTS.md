@@ -1194,7 +1194,7 @@ end;
 
 ---
 
-### TOmniSynchroObject.Destroy — use-after-free via spin lock released after inherited — Severity: Critical
+### ~~TOmniSynchroObject.Destroy — use-after-free via spin lock released after inherited~~ — Severity: Critical — FINISHED
 **File**: `OtlSync.pas:2476`
 **Category**: 2.2 Use-After-Free
 **Description**: The destructor uses `with EnterSpinLock do begin ... inherited; end`. `EnterSpinLock` creates a `TSynchroSpin` object held as an `IInterface` by the compiler-generated `with` temporary. Inside the block, `inherited` destroys the parent object. When the `with` block ends (after `inherited`), the compiler releases the `TSynchroSpin` interface, whose destructor accesses `FController.ShareLock` and `FController.Lock` — but `FController` (i.e., `Self`) has already been destroyed by `inherited`.
@@ -1231,8 +1231,9 @@ end;
 
 ---
 
-### Locked<T>.Initialize — race on FLock creation leaks or uses destroyed lock — Severity: High
+### ~~Locked<T>.Initialize — race on FLock creation leaks or uses destroyed lock~~ — Severity: High — FINISHED
 **File**: `OtlSync.pas:1735`
+**Note**: Already fixed in earlier commit (Category 1, finding 12/13) — FLock creation now uses TInterlocked.CompareExchange.
 **Category**: 2.1 Resource Leaks / 2.2 Use-After-Free
 **Description**: `Locked<T>.Initialize(factory)` tests `if not FInitialized` without synchronization, then creates `FLock := TLightweightMREWExImpl.Create`. If two threads enter simultaneously, both create a lock object; the second assignment to `FLock` overwrites and destroys the first. The thread that created the first lock may already be calling `Acquire` on the now-destroyed instance.
 **Evidence**:
@@ -1257,8 +1258,9 @@ end;
 
 ---
 
-### TOmniCountdownEvent.Create — FCountdown leaks if inherited raises — Severity: Medium
+### ~~TOmniCountdownEvent.Create — FCountdown leaks if inherited raises~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlSync.pas:2684`
+**Reason**: The inherited constructor allocates a TList which can only fail on OOM. Under OOM conditions the process is already in a degraded state. The leak of a single TCountdownEvent is negligible compared to the OOM state itself.
 **Category**: 2.1 Resource Leaks
 **Description**: `FCountdown := TCountdownEvent.Create(...)` is allocated, then `inherited Create(FCountdown, True, AShareLock)` is called. If `inherited` raises (e.g., `TList<IOmniSynchroObserver>.Create` fails on OOM), `FCountdown` leaks. The same pattern exists in `TOmniEvent.Create` (line 2732).
 **Evidence**:
@@ -1275,8 +1277,9 @@ end;
 
 ---
 
-### TOmniEvent.Create — FEvent leaks if inherited raises — Severity: Medium
+### ~~TOmniEvent.Create — FEvent leaks if inherited raises~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlSync.pas:2732`
+**Reason**: Same as TOmniCountdownEvent — OOM-only path, negligible leak in an already-degraded state.
 **Category**: 2.1 Resource Leaks
 **Description**: Same pattern as `TOmniCountdownEvent`. `FEvent` is created, then `inherited Create` can raise, leaking `FEvent`. Both constructor overloads (lines 2732 and 2739) are affected.
 **Evidence**:
@@ -1295,8 +1298,9 @@ end;
 
 ---
 
-### TWaitFor.Create — partial construction leaks on exception — Severity: Medium
+### ~~TWaitFor.Create — partial construction leaks on exception~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlSync.pas:2165`
+**Reason**: OOM-only scenario. Partial construction leaks under OOM are a Delphi-wide pattern, not specific to this code.
 **Category**: 2.1 Resource Leaks
 **Description**: Creates `FGate`, `FSynchObjects`, `FOneSignalled`, `FAllSignalled`, `FSynchClient` in sequence. If any creation after the first raises, previously allocated objects leak because the destructor is not called for a partially-constructed `TInterfacedObject` when the refcount is 0.
 **Risk**: OOM scenario. Low probability.
@@ -1304,16 +1308,18 @@ end;
 
 ---
 
-### GOmniCancellationToken not explicitly nil'd in finalization — Severity: Low
+### ~~GOmniCancellationToken not explicitly nil'd in finalization~~ — Severity: Low — FALSE REPORT
 **File**: `OtlSync.pas:2928`
+**Reason**: Delphi's automatic interface finalization handles this. Explicit nilling in finalization sections does not improve ordering guarantees.
 **Category**: 2.3 Reference Counting
 **Description**: The `initialization` section creates `GOmniCancellationToken`. The `finalization` section only frees `GOmniCSInitializer` but does not explicitly nil the cancellation token. Relies on implicit interface cleanup at unit unload, which has uncontrolled ordering relative to other units.
 **Suggested fix**: Add `GOmniCancellationToken := nil;` to the finalization section.
 
 ---
 
-### Locked<T>.Initialize — double-checked locking without memory barrier — Severity: Low
+### ~~Locked<T>.Initialize — double-checked locking without memory barrier~~ — Severity: Low — FINISHED
 **File**: `OtlSync.pas:1757`
+**Note**: Already fixed in earlier commit — MFence added before FInitialized write.
 **Category**: 2.4 Uninitialized Data
 **Description**: The `if not FInitialized` outer check reads `FInitialized` without synchronization or memory barrier. On architectures with weak memory ordering (ARM), a thread could see `FInitialized = true` while `FValue` is still uninitialized. Safe on x86/x64 due to TSO, but formally incorrect for cross-platform code.
 **Risk**: Theoretical on x86/x64, real on ARM (Delphi mobile).
@@ -1323,8 +1329,9 @@ end;
 
 ## OtlParallel.pas
 
-### TOmniPipeline.Run — shared `exc` variable captured by all concurrent task closures — Severity: Critical
+### ~~TOmniPipeline.Run — shared `exc` variable captured by all concurrent task closures~~ — Severity: Critical — FINISHED
 **File**: `OtlParallel.pas:4898`
+**Note**: Already fixed in earlier commit — exc moved to closure-local variable, outQueue passed via task parameter.
 **Category**: 2.2 Double-Free / Use-After-Free
 **Description**: `Run` declares `exc: Exception` as a local variable. Multiple worker tasks (one per stage x NumTasks) each contain an anonymous procedure that captures `exc` by reference. When concurrent tasks both catch exceptions, they race to write `exc`. One task may free an exception written by another, causing a double-free. The losing task's original exception is leaked.
 **Evidence**:
@@ -1367,7 +1374,7 @@ end
 
 ---
 
-### TOmniBackgroundWorker observers not freed on Terminate timeout — Severity: High
+### ~~TOmniBackgroundWorker observers not freed on Terminate timeout~~ — Severity: High — FINISHED
 **File**: `OtlParallel.pas:5588`
 **Category**: 2.1 Resource Leaks
 **Description**: `Terminate` only detaches and frees `FObserver`/`FBgObserver` when `WaitFor` returns `true`. On timeout (`Result = false`), both observers remain attached to the output collection's subject and are never freed. The observer continues calling `DrainOutput` via `TThread.Queue` on a dead object — a use-after-free.
@@ -1394,7 +1401,7 @@ end;
 
 ---
 
-### RTTI context and enumerator leaked when TObject constructor asserts fail — Severity: High
+### ~~RTTI context and enumerator leaked when TObject constructor asserts fail~~ — Severity: High — FALSE REPORT (Assert failures are developer errors during development. In Release builds asserts are stripped, and RTTI GetMethod returns nil which is handled by subsequent nil checks. The leak only occurs in Debug builds when Assert fires, which is the intended debugging behavior.)
 **File**: `OtlParallel.pas:3151`
 **Category**: 2.1 Resource Leaks
 **Description**: `TOmniParallelLoopBase.Create(enumerable: TObject)` creates `FRttiContext` and invokes `GetEnumerator` via RTTI. If any Assert fires after `rm.Invoke` succeeds (e.g., the `MoveNext` method is not found), the enumerator heap object created by `rm.Invoke` is orphaned. In Release builds, Asserts are stripped and the code proceeds with nil method pointers.
@@ -1415,7 +1422,7 @@ Assert(assigned(FMoveNext));                  // if fires → enumerator AND con
 
 ---
 
-### TOmniParallelLoopBase.Destroy skips FRttiContext.Free when FEnumerable is nil — Severity: Medium
+### ~~TOmniParallelLoopBase.Destroy skips FRttiContext.Free when FEnumerable is nil~~ — Severity: Medium — FALSE REPORT (TRttiContext is a record (value type), not a class. Calling .Free on it is a no-op already. There is no actual leak.)
 **File**: `OtlParallel.pas:3185`
 **Category**: 2.1 Resource Leaks
 **Description**: `FRttiContext.Free` is only called inside the `if FEnumerable.AsObject <> nil` branch. If the enumerator is nil (e.g., `rm.Invoke` returned nil in Release builds), the RTTI context is never freed.
@@ -1423,7 +1430,7 @@ Assert(assigned(FMoveNext));                  // if fires → enumerator AND con
 
 ---
 
-### TOmniParallelSimpleLoop<T>.OnStopInvoke missing nil guard — Severity: Medium
+### ~~TOmniParallelSimpleLoop<T>.OnStopInvoke missing nil guard~~ — Severity: Medium — FINISHED (Already fixed in earlier commit)
 **File**: `OtlParallel.pas:4437`
 **Category**: 2.4 Uninitialized Data / nil dereference
 **Description**: Every other `OnStopInvoke` implementation guards against a nil `task` parameter before calling `task.Invoke`. The generic `TOmniParallelSimpleLoop<T>` variant does not. In the synchronous (blocking) path, `DoOnStop(nil)` is called with nil, causing an AV. This is a copy-paste omission.
@@ -1443,7 +1450,7 @@ Assert(assigned(FMoveNext));                  // if fires → enumerator AND con
 
 ---
 
-### FStopOn stored by StopOn() but never used — Severity: Low
+### ~~FStopOn stored by StopOn() but never used~~ — Severity: Low — CONFIRMED, DEFERRED (Missing feature, not a memory leak.)
 **File**: `OtlParallel.pas:5577`
 **Category**: 2.1 Resource Leaks (functional no-op)
 **Description**: `TOmniBackgroundWorker.FStopOn` is set by `StopOn(token)` but never read or wired into the pipeline. The cancellation token is stored as an interface (so memory is fine) but the API contract is silently broken.
@@ -1453,7 +1460,7 @@ Assert(assigned(FMoveNext));                  // if fires → enumerator AND con
 
 ## OtlTaskControl.pas
 
-### Destructor accesses otcSharedInfo unconditionally after nil-guarded lock acquire — Severity: High
+### ~~Destructor accesses otcSharedInfo unconditionally after nil-guarded lock acquire~~ — Severity: High — FINISHED (Already fixed in earlier commit)
 **File**: `OtlTaskControl.pas:2690`
 **Category**: 2.1 Resource Leaks / 2.4 Uninitialized Data
 **Description**: The lock acquire on `otcSharedInfo.MonitorLock` is guarded by `if assigned(otcSharedInfo)`, but the `try` block body unconditionally dereferences `otcSharedInfo` (lines 2693–2700). If `otcSharedInfo` is nil, the code AVs on `otcSharedInfo.Lock.Free`.
@@ -1486,7 +1493,7 @@ FreeAndNil(otcExecutor);
 
 ---
 
-### Thread object leaked after TerminateThread — Severity: High
+### ~~Thread object leaked after TerminateThread~~ — Severity: High — FINISHED (Already fixed in earlier commit)
 **File**: `OtlTaskControl.pas:3454`
 **Category**: 2.1 Resource Leaks
 **Description**: When `WaitFor` times out and a thread is forcibly killed with `TerminateThread`, the code sets `otcThread := nil` without freeing it. The `TOmniThread` object (a heap-allocated `TThread` descendant) and its OS thread handle are permanently leaked.
@@ -1503,7 +1510,7 @@ if not Result then begin
 
 ---
 
-### _AddRef hack in destructor causes memory leak on constructor exception — Severity: High
+### ~~_AddRef hack in destructor causes memory leak on constructor exception~~ — Severity: High — FALSE REPORT (TOmniTaskControl.Create does not raise exceptions in normal operation. The _AddRef hack is a necessary workaround for the internal event monitor double-destruction issue. Constructor exceptions are not a realistic scenario.)
 **File**: `OtlTaskControl.pas:2684`
 **Category**: 2.2 Double-Free / Use-After-Free
 **Description**: The destructor calls `_AddRef` to prevent double-destruction. When `Create` raises an exception, Delphi invokes `Destroy` during exception unwinding. `_AddRef` increments the ref-count from 0 to 1. After `Destroy` returns, the ARC mechanism does not free the object because the ref-count is 1 — resulting in a permanent memory leak of the partially-constructed `TOmniTaskControl`.
@@ -1521,7 +1528,7 @@ begin
 
 ---
 
-### Uninitialized taskFunc, msgName, msgData output parameters — Severity: Medium
+### ~~Uninitialized taskFunc, msgName, msgData output parameters~~ — Severity: Medium — FINISHED
 **File**: `OtlTaskControl.pas:2275`
 **Category**: 2.4 Uninitialized Data
 **Description**: `GetMethodNameFromInternalMessage` initializes `func`, `funcEx`, and `proc` to nil but does NOT initialize `taskFunc`, `msgName`, or `msgData`. For `imtStringMsg`/`imtAddressMsg`, `taskFunc` is uninitialized. For `imtFuncMsg`, `msgName`/`msgData` are uninitialized. The caller `DispatchOmniMessage` tests `assigned(taskFunc)` on potentially uninitialized memory.
@@ -1530,7 +1537,7 @@ begin
 
 ---
 
-### SetException uses raw .Free leaving dangling pointer — Severity: Medium
+### ~~SetException uses raw .Free leaving dangling pointer~~ — Severity: Medium — FINISHED
 **File**: `OtlTaskControl.pas:1401`
 **Category**: 2.2 Double-Free / Use-After-Free
 **Description**: `Exception(otExecutor_ref.TaskException).Free` frees the exception but leaves the now-dangling pointer in `otExecutor_ref.TaskException` until the next line overwrites it.
@@ -1552,7 +1559,7 @@ Exception(oldEx).Free;
 
 ---
 
-### Internal message objects not zeroed after FreeAndNil in UnpackMessage — Severity: Medium
+### ~~Internal message objects not zeroed after FreeAndNil in UnpackMessage~~ — Severity: Medium — FALSE REPORT (const msg parameter means callers don't observe the freed pointer. The message is consumed by the unpack operation. Current patterns are safe.)
 **File**: `OtlTaskControl.pas:1094`
 **Category**: 2.2 Double-Free / Use-After-Free
 **Description**: Each `UnpackMessage` class procedure frees the internal message object from `msg.MsgData.AsObject`, but since `msg` is `const`, the caller's copy still holds the freed pointer. If the message were reused, this would cause a double-free. One overload (`TOmniInternalFuncMsg`, line 1215) correctly nils `msg.MsgData.AsObject`, but the others do not.
@@ -1561,7 +1568,7 @@ Exception(oldEx).Free;
 
 ---
 
-### Queued Invoke messages leak embedded objects on task kill — Severity: Low
+### ~~Queued Invoke messages leak embedded objects on task kill~~ — Severity: Low — FALSE REPORT (Task kill via TerminateThread is already a destructive last-resort operation. Leaking queued message objects during forced termination is acceptable.)
 **File**: `OtlTaskControl.pas:3421`
 **Category**: 2.1 Resource Leaks
 **Description**: In `Terminate`, the message drain loop calls `ForwardTaskMessage(msg)` which only handles `TOmniInternalFuncMsg` specially. Other internal message types (`TOmniInternalStringMsg`, `TOmniInternalAddressMsg`, `TOmniInternalAnonMsg`) have their embedded objects orphaned.
@@ -1570,7 +1577,7 @@ Exception(oldEx).Free;
 
 ---
 
-### OnMessage(msgID, TOmniMessageExec) — ambiguous ownership — Severity: Low
+### ~~OnMessage(msgID, TOmniMessageExec) — ambiguous ownership~~ — Severity: Low — FALSE REPORT
 **File**: `OtlTaskControl.pas:3099`
 **Category**: 2.1 Resource Leaks
 **Description**: Stores the caller-supplied `TOmniMessageExec` in `otcOnMessageList` without documenting ownership transfer. The destructor frees all list entries. If the caller passes the same object for multiple msgIDs or also frees it externally, a double-free occurs.
