@@ -36,9 +36,22 @@
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
 ///   Last modification : 2026-04-14
-///   Version           : 3.01
+///   Version           : 3.02
 ///</para><para>
 ///   History:
+///     3.02: 2026-04-14
+///       - Fixed TOmniMREW.ExitWriteLock: use TInterlocked.Exchange for ARM
+///         memory barrier correctness.
+///       - Fixed TOmniMREW.EnterReadLock/EnterWriteLock: added progressive
+///         TThread.SpinWait backoff to prevent 100% CPU burn under contention.
+///       - Fixed TOmniEvent.WaitFor: FState update now uses
+///         PerformObservableAction for proper synchronization.
+///       - Fixed TOmniEvent.Create(THandle): added AManualReset parameter to
+///         prevent incorrect auto-reset behavior on manual-reset external events.
+///       - Fixed Locked<T>.Initialize: race on FLock creation now uses
+///         TInterlocked.CompareExchange; added MFence for ARM barrier.
+///       - Fixed TOmniLockManager.Lock: negative wait_ms no longer wraps to
+///         cardinal max — breaks out of loop instead.
 ///     3.01: 2026-04-14
 ///       - Fixed TCondition.Wait spurious wakeup bug — condvar wait now loops
 ///         instead of returning wrIOCompletion on spurious wakeup.
@@ -830,7 +843,7 @@ type
   public
     constructor Create(AManualReset, InitialState: boolean; const AShareLock: IOmniCriticalSection = nil); overload;
     {$IFDEF MSWINDOWS}
-    constructor Create(AExternalEvent: THandle; ATakeOwnership: boolean = false); overload;
+    constructor Create(AExternalEvent: THandle; ATakeOwnership: boolean = false; AManualReset: boolean = false); overload;
     {$ENDIF MSWINDOWS}
     procedure Reset;
     procedure Signal; override;
@@ -1240,24 +1253,46 @@ end; { TOmniCancellationToken.Signal }
 procedure TOmniMREW.EnterReadLock;
 var
   currentReference: NativeInt;
+  spinCount       : integer;
 begin
   //Wait on writer to reset write flag so Reference.Bit0 must be 0 than increase Reference
+  spinCount := 0;
   repeat
     currentReference := NativeInt(omrewReference) AND NOT 1;
-  until TInterlockedEx.CAS(currentReference, currentReference + 2, NativeInt(omrewReference));
+    if not TInterlockedEx.CAS(currentReference, currentReference + 2, NativeInt(omrewReference)) then begin
+      TThread.SpinWait(spinCount);
+      if spinCount < 20 then
+        Inc(spinCount);
+    end
+    else
+      break; //repeat
+  until false;
 end; { TOmniMREW.EnterReadLock }
 
 procedure TOmniMREW.EnterWriteLock;
 var
   currentReference: NativeInt;
+  spinCount       : integer;
 begin
   //Wait on writer to reset write flag so omrewReference.Bit0 must be 0 then set omrewReference.Bit0
+  spinCount := 0;
   repeat
     currentReference := NativeInt(omrewReference) AND NOT 1;
-  until TInterlockedEx.CAS(currentReference, currentReference + 1, NativeInt(omrewReference));
+    if not TInterlockedEx.CAS(currentReference, currentReference + 1, NativeInt(omrewReference)) then begin
+      TThread.SpinWait(spinCount);
+      if spinCount < 20 then
+        Inc(spinCount);
+    end
+    else
+      break; //repeat
+  until false;
   //Now wait on all readers
-  repeat
-  until NativeInt(omrewReference) = 1;
+  spinCount := 0;
+  while NativeInt(omrewReference) <> 1 do begin
+    TThread.SpinWait(spinCount);
+    if spinCount < 20 then
+      Inc(spinCount);
+  end;
 end; { TOmniMREW.EnterWriteLock }
 
 procedure TOmniMREW.ExitReadLock;
@@ -1268,7 +1303,7 @@ end; { TOmniMREW.ExitReadLock }
 
 procedure TOmniMREW.ExitWriteLock;
 begin
-  NativeInt(omrewReference) := 0;
+  TInterlocked.Exchange(NativeInt(omrewReference), 0);
 end; { TOmniMREW.ExitWriteLock }
 
 function TOmniMREW.TryEnterReadLock(timeout_ms: integer): boolean;
@@ -1733,18 +1768,26 @@ begin
 end; { Locked<T>.SetValue }
 
 function Locked<T>.Initialize(factory: TFactory): T;
+var
+  newLock: ILightweightMREWEx;
 begin
   if not FInitialized then begin
-    FLock := TLightweightMREWExImpl.Create;
-    {$IFDEF DEBUG}
-    FLockCount := CreateCounter;
-    {$ENDIF DEBUG}
+    if not assigned(FLock) then begin
+      newLock := TLightweightMREWExImpl.Create;
+      if TInterlocked.CompareExchange(pointer(FLock), pointer(newLock), nil) = nil then begin
+        newLock._AddRef; // FLock now owns the reference
+        {$IFDEF DEBUG}
+        FLockCount := CreateCounter;
+        {$ENDIF DEBUG}
+      end;
+      // else another thread won the race; newLock is released automatically
+    end;
 
     Acquire;
     try
       if not FInitialized then begin
         FValue := factory();
-        //MFence; // not needed on x86 and x64, see comments to http://www.thedelphigeek.com/2011/12/on-optimistic-and-pessimistic.html
+        MFence;
         FInitialized := true;
       end;
     finally Release; end;
@@ -1950,9 +1993,10 @@ begin
       end;
     finally FLock.Release; end;
     wait_ms := integer(timeout_ms) - integer(Time.Elapsed_ms(startWait));
+    if (timeout_ms <> INFINITE) and (wait_ms <= 0) then
+      break; //repeat
     waitResult := waitEvent.WaitFor(cardinal(wait_ms));
-  until ((timeout_ms <> INFINITE) and (wait_ms <= 0)) or
-        (waitResult = wrTimeout);
+  until waitResult = wrTimeout;
 
   if assigned(waitEvent) then begin
     FLock.Acquire;
@@ -2736,9 +2780,10 @@ begin
 end; { TOmniEvent.Create }
 
 {$IFDEF MSWINDOWS}
-constructor TOmniEvent.Create(AExternalEvent: THandle; ATakeOwnership: boolean);
+constructor TOmniEvent.Create(AExternalEvent: THandle; ATakeOwnership: boolean; AManualReset: boolean);
 begin
   FEvent := TOmniWrappedEvent.Create(AExternalEvent, ATakeOwnership);
+  FManualReset := AManualReset;
   FState := FEvent.WaitFor(0) = wrSignaled;
   inherited Create(FEvent, True, nil);
 end;
@@ -2795,7 +2840,12 @@ function TOmniEvent.WaitFor(Timeout: Cardinal): TWaitResult;
 begin
   Result := inherited WaitFor(Timeout);
   if (Result = wrSignaled) and (not FManualReset) then
-    FState := False;
+    PerformObservableAction(
+      procedure
+      begin
+        FState := False;
+      end,
+      True);
 end; { TOmniEvent.WaitFor }
 
 { TPreSignalData }

@@ -130,8 +130,9 @@ end;
 
 ---
 
-### obcHeadPointer/obcTailPointer alignment not guaranteed by AllocMem — Severity: Medium
+### ~~obcHeadPointer/obcTailPointer alignment not guaranteed by AllocMem~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlContainers.pas:1400`
+**Reason**: Delphi's default memory manager (FastMM) guarantees 16-byte alignment on 64-bit. The existing Assert catches misalignment in debug builds. The risk is theoretical and only applies with hypothetical non-standard memory managers.
 **Category**: 1.3 Lock-Free Code
 **Description**: `obcHeadPointer` and `obcTailPointer` are allocated with `AllocMem`. CAS operations require 16-byte alignment on 64-bit. The code asserts alignment but does not enforce it — `AllocMem`'s alignment is an implementation detail, not a guarantee.
 **Evidence**:
@@ -149,7 +150,7 @@ end;
 
 ## OtlSync.pas
 
-### TOmniMREW.ExitWriteLock lacks memory barrier — Severity: Critical
+### ~~TOmniMREW.ExitWriteLock lacks memory barrier~~ — Severity: Critical — FINISHED
 **File**: `OtlSync.pas:1271`
 **Category**: 1.3 Lock-Free Code
 **Description**: `ExitWriteLock` performs a plain store (`NativeInt(omrewReference) := 0`) to release the write lock. On ARM (Android), stores may be reordered with preceding loads/stores. Writes done inside the critical region could become visible to other threads after the lock appears released.
@@ -165,7 +166,7 @@ end;
 
 ---
 
-### TOmniEvent.WaitFor updates FState without synchronization — Severity: Critical
+### ~~TOmniEvent.WaitFor updates FState without synchronization~~ — Severity: Critical — FINISHED
 **File**: `OtlSync.pas:2794`
 **Category**: 1.1 Race Conditions
 **Description**: `WaitFor` sets `FState := False` after a successful wait on an auto-reset event, but this write is not protected by any lock. Concurrently, `SetEvent`/`Reset` also write `FState` under the observable-action pattern (which acquires gates/spin-locks).
@@ -183,8 +184,9 @@ end;
 
 ---
 
-### PerformObservableAction (DoLock=false) reads FObservers without spin lock — Severity: High
+### ~~PerformObservableAction (DoLock=false) reads FObservers without spin lock~~ — Severity: High — FALSE REPORT
 **File**: `OtlSync.pas:2578`
+**Reason**: All callers pass `DoLock=True`. The `DoLock=false` branch is currently unreachable dead code — no live race exists.
 **Category**: 1.1 Race Conditions
 **Description**: When `DoLock` is `false`, `PerformObservableAction` reads `FObservers.Count` and iterates `FObservers` without holding the spin lock. Concurrent `AddObserver`/`RemoveObserver` calls mutate the list under the spin lock.
 **Evidence**:
@@ -204,7 +206,7 @@ end;
 
 ---
 
-### TOmniMREW.EnterReadLock/EnterWriteLock spin without yielding — Severity: High
+### ~~TOmniMREW.EnterReadLock/EnterWriteLock spin without yielding~~ — Severity: High — FINISHED
 **File**: `OtlSync.pas:1240`
 **Category**: 1.3 Lock-Free Code
 **Description**: Both `EnterReadLock` and `EnterWriteLock` spin in tight CAS loops without any yield, pause, or backoff. `EnterWriteLock` has a second tight spin waiting for readers to drain.
@@ -226,7 +228,7 @@ end;
 
 ---
 
-### Locked\<T\>.Initialize double-checked locking lacks memory barrier — Severity: High
+### ~~Locked\<T\>.Initialize double-checked locking lacks memory barrier~~ — Severity: High — FINISHED
 **File**: `OtlSync.pas:1735`
 **Category**: 1.1 Race Conditions
 **Description**: `Locked<T>.Initialize` uses double-checked locking on `FInitialized` (a plain boolean). The code has a commented-out `MFence` with a note "not needed on x86 and x64". On ARM targets this IS needed.
@@ -254,7 +256,7 @@ end;
 
 ---
 
-### Locked\<T\>.Initialize races on FLock creation — Severity: High
+### ~~Locked\<T\>.Initialize races on FLock creation~~ — Severity: High — FINISHED
 **File**: `OtlSync.pas:1737`
 **Category**: 1.1 Race Conditions (TOCTOU)
 **Description**: When two threads call `Initialize` concurrently, both enter the outer `if not FInitialized` block and both create `FLock`. The second assignment overwrites the first, causing the first lock (possibly already Acquired) to be freed while in use.
@@ -272,8 +274,9 @@ end;
 
 ---
 
-### TOmniSynchroObject.WaitFor checks FObservers.Count without lock — Severity: Medium
+### ~~TOmniSynchroObject.WaitFor checks FObservers.Count without lock~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlSync.pas:2619`
+**Reason**: This is a precondition guard that raises an exception on API misuse. The read of `FObservers.Count` is atomic (single integer). Adding an observer concurrently with WaitFor is API misuse; protecting against it with a spin lock on every WaitFor call would add unnecessary overhead.
 **Category**: 1.1 Race Conditions
 **Description**: `WaitFor` reads `FObservers.Count > 0` without holding the spin lock. An observer could be added between this check and the `FBase.WaitFor` call.
 **Evidence**:
@@ -291,8 +294,9 @@ end;
 
 ---
 
-### Move128 on 32-bit only moves 8 bytes, not 16 — Severity: Medium
+### ~~Move128 on 32-bit only moves 8 bytes, not 16~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlSync.pas:1034`
+**Reason**: `Move128` has zero call sites in the entire codebase — it is dead code. On 32-bit, `TReferencedPtr` is 8 bytes (pointer + int32), so the 8-byte move is correct for the actual data size. The name is misleading but harmless since it's unused.
 **Category**: 1.3 Lock-Free Code
 **Description**: The 32-bit implementation of `Move128` only moves 8 bytes (an `int64`), not 16 bytes as the name and the 64-bit implementation suggest.
 **Evidence**:
@@ -311,7 +315,7 @@ end;
 
 ---
 
-### TOmniEvent created from external THandle has incorrect FManualReset — Severity: Medium
+### ~~TOmniEvent created from external THandle has incorrect FManualReset~~ — Severity: Medium — FINISHED
 **File**: `OtlSync.pas:2739`
 **Category**: 1.5 Event/Signal Correctness
 **Description**: When `TOmniEvent` wraps an external `THandle`, `FManualReset` defaults to `false`. A TODO comment at line 2754 acknowledges this. `ConsumeSignalFromObserver` will always reset the event, even if the external handle was manual-reset.
@@ -329,7 +333,7 @@ end;
 
 ---
 
-### TOmniLockManager.Lock can compute negative wait time — Severity: Medium
+### ~~TOmniLockManager.Lock can compute negative wait time~~ — Severity: Medium — FINISHED
 **File**: `OtlSync.pas:1952`
 **Category**: 1.5 Event/Signal Correctness
 **Description**: `wait_ms` is computed as `integer(timeout_ms) - integer(Time.Elapsed_ms(...))`. If elapsed exceeds `timeout_ms`, `wait_ms` becomes negative. Casting to `cardinal(wait_ms)` yields ~4 billion ms.
@@ -345,8 +349,9 @@ end;
 
 ---
 
-### Atomic\<T\>.Initialize uses non-atomic double-checked locking — Severity: Low
+### ~~Atomic\<T\>.Initialize uses non-atomic double-checked locking~~ — Severity: Low — FALSE REPORT
 **File**: `OtlSync.pas:1421`
+**Reason**: The outer non-atomic check is an intentional optimization. The TInterlocked.CompareExchange on the actual storage provides the real synchronization. The worst case is a redundant factory call whose result is discarded by the CAS — the pattern is correct.
 **Category**: 1.1 Race Conditions
 **Description**: The outer check `if not assigned(PPointer(@storage)^)` is a non-volatile read. On ARM targets this could read a partially-written pointer.
 **Risk**: On ARM platforms, a thread could read a partially-written pointer and skip initialization.
@@ -354,8 +359,9 @@ end;
 
 ---
 
-### TOneCondition.Test / TAllCondition.Test acquire Gate redundantly — Severity: Low
+### ~~TOneCondition.Test / TAllCondition.Test acquire Gate redundantly~~ — Severity: Low — FALSE REPORT
 **File**: `OtlSync.pas:2372`
+**Reason**: TCriticalSection is reentrant by design on all platforms. The redundant acquire is harmless and the hypothetical concern about switching to a non-reentrant lock is not realistic.
 **Category**: 1.2 Lock Ordering
 **Description**: `Test` always acquires `FController.Gate`, but callers (`Wait`, `BeforeSignal`) already hold it. Works only because `TCriticalSection` is reentrant.
 **Risk**: No immediate bug, but if the gate were ever changed to a non-reentrant lock type, this would deadlock.
