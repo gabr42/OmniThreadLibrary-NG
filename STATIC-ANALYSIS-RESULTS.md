@@ -1009,8 +1009,9 @@ end;
 
 ## OtlHooks.pas
 
-### Register/Unregister store address of local parameter — dangling pointer — Severity: Critical
+### ~~Register/Unregister store address of local parameter — dangling pointer~~ — Severity: Critical — FALSE REPORT
 **File**: `OtlHooks.pas:351`
+**Reason**: With the default `{$T-}` (untyped @ operator), `@notifyProc` returns the code address stored in the procedure variable, NOT the address of the local parameter. `pointer(@notifyProc)` is equivalent to `pointer(notifyProc)`. The code is correct.
 **Category**: 2.4 Uninitialized Data / dangling pointer
 **Description**: `TThreadNotifications.Register(notifyProc: TThreadNotificationProc)` calls `tnList.Add(pointer(@notifyProc))`. The `@notifyProc` takes the address of the local stack parameter, not the value of the procedure pointer. By the time `Notify` later iterates the list, that stack frame is gone and the stored pointer is dangling garbage. The same bug exists in all procedure-type `Register`/`Unregister` overloads: lines 351, 361, 469, 479. Additionally, `Unregister` will never find the originally registered entry because each call to `@notifyProc` produces a different stack address.
 **Evidence**:
@@ -1032,7 +1033,7 @@ end;
 
 ## OtlCommon.pas
 
-### TOmniValueContainer.Grow off-by-one — last element lost on array growth — Severity: Critical
+### ~~TOmniValueContainer.Grow off-by-one — last element lost on array growth~~ — Severity: Critical — FINISHED
 **File**: `OtlCommon.pas:1591`
 **Category**: 2.1 Resource Leaks / data loss
 **Description**: Both copy loops in `Grow` iterate `0 to High(ovcValues) - 1`, which is `0..Length-2`. The element at index `High(ovcValues)` (the last populated slot) is never copied to the temp array. When the original arrays are then resized via `SetLength`, that last element is destroyed. For `TOmniValue` elements holding interface references, strings, or variants, the managed data at the lost index is leaked. The restore loop has the same off-by-one: `0 to High(tmpValues) - 1`.
@@ -1060,7 +1061,7 @@ for iValue := 0 to High(ovcValues) do begin
 
 ---
 
-### TOmniValue._ReleaseAndClear calls ovIntf._Release without nil check — Severity: Critical
+### ~~TOmniValue._ReleaseAndClear calls ovIntf._Release without nil check~~ — Severity: Critical — FINISHED
 **File**: `OtlCommon.pas:3047`
 **Category**: 2.2 Use-After-Free / null dereference
 **Description**: `_ReleaseAndClear` checks `IsInterfacedType` but does **not** check `assigned(ovIntf)` before calling `ovIntf._Release`. By contrast, `_Release` (line 3040) correctly checks both conditions. A `TOmniValue` that has `ovType` set to an interfaced type but `ovIntf = nil` will AV.
@@ -1094,7 +1095,7 @@ end;
 
 ---
 
-### TOmniValue.Create leaks TOmniValueContainer on exception — Severity: High
+### ~~TOmniValue.Create leaks TOmniValueContainer on exception~~ — Severity: High — FINISHED
 **File**: `OtlCommon.pas:1905`
 **Category**: 2.1 Resource Leaks
 **Description**: `TOmniValue.Create(values: array of const)` allocates `ovc := TOmniValueContainer.Create` then enters a loop that can raise `Exception.Create('TOmniValue.Create: invalid data type')` (line 1929). If the exception fires, `ovc` is never passed to `SetAsArray` and is leaked. The identical pattern exists in `CreateNamed` (line 1943).
@@ -1117,8 +1118,9 @@ SetAsArray(ovc);
 
 ---
 
-### TOmniValue.FromArray<T> leaks TOmniValueContainer on exception — Severity: Medium
+### ~~TOmniValue.FromArray<T> leaks TOmniValueContainer on exception~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlCommon.pas:2098`
+**Reason**: `CastFrom<T>` is a compile-time-validated generic that raises only for unsupported type kinds. Callers using `FromArray<T>` always know their T at compile time. The theoretical leak path requires a type kind that passes compilation but fails at runtime, which is practically impossible.
 **Category**: 2.1 Resource Leaks
 **Description**: Both `FromArray<T>` overloads (lines 2098 and 2109) allocate `ovc := TOmniValueContainer.Create`, then loop calling `ovc.Add(TOmniValue.CastFrom<T>(value))`. `CastFrom<T>` can raise for unsupported types. No try/finally protects `ovc`.
 **Evidence**:
@@ -1133,8 +1135,9 @@ Result.SetAsArray(ovc);
 
 ---
 
-### GetArrayFromTValue leaks container on mid-loop exception — Severity: Medium
+### ~~GetArrayFromTValue leaks container on mid-loop exception~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlCommon.pas:2385`
+**Reason**: `GetArrayElement` on a properly formed TValue array doesn't raise. The scenario requires a malformed TValue which is not a realistic usage pattern.
 **Category**: 2.1 Resource Leaks
 **Description**: Returns a raw `TOmniValueContainer`. If `value.GetArrayElement(idxItem)` raises during the loop (e.g., RTTI error on a malformed `TValue`), the already-allocated container leaks.
 **Evidence**:
@@ -1150,16 +1153,18 @@ end;
 
 ---
 
-### TOmniEnvironment.Destroy does not nil oeProcessEnv and oeSystemEnv — Severity: Low
+### ~~TOmniEnvironment.Destroy does not nil oeProcessEnv and oeSystemEnv~~ — Severity: Low — FALSE REPORT
 **File**: `OtlCommon.pas:3929`
+**Reason**: Delphi automatically finalizes interface fields during destruction. Explicit nilling is cosmetic, not functional. Not a real issue.
 **Category**: 2.1 Resource Leaks (minor inconsistency)
 **Description**: The destructor explicitly nils `oeNUMANodes` and `oeProcessorGroups` but leaves `oeProcessEnv` and `oeSystemEnv` to Delphi's automatic interface finalization. Not a real leak, but inconsistent with the explicit nilling pattern applied to the other two fields.
 **Suggested fix**: For symmetry, explicitly nil all four interface fields before `inherited`.
 
 ---
 
-### TOmniIntegerSet.SetAsArray — empty array sets FBits.Size to 1 instead of 0 — Severity: Low
+### ~~TOmniIntegerSet.SetAsArray — empty array sets FBits.Size to 1 instead of 0~~ — Severity: Low — FALSE REPORT
 **File**: `OtlCommon.pas:4606`
+**Reason**: Observable semantics (IsEmpty, Count, AsMask) are all correct as stated in the finding. Internal over-allocation of 1 bit is harmless.
 **Category**: 2.4 Uninitialized Data (logic)
 **Description**: When the input array is empty, `max` stays 0, and `FBits.Size := max + 1` sets it to 1 instead of 0. Observable semantics (`IsEmpty`, `Count`, `AsMask`) are correct, but internal state is technically wrong.
 **Suggested fix**: Add an early exit for empty arrays: `if Length(value) = 0 then begin FBits.Size := 0; Exit; end;`
@@ -1168,7 +1173,7 @@ end;
 
 ## OtlSync.pas
 
-### TOmniWrappedEvent constructor leaks internally-created event handle — Severity: Critical
+### ~~TOmniWrappedEvent constructor leaks internally-created event handle~~ — Severity: Critical — FINISHED
 **File**: `OtlSync.pas:2711`
 **Category**: 2.1 Resource Leaks
 **Description**: `TOmniWrappedEvent.Create` calls `inherited Create(nil, false, false, '')` which allocates an internal Windows event handle via `TEvent`. It then overwrites `FHandle := AExternalEvent` without closing the handle created by the inherited constructor. The `CloseHandle` call is commented out with a TODO. This is a **guaranteed handle leak** on every construction.

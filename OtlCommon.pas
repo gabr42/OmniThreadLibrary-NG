@@ -35,10 +35,16 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, scarre, Sean B. Durkin, HHasenack, Claude AI
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-04-12
-///   Version           : 3.0
+///   Last modification : 2026-04-14
+///   Version           : 3.01
 ///</para><para>
 ///   History:
+///     3.01: 2026-04-14
+///       - Fixed TOmniValueContainer.Grow off-by-one: last element was lost
+///         on array growth (loop iterated to High-1 instead of High).
+///       - Fixed TOmniValue._ReleaseAndClear missing nil check on ovIntf.
+///       - Fixed TOmniValue.Create/CreateNamed: container leak on exception
+///         when invalid data type is encountered.
 ///     3.0: 2026-04-12 [OTL-NG]
 ///       - Removed transitional version-check conditionals (always true on Delphi 11+).
 ///     2.0b: 2025-12-01
@@ -1588,7 +1594,7 @@ begin
   Assert(Length(ovcNames) = Length(ovcValues));
   SetLength(tmpNames, Length(ovcNames));
   SetLength(tmpValues, Length(ovcValues));
-  for iValue := 0 to High(ovcValues) - 1 do begin
+  for iValue := 0 to High(ovcValues) do begin
     tmpNames[iValue] := ovcNames[iValue];
     tmpValues[iValue] := ovcValues[iValue];
   end;
@@ -1597,7 +1603,7 @@ begin
     newLength := requiredIdx + 1;
   SetLength(ovcNames, newLength);
   SetLength(ovcValues, newLength);
-  for iValue := 0 to High(tmpValues) - 1 do begin
+  for iValue := 0 to High(tmpValues) do begin
     ovcNames[iValue] := tmpNames[iValue];
     ovcValues[iValue] := tmpValues[iValue];
   end;
@@ -1903,33 +1909,38 @@ var
   ovc: TOmniValueContainer;
 begin
   ovc := TOmniValueContainer.Create;
-  for i := Low(values) to High(values) do begin
-    with values[i] do begin
-      case VType of
-        vtInteger:       ovc.Add(VInteger);
-        vtBoolean:       ovc.Add(VBoolean);
-        vtExtended:      ovc.Add(VExtended^);
-        vtPointer:       ovc.Add(VPointer);
-        vtCurrency:      ovc.Add(VCurrency^);
-        vtVariant:       ovc.Add(VVariant^);
-        vtObject:        ovc.Add(VObject);
-        vtInterface:     ovc.Add(IInterface(VInterface));
-        vtInt64:         ovc.Add(VInt64^);
-        vtUnicodeString: ovc.Add(string(VUnicodeString));
-      {$IFNDEF NEXTGEN}
-        vtChar:          ovc.Add(string(VChar));
-        vtString:        ovc.Add(string(VString^));
-      {$ENDIF NEXTGEN}
-      {$IFDEF MSWINDOWS}
-        vtAnsiString:    ovc.Add(AnsiString(VAnsiString));
-        vtWideString:    ovc.Add(WideString(VWideString));
-        vtPChar:         ovc.Add(string(StrPasA(VPChar)));
-      {$ENDIF MSWINDOWS}
-      else
-        raise Exception.Create ('TOmniValue.Create: invalid data type')
-      end; //case
-    end; //with
-  end; //for i
+  try
+    for i := Low(values) to High(values) do begin
+      with values[i] do begin
+        case VType of
+          vtInteger:       ovc.Add(VInteger);
+          vtBoolean:       ovc.Add(VBoolean);
+          vtExtended:      ovc.Add(VExtended^);
+          vtPointer:       ovc.Add(VPointer);
+          vtCurrency:      ovc.Add(VCurrency^);
+          vtVariant:       ovc.Add(VVariant^);
+          vtObject:        ovc.Add(VObject);
+          vtInterface:     ovc.Add(IInterface(VInterface));
+          vtInt64:         ovc.Add(VInt64^);
+          vtUnicodeString: ovc.Add(string(VUnicodeString));
+        {$IFNDEF NEXTGEN}
+          vtChar:          ovc.Add(string(VChar));
+          vtString:        ovc.Add(string(VString^));
+        {$ENDIF NEXTGEN}
+        {$IFDEF MSWINDOWS}
+          vtAnsiString:    ovc.Add(AnsiString(VAnsiString));
+          vtWideString:    ovc.Add(WideString(VWideString));
+          vtPChar:         ovc.Add(string(StrPasA(VPChar)));
+        {$ENDIF MSWINDOWS}
+        else
+          raise Exception.Create ('TOmniValue.Create: invalid data type')
+        end; //case
+      end; //with
+    end; //for i
+  except
+    ovc.Free;
+    raise;
+  end;
   SetAsArray(ovc);
 end; { TOmniValue.Create }
 
@@ -1941,52 +1952,57 @@ var
   ovc : TOmniValueContainer;
 begin
   ovc := TOmniValueContainer.Create;
-  Assert(not Odd(Low(values)));
-  name := '';
-  for i := Low(values) to High(values) do begin
-    with values[i] do begin
-      if not Odd(i) then
-        case VType of
-          vtVariant:       name := string(VVariant^);
-          vtUnicodeString: name := string(VUnicodeString);
-        {$IFNDEF NEXTGEN}  // TODO : *** Recheck IFDEFs
-          vtChar:          name := string(VChar);
-          vtString:        name := string(VString^);
-        {$ENDIF NEXTGEN}
-        {$IFDEF MSWINDOWS} // TODO : *** Recheck IFDEFs
-          vtAnsiString:    name := string(VAnsiString);
-          vtWideString:    name := WideString(VWideString);
-          vtPChar:         name := string(StrPasA(VPChar));
-        {$ENDIF MSWINDOWS}
+  try
+    Assert(not Odd(Low(values)));
+    name := '';
+    for i := Low(values) to High(values) do begin
+      with values[i] do begin
+        if not Odd(i) then
+          case VType of
+            vtVariant:       name := string(VVariant^);
+            vtUnicodeString: name := string(VUnicodeString);
+          {$IFNDEF NEXTGEN}  // TODO : *** Recheck IFDEFs
+            vtChar:          name := string(VChar);
+            vtString:        name := string(VString^);
+          {$ENDIF NEXTGEN}
+          {$IFDEF MSWINDOWS} // TODO : *** Recheck IFDEFs
+            vtAnsiString:    name := string(VAnsiString);
+            vtWideString:    name := WideString(VWideString);
+            vtPChar:         name := string(StrPasA(VPChar));
+          {$ENDIF MSWINDOWS}
+          else
+            raise Exception.Create ('TOmniValue.CreateNamed: invalid name type')
+          end //case
         else
-          raise Exception.Create ('TOmniValue.CreateNamed: invalid name type')
-        end //case
-      else
-        case VType of
-          vtInteger:       ovc.Add(VInteger, name);
-          vtBoolean:       ovc.Add(VBoolean, name);
-          vtExtended:      ovc.Add(VExtended^, name);
-          vtPointer:       ovc.Add(VPointer, name);
-          vtCurrency:      ovc.Add(VCurrency^, name);
-          vtVariant:       ovc.Add(VVariant^, name);
-          vtObject:        ovc.Add(VObject, name);
-          vtInterface:     ovc.Add(IInterface(VInterface), name);
-          vtInt64:         ovc.Add(VInt64^, name);
-          vtUnicodeString: ovc.Add(string(VUnicodeString), name);
-        {$IFNDEF NEXTGEN}  // TODO : *** Recheck IFDEFs
-          vtChar:          ovc.Add(string(VChar), name);
-          vtString:        ovc.Add(string(VString^), name);
-        {$ENDIF NEXTGEN}
-        {$IFDEF MSWINDOWS} // TODO : *** Recheck IFDEFs
-          vtAnsiString:    ovc.Add(AnsiString(VAnsiString), name);
-          vtWideString:    ovc.Add(WideString(VWideString), name);
-          vtPChar:         ovc.Add(string(StrPasA(VPChar)), name);
-        {$ENDIF MSWINDOWS}
-        else
-          raise Exception.Create ('TOmniValue.CreateNamed: invalid data type')
-        end; //case
-    end; //with
-  end; //for i
+          case VType of
+            vtInteger:       ovc.Add(VInteger, name);
+            vtBoolean:       ovc.Add(VBoolean, name);
+            vtExtended:      ovc.Add(VExtended^, name);
+            vtPointer:       ovc.Add(VPointer, name);
+            vtCurrency:      ovc.Add(VCurrency^, name);
+            vtVariant:       ovc.Add(VVariant^, name);
+            vtObject:        ovc.Add(VObject, name);
+            vtInterface:     ovc.Add(IInterface(VInterface), name);
+            vtInt64:         ovc.Add(VInt64^, name);
+            vtUnicodeString: ovc.Add(string(VUnicodeString), name);
+          {$IFNDEF NEXTGEN}  // TODO : *** Recheck IFDEFs
+            vtChar:          ovc.Add(string(VChar), name);
+            vtString:        ovc.Add(string(VString^), name);
+          {$ENDIF NEXTGEN}
+          {$IFDEF MSWINDOWS} // TODO : *** Recheck IFDEFs
+            vtAnsiString:    ovc.Add(AnsiString(VAnsiString), name);
+            vtWideString:    ovc.Add(WideString(VWideString), name);
+            vtPChar:         ovc.Add(string(StrPasA(VPChar)), name);
+          {$ENDIF MSWINDOWS}
+          else
+            raise Exception.Create ('TOmniValue.CreateNamed: invalid data type')
+          end; //case
+      end; //with
+    end; //for i
+  except
+    ovc.Free;
+    raise;
+  end;
   SetAsArray(ovc);
 end; { TOmniValue.CreateNamed }
 
@@ -3044,7 +3060,8 @@ end; { TOmniValue._Release }
 procedure TOmniValue._ReleaseAndClear;
 begin
   if IsInterfacedType then begin
-    ovIntf._Release;
+    if assigned(ovIntf) then
+      ovIntf._Release;
     RawZero;
   end;
 end; { TOmniValue._ReleaseAndClear }

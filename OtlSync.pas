@@ -40,6 +40,8 @@
 ///</para><para>
 ///   History:
 ///     3.02: 2026-04-14
+///       - Fixed TOmniWrappedEvent: close handle leaked by inherited
+///         constructor; implement owned-event cleanup in destructor.
 ///       - Fixed TOmniMREW.ExitWriteLock: use TInterlocked.Exchange for ARM
 ///         memory barrier correctness.
 ///       - Fixed TOmniMREW.EnterReadLock/EnterWriteLock: added progressive
@@ -2753,18 +2755,16 @@ end; { TOmniCountdownEvent.ConsumeSignalFromObserver }
 constructor TOmniWrappedEvent.Create(AExternalEvent: THandle; ATakeOwnership: boolean);
 begin
   inherited Create(nil, false, false, '');
-  if (FHandle <> 0) and ATakeOwnership then // TODO : *** recheck
-    raise Exception.Create('TOmniWrappedEvent.Create: Owned events are not supported yet');
-//    CloseHandle(FHandle);
+  if FHandle <> 0 then
+    CloseHandle(FHandle);
   FHandle := AExternalEvent;
   FIsOwner := ATakeOwnership;
 end; { TOmniWrappedEvent.Create }
 
 destructor TOmniWrappedEvent.Destroy;
 begin
-  if FIsOwner and (FHandle <> 0) then // TODO : *** recheck
-    raise Exception.Create('TOmniWrappedEvent.Destroy: Owned events are not supported yet');
-//    CloseHandle(FHandle);
+  if FIsOwner and (FHandle <> 0) then
+    CloseHandle(FHandle);
   FHandle := 0;
   inherited;
 end; { TOmniWrappedEvent.Destroy }
