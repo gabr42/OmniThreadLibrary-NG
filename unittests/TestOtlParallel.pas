@@ -33,6 +33,7 @@ type
     [Test] procedure TestTerminationAllStuck;
     [Test] procedure TestTerminationPartialStuck;
     [Test] procedure TestTerminationAllTerminated;
+    [Test] procedure TestNoWaitWithoutWaitForRaises;
   end;
 
 implementation
@@ -342,6 +343,23 @@ begin
     Assert.IsTrue(started[i], 'started ' + IntToStr(i));
     Assert.IsTrue(stopped[i], 'stopped ' + IntToStr(i));
   end;
+end;
+
+procedure TestJoin.TestNoWaitWithoutWaitForRaises;
+begin
+  // Dropping a NoWait Join without calling WaitFor/Terminate is a programming error.
+  Assert.WillRaise(
+    procedure
+    var
+      join: IOmniParallelJoin;
+    begin
+      join := Parallel.Join(
+        procedure begin Sleep(50) end,
+        procedure begin Sleep(50) end
+      ).NoWait.Execute;
+      join := nil; // drop without WaitFor — should raise
+    end,
+    Exception);
 end;
 
 end.

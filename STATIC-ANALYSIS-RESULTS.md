@@ -3164,8 +3164,8 @@ end;
 
 ---
 
-### ~~`TOmniParallelJoin.Destroy` frees `FTasks` while NoWait workers may still reference it~~ — Severity: High — CONFIRMED, DEFERRED
-**Note**: Adding a wait in destructor causes test hangs. Needs a more nuanced approach (e.g., conditional wait only when NoWait was used and tasks are running).
+### ~~`TOmniParallelJoin.Destroy` frees `FTasks` while NoWait workers may still reference it~~ — Severity: High — FINISHED
+**Resolution**: Dropping a NoWait Join without calling WaitFor/Terminate is a programming error. The destructor now raises an exception to detect this misuse, rather than silently causing a use-after-free.
 **File**: `OtlParallel.pas:2061`
 **Category**: 5.2 Precondition Checking
 **Description**: The destructor terminates tasks and frees `FTasks` but does not wait for `FCountStopped`. If `NoWait` is used and the interface reference drops before workers finish, `FTasks` is freed while workers are still reading from it.

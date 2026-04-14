@@ -52,6 +52,8 @@
 ///         dispatch (wrong on 64-bit).
 ///       - Fixed Select.Wait missed-wakeup: replaced condvar-based notifier
 ///         with auto-reset event (signal is never lost).
+///       - TOmniParallelJoin.Destroy: raise exception if NoWait was used
+///         without calling WaitFor/Terminate (programming error detection).
 ///       - Fixed FStopOn: wire cancellation token into pipeline stage
 ///         task config so BackgroundWorker.StopOn actually works.
 ///     3.01: 2026-04-13
@@ -1013,6 +1015,7 @@ type
     FInput                 : IOmniBlockingCollection;
     FJoinStates            : array of IOmniJoinState;
     FNoWait                : boolean;
+    FNoWaitAcknowledged    : boolean;
     FNumTasks              : integer;
     FOnStop                : TOmniTaskStopDelegate;
     FTaskConfig            : IOmniTaskConfig;
@@ -2080,6 +2083,9 @@ destructor TOmniParallelJoin.Destroy;
 var
   iTask: integer;
 begin
+  if FNoWait and (not FNoWaitAcknowledged) and assigned(FCountStopped) then
+    raise Exception.Create('TOmniParallelJoin.Destroy: Join used with NoWait was ' +
+      'destroyed without calling WaitFor. Call WaitFor before releasing the interface.');
   for iTask := Low(FJoinStates) to High(FJoinStates) do begin
     (FJoinStates[iTask] as IOmniJoinStateEx).TaskControl.Terminate;
     (FJoinStates[iTask] as IOmniJoinStateEx).TaskControl := nil;
@@ -2283,6 +2289,7 @@ function TOmniParallelJoin.WaitFor(timeout_ms: cardinal): boolean;
 var
   taskExcept: Exception;
 begin
+  FNoWaitAcknowledged := true;
   Result := InternalWaitFor(timeout_ms);
   if Result then begin
     if assigned(FTaskException) then begin
