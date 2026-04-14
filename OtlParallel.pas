@@ -35,8 +35,17 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin, HHasenack, SMelnyk64, Claude AI
-///   Last modification : 2026-04-13
-///   Version           : 3.01
+///   Last modification : 2026-04-14
+///   Version           : 3.02
+///     3.02: 2026-04-14
+///       - Fixed GlobalParallelPool race using Atomic<IOmniThreadPool>.Initialize.
+///       - Fixed TOmniFuture<T>.FCompleted/FCancelled: added [Volatile] and MFence
+///         for ARM memory ordering correctness.
+///       - Fixed Pipeline.Run closure capture bugs: exc and outQueue were shared
+///         across all worker closures; moved to local vars and task parameters.
+///       - Fixed TrySend not releasing semaphore on TryAdd failure.
+///       - Fixed OnStopInvoke nil task guard missing in non-generic
+///         TOmniParallelLoop and TOmniParallelSimpleLoop<T>.
 ///     3.01: 2026-04-13
 ///       - Implemented Parallel.Merge<T> — fan-in convenience merging multiple
 ///         channels into a single output channel via background select loop.
@@ -594,7 +603,9 @@ type
   TOmniFuture<T> = class(TInterfacedObject, IOmniFuture<T>)
   strict private
     FCancellable  : boolean;
+    [Volatile]
     FCancelled    : boolean;
+    [Volatile]
     FCompleted    : boolean;
     FTaskException: Exception;
     FResult       : T;
@@ -1941,13 +1952,14 @@ end; { Async }
 
 function GlobalParallelPool: IOmniThreadPool;
 begin
-  if not assigned(GParallelPool) then begin
-    GParallelPool := CreateThreadPool('OtlParallel pool');
-    GParallelPool.IdleWorkerThreadTimeout_sec := 60; // 1 minute
-    GParallelPool.MaxExecuting := -1;
-    GParallelPool.MaxQueuedTime_sec := 0;
-  end;
-  Result := GParallelPool;
+  Result := Atomic<IOmniThreadPool>.Initialize(GParallelPool,
+    function: IOmniThreadPool
+    begin
+      Result := CreateThreadPool('OtlParallel pool');
+      Result.IdleWorkerThreadTimeout_sec := 60; // 1 minute
+      Result.MaxExecuting := -1;
+      Result.MaxQueuedTime_sec := 0;
+    end);
 end; { GlobalParallelPool }
 
 { EJoinException }
@@ -2824,7 +2836,9 @@ begin
   end;
   Result := FState.Collection.TryAdd(TOmniValue.CastFrom<T>(value));
   if Result then
-    FState.SignalDataReady;
+    FState.SignalDataReady
+  else if assigned(FState.CapSemaphore) then
+    FState.CapSemaphore.Release;
 end; { TOmniChannelSender<T>.TrySend }
 
 { TOmniChannel<T> }
@@ -3682,11 +3696,14 @@ begin
   Result := OnStop(
     procedure (const task: IOmniTask)
     begin
-      task.Invoke(
-        procedure
-        begin
-          stopCode();
-        end);
+      if not assigned(task) then
+        stopCode()
+      else
+        task.Invoke(
+          procedure
+          begin
+            stopCode();
+          end);
     end);
 end; { TOmniParallelLoop.OnStopInvoke }
 
@@ -4440,13 +4457,16 @@ begin
   Result := OnStop(
     procedure (const task: IOmniTask)
     begin
-      task.Invoke(
-        procedure
-        begin
-          stopCode();
-        end);
+      if not assigned(task) then
+        stopCode()
+      else
+        task.Invoke(
+          procedure
+          begin
+            stopCode();
+          end);
     end);
-end; { TOmniParallelSimpleLoop }
+end; { TOmniParallelSimpleLoop<T>.OnStopInvoke }
 
 function TOmniParallelSimpleLoop<T>.TaskConfig(
   const config: IOmniTaskConfig): IOmniParallelSimpleLoop<T>;
@@ -4473,6 +4493,7 @@ begin
       try
         FResult := action();
       finally // action may raise exception
+        MFence;
         FCompleted := true;
       end;
     end,
@@ -4490,6 +4511,7 @@ begin
       try
         FResult := action(task);
       finally // action may raise exception
+        MFence;
         FCompleted := true;
       end;
     end,
@@ -4895,7 +4917,6 @@ end; { TOmniPipeline.OnStopInvoke }
 function TOmniPipeline.Run: IOmniPipeline;
 var
   countStopped: IOmniResourceCount;
-  exc         : Exception;
   inQueue     : IOmniBlockingCollection;
   iStage      : integer;
   iTask       : integer;
@@ -4932,8 +4953,11 @@ begin
       task := CreateTask(
           procedure (const task: IOmniTask)
           var
+            exc    : Exception;
             opStage: IOmniPipelineStageEx;
+            taskOutQueue: IOmniBlockingCollection;
           begin
+            taskOutQueue := Task.Param['OutQueue'].AsInterface as IOmniBlockingCollection;
             try
               try
                 opStage := Task.Param['Stage'].AsInterface as IOmniPipelineStageEx;
@@ -4941,8 +4965,8 @@ begin
                   opStage.Execute(Task);
                 except
                   exc := Exception(AcquireExceptionObject);
-                  if not outQueue.TryAdd(exc) then
-                    Exc.Free;
+                  if not taskOutQueue.TryAdd(exc) then
+                    exc.Free;
                 end;
               finally
                 if (Task.Param['Stopped'].AsInterface as IOmniResourceCount).Allocate = 0 then
@@ -4960,6 +4984,7 @@ begin
         )
         .CancelWith(opCancelWith)
         .SetParameter('Stage', opStages[iStage])
+        .SetParameter('OutQueue', outQueue)
         .SetParameter('Stopped', countStopped)
         .SetParameter('TotalStopped', opCountStopped)
         .SetParameter('Cancelled', opCancelWith)

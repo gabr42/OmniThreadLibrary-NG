@@ -588,7 +588,7 @@ begin
 
 ## OtlParallel.pas
 
-### Race condition in GlobalParallelPool lazy initialization — Severity: Critical
+### ~~Race condition in GlobalParallelPool lazy initialization~~ — Severity: Critical — FINISHED
 **File**: `OtlParallel.pas:1942`
 **Category**: 1.1 Race Conditions
 **Description**: `GlobalParallelPool` performs a check-then-act on `GParallelPool` without synchronization. Two threads calling any `Parallel.*` API simultaneously for the first time can both create a pool; one is leaked while tasks may already be scheduled on it.
@@ -610,7 +610,7 @@ end;
 
 ---
 
-### TOmniFuture\<T\>.FCompleted written without memory barrier — Severity: Critical
+### ~~TOmniFuture\<T\>.FCompleted written without memory barrier~~ — Severity: Critical — FINISHED
 **File**: `OtlParallel.pas:4476` (write), `OtlParallel.pas:4565` (read)
 **Category**: 1.1 Race Conditions
 **Description**: `FCompleted` is a plain `boolean`. The worker sets it after computing `FResult`. The main thread reads it via `IsDone`. No fence separates the write to `FResult` from the write to `FCompleted`.
@@ -634,7 +634,7 @@ end;
 
 ---
 
-### Pipeline Run captures shared `exc` variable by reference in all worker closures — Severity: High
+### ~~Pipeline Run captures shared `exc` variable by reference in all worker closures~~ — Severity: High — FINISHED
 **File**: `OtlParallel.pas:4898` (declaration), `OtlParallel.pas:4943` (capture)
 **Category**: 1.1 Race Conditions
 **Description**: `exc: Exception` is a single local variable captured by reference by all anonymous methods in the double loop. All pipeline workers share the same `exc` variable. Concurrent exceptions overwrite each other.
@@ -660,7 +660,7 @@ var
 
 ---
 
-### Pipeline Run captures `outQueue` by reference — wrong queue for exceptions — Severity: High
+### ~~Pipeline Run captures `outQueue` by reference — wrong queue for exceptions~~ — Severity: High — FINISHED
 **File**: `OtlParallel.pas:4902` (declaration), `OtlParallel.pas:4944` (capture)
 **Category**: 1.1 Race Conditions
 **Description**: `outQueue` is reassigned each iteration of the `for iStage` loop. All closures capture it by reference. By the time a worker from an early stage raises an exception, `outQueue` points to the last stage's output.
@@ -683,7 +683,7 @@ var
 
 ---
 
-### TOmniFuture\<T\>.FCancelled used as cross-thread flag without fencing — Severity: High
+### ~~TOmniFuture\<T\>.FCancelled used as cross-thread flag without fencing~~ — Severity: High — FINISHED
 **File**: `OtlParallel.pas:4511` (write), `OtlParallel.pas:4560` (read)
 **Category**: 1.1 Race Conditions
 **Description**: `FCancelled` is set to `true` on the calling thread and read on any thread via `IsCancelled`. No memory barrier or interlocked operation.
@@ -705,8 +705,9 @@ end;
 
 ---
 
-### Select.Wait missed-wakeup window between poll and condvar wait — Severity: Medium
+### Select.Wait missed-wakeup window between poll and condvar wait — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlParallel.pas:3030`
+**Status**: Real issue confirmed. Requires architectural change (switch condvar to auto-reset event, or restructure poll-under-lock). Deferred for separate PR.
 **Category**: 1.5 Event/Signal Correctness
 **Description**: After the round-robin poll finds nothing, the code calls `FNotifier.WaitFor`. Between the poll and entering the condvar wait, a sender can signal data — but the signal wakes no one because the select thread hasn't started waiting yet.
 **Evidence**:
@@ -726,7 +727,7 @@ end;
 
 ---
 
-### TrySend does not release semaphore on TryAdd failure — Severity: Medium
+### ~~TrySend does not release semaphore on TryAdd failure~~ — Severity: Medium — FINISHED
 **File**: `OtlParallel.pas:2818`
 **Category**: 1.1 Race Conditions (resource leak)
 **Description**: If `TryAdd` returns false, the semaphore slot that was acquired is never released. This permanently reduces the channel's capacity.
@@ -750,8 +751,9 @@ end;
 
 ---
 
-### Channel Send TOCTOU with Close after semaphore acquire — Severity: Medium
+### ~~Channel Send TOCTOU with Close after semaphore acquire~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlParallel.pas:2810`
+**Reason**: Closing a channel while a sender is blocked is inherent to the design. The `ECollectionCompleted` exception from `Add` is the designed behavior — the sender is notified that the channel was closed. This is expected, not a bug.
 **Category**: 1.1 Race Conditions (TOCTOU)
 **Description**: In `Send`, the semaphore is acquired first, then the value is added. If another thread calls `Close` between the semaphore acquire and the add, `FState.Collection.Add` raises `ECollectionCompleted`.
 **Evidence**:
@@ -769,7 +771,7 @@ end;
 
 ---
 
-### Non-generic OnStopInvoke missing nil task guard — Severity: Low
+### ~~Non-generic OnStopInvoke missing nil task guard~~ — Severity: Low — FINISHED
 **File**: `OtlParallel.pas:3680`
 **Category**: 1.4 Object Lifetime vs Thread Lifetime
 **Description**: `TOmniParallelLoop.OnStopInvoke` calls `task.Invoke(...)` without checking for nil. In non-NoWait mode, `DoOnStop` is called with `nil`. The generic version (`TOmniParallelLoop<T>.OnStopInvoke` at line 3939) correctly checks `if not assigned(task)`.
