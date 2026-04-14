@@ -51,8 +51,10 @@
 ///         FreeAndNil).
 ///       - Fixed ForwardTaskTerminated double-fire race using
 ///         TInterlocked.Exchange.
-///       - Fixed RemoveTerminationEvents not adjusting IdxFirstWaitObject
-///         and IdxLastWaitObject.
+///       - Fixed RemoveTerminationEvents not adjusting IdxFirstWaitObject,
+///         IdxLastWaitObject, and NewMessageEvent.
+///       - Fixed wrong end comments in TOmniTaskControl.Invoke overloads,
+///         TOmniMessageExec.OnTerminated, and RebuildWaitHandles.
 ///     3.01: 2026-04-14
 ///       - Replaced TOmniTransitionEvent with IOmniEvent.
 ///     3.0: 2026-04-12 [OTL-NG]
@@ -2477,7 +2479,7 @@ begin
       msgInfo.Waiter.SetSynchObjects(msgInfo.WaitHandles);
     finally FreeAndNil(handles); end;
   finally oteInternalLock.Release; end;
-end; { RebuildWaitHandles }
+end; { TOmniTaskExecutor.RebuildWaitHandles }
 
 procedure TOmniTaskExecutor.RemoveTerminationEvents(const srcMsgInfo: TOmniMessageInfo;
   var dstMsgInfo: TOmniMessageInfo);
@@ -2487,6 +2489,7 @@ begin
   offset := srcMsgInfo.IdxLastTerminate + 1;
   dstMsgInfo.IdxFirstTerminate := -1;
   dstMsgInfo.IdxLastTerminate := -1;
+  dstMsgInfo.NewMessageEvent := srcMsgInfo.NewMessageEvent;
   dstMsgInfo.IdxFirstMessage := srcMsgInfo.IdxFirstMessage - offset;
   dstMsgInfo.IdxLastMessage := srcMsgInfo.IdxLastMessage - offset;
   dstMsgInfo.IdxFirstWaitObject := srcMsgInfo.IdxFirstWaitObject - offset;
@@ -3038,19 +3041,19 @@ function TOmniTaskControl.Invoke(const msgName: string): IOmniTaskControl;
 begin
   Invoke(msgName, TOmniValue.Null);
   Result := Self;
-end; { TOmniCommunicationEndpoint.Invoke }
+end; { TOmniTaskControl.Invoke }
 
 function TOmniTaskControl.Invoke(const msgName: string; msgData: array of const): IOmniTaskControl;
 begin
   Invoke(msgName, TOmniValue.Create(msgData));
   Result := Self;
-end; { TOmniCommunicationEndpoint.Invoke }
+end; { TOmniTaskControl.Invoke }
 
 function TOmniTaskControl.Invoke(const msgName: string; msgData: TOmniValue): IOmniTaskControl;
 begin
   Comm.Send(TOmniInternalStringMsg.CreateMessage(msgName, msgData));
   Result := Self;
-end; { TOmniCommunicationEndpoint.Invoke }
+end; { TOmniTaskControl.Invoke }
 
 function TOmniTaskControl.Invoke(remoteFunc: TOmniTaskControlInvokeFunction): IOmniTaskControl;
 begin
@@ -4009,7 +4012,7 @@ begin
       raise Exception.CreateFmt('TOmniMessageExec.OnTerminated: Unexpected kind %s',
               [GetEnumName(TypeInfo(TOmniExecutableKind), Ord(omeOnTerminated.Kind))]);
   end;
-end; { TOmniMessageExec.OnTerminate }
+end; { TOmniMessageExec.OnTerminated }
 
 procedure TOmniMessageExec.SetOnMessage(exec: TOmniTaskMessageEvent);
 begin

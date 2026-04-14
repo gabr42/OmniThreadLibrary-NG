@@ -398,8 +398,6 @@ begin
   Result := ceOwner_ref.OtherEndpoint(Self);
 end; { TOmniCommunicationEndpoint.GetOtherEndpoint }
 
-{ TOmniCommunicationEndpoint.GetNewMessageEvent }
-
 function TOmniCommunicationEndpoint.GetReader: TOmniMessageQueue;
 begin
   Result := ceReader_ref;

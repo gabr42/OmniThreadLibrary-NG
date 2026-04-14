@@ -48,6 +48,8 @@
 ///         TOmniParallelLoop and TOmniParallelSimpleLoop<T>.
 ///       - Fixed TOmniBackgroundWorker.Terminate: detach and free observers
 ///         unconditionally, not only on successful WaitFor.
+///       - Fixed PInteger used instead of PNativeInt in pipeline stage
+///         dispatch (wrong on 64-bit).
 ///     3.01: 2026-04-13
 ///       - Implemented Parallel.Merge<T> — fan-in convenience merging multiple
 ///         channels into a single output channel via background select loop.
@@ -4655,14 +4657,14 @@ procedure TOmniPipelineStage.Execute(const task: IOmniTask);
 begin
   // D2009 doesn't like TProc casts so we're casting to NativeInt
   Assert(SizeOf(TProc) = SizeOf(NativeInt));
-  if PInteger(@opsSimpleStage)^ <> NativeInt(nil) then
+  if PNativeInt(@opsSimpleStage)^ <> NativeInt(nil) then
     ExecuteSimpleStage(task, opsSimpleStage, opsInput, opsOutput)
-  else if PInteger(@opsStage)^ <> NativeInt(nil) then begin
-    Assert(PInteger(@opsStageEx)^ = NativeInt(nil));
+  else if PNativeInt(@opsStage)^ <> NativeInt(nil) then begin
+    Assert(PNativeInt(@opsStageEx)^ = NativeInt(nil));
     opsStage(opsInput, opsOutput);
   end
   else begin
-    Assert(PInteger(@opsStageEx)^ <> NativeInt(nil));
+    Assert(PNativeInt(@opsStageEx)^ <> NativeInt(nil));
     opsStageEx(opsInput, opsOutput, task);
   end;
 end; { TOmniPipelineStage.Execute }

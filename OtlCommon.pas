@@ -45,6 +45,12 @@
 ///       - Fixed TOmniValue._ReleaseAndClear missing nil check on ovIntf.
 ///       - Fixed TOmniValue.Create/CreateNamed: container leak on exception
 ///         when invalid data type is encountered.
+///       - Fixed {$IFDEF Defined(...)} always false — changed to {$IF Defined(...)},
+///         enabling direct memory access on x86/x64 instead of unnecessary
+///         interlocked operations in TOmniAlignedInt32/Int64 Get/SetValue.
+///       - Fixed double GetLastError calls in GetGroupAffinity and LoadNUMAInfo;
+///         captured error code into local variable before use.
+///       - Fixed wrong class/method names in error messages and end comments.
 ///     3.0: 2026-04-12 [OTL-NG]
 ///       - Removed transitional version-check conditionals (always true on Delphi 11+).
 ///     2.0b: 2025-12-01
@@ -1690,7 +1696,7 @@ var
   countIntf: IOmniCounter;
 begin
   Assert(cardinal(@ocCounter) mod SizeOf(ocCounter) = 0,
-    Format('TOmniCS.Initialize: ocsSync is not %d-aligned!', [SizeOf(ocCounter)]));
+    Format('TOmniCounter.Initialize: ocCounter is not %d-aligned!', [SizeOf(ocCounter)]));
   if not assigned(ocCounter) then
   begin
     countIntf := CreateCounter;
@@ -2390,7 +2396,7 @@ end; { TOmniValue.CastToStringDef }
 function TOmniValue.CastToUInt64: uint64;
 begin
   if not TryCastToUInt64(Result) then
-    raise Exception.Create('TOmniValue cannot be converted to int64');
+    raise Exception.Create('TOmniValue cannot be converted to uint64');
 end; { TOmniValue.CastToUInt64 }
 
 function TOmniValue.GetArrayFromTValue(const value: TValue): TOmniValueContainer;
@@ -3642,6 +3648,7 @@ function TOmniThreadEnvironment.GetGroupAffinity: TOmniGroupAffinity;
 {$IFDEF MSWINDOWS}
 var
   groupAffinity: TGroupAffinity;
+  lastErr      : cardinal;
 {$ENDIF MSWINDOWS}
 begin
   {$IFDEF MSWINDOWS}
@@ -3649,15 +3656,18 @@ begin
     Result.Group := groupAffinity.Group;
     Result.Affinity.AsMask := groupAffinity.Mask;
   end
-  else if Winapi.Windows.GetLastError <> ERROR_NOT_SUPPORTED then
-    raise Exception.CreateFmt('TOmniThreadEnvironment.GetGroupAffinity: GetThreadGroupAffinity failed with [%d] %s',
-      [Winapi.Windows.GetLastError, SysErrorMessage(Winapi.Windows.GetLastError)])
-  else
-  {$ENDIF MSWINDOWS}
-  begin
+  else begin
+    lastErr := Winapi.Windows.GetLastError;
+    if lastErr <> ERROR_NOT_SUPPORTED then
+      raise Exception.CreateFmt('TOmniThreadEnvironment.GetGroupAffinity: GetThreadGroupAffinity failed with [%d] %s',
+        [lastErr, SysErrorMessage(lastErr)]);
     Result.Group := 0;
     Result.Affinity.AsMask := Affinity.Mask;
   end;
+  {$ELSE}
+  Result.Group := 0;
+  Result.Affinity.AsMask := Affinity.Mask;
+  {$ENDIF MSWINDOWS}
 end; { TOmniThreadEnvironment.GetGroupAffinity }
 
 function TOmniThreadEnvironment.GetID: TThreadId;
@@ -4005,11 +4015,12 @@ begin
   {$ELSE}
   bufSize := 0;
   GetLogicalProcessorInformationEx(RelationAll, PSYSTEM_LOGICAL_PROCESSOR_INFORMATION(nil), bufSize);
-  if Winapi.Windows.GetLastError = ERROR_NOT_SUPPORTED then begin
+  var lastErr := Winapi.Windows.GetLastError;
+  if lastErr = ERROR_NOT_SUPPORTED then begin
     CreateFakeNUMAInfo;
     Exit;
   end;
-  if Winapi.Windows.GetLastError <> ERROR_INSUFFICIENT_BUFFER then begin
+  if lastErr <> ERROR_INSUFFICIENT_BUFFER then begin
     CreateFakeNUMAInfo;
     Exit;
   end;
@@ -4058,7 +4069,7 @@ end; { TOmniExecutable.CheckKind }
 procedure TOmniExecutable.Clear;
 begin
   oeKind := oekNull;
-end; { TOmniExecutable.IsNull }
+end; { TOmniExecutable.Clear }
 
 class operator TOmniExecutable.Explicit(const a: TProcedure): TOmniExecutable;
 begin
@@ -4295,7 +4306,7 @@ end; { TOmniAlignedInt32.Decrement }
 
 function TOmniAlignedInt32.GetValue: integer;
 begin
-{$IFDEF Defined(CPU386) or Defined(CPUX64)}
+{$IF Defined(CPU386) or Defined(CPUX64)}
   Result := Addr^;
 {$ELSE}
   Result := TInterlocked.CompareExchange(integer(Addr^), 0, 0);
@@ -4314,7 +4325,7 @@ end; { TOmniAlignedInt32.Increment }
 
 procedure TOmniAlignedInt32.SetValue(value: integer);
 begin
-{$IFDEF Defined(CPU386) or Defined(CPUX64)}
+{$IF Defined(CPU386) or Defined(CPUX64)}
   Addr^ := value;
 {$ELSE}
   TInterlocked.Exchange(integer(Addr^), value);
@@ -4419,7 +4430,7 @@ end; { TOmniAlignedInt64.Decrement }
 
 function TOmniAlignedInt64.GetValue: int64;
 begin
-{$IFDEF Defined(CPU386) or Defined(CPUX64)}
+{$IF Defined(CPU386) or Defined(CPUX64)}
   Result := Addr^;
 {$ELSE}
   Result := TInterlocked.CompareExchange(int64(Addr^), 0, 0);
@@ -4438,7 +4449,7 @@ end; { TOmniAlignedInt64.Increment }
 
 procedure TOmniAlignedInt64.SetValue(value: int64);
 begin
-{$IFDEF Defined(CPU386) or Defined(CPUX64)}
+{$IF Defined(CPU386) or Defined(CPUX64)}
   Addr^ := value;
 {$ELSE}
   TInterlocked.Exchange(int64(Addr^), value);

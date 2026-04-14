@@ -1807,7 +1807,7 @@ The following units were analyzed and found to have no Category 2 issues:
 
 ## OtlParallel.pas
 
-### `PInteger` used instead of `PNativeInt` in pipeline stage dispatch — Severity: Critical
+### ~~`PInteger` used instead of `PNativeInt` in pipeline stage dispatch~~ — Severity: Critical — FINISHED
 **File**: `OtlParallel.pas:4634`
 **Category**: 3.2 Incomplete Adaptations
 **Description**: `TOmniPipelineStage.Execute` checks whether anonymous method references (`opsSimpleStage`, `opsStage`, `opsStageEx`) are nil by dereferencing them as `PInteger` (4 bytes). The Assert on the preceding line confirms `SizeOf(TProc) = SizeOf(NativeInt)`, and the comparison target is `NativeInt(nil)` — but the dereference reads only 32 bits. On 64-bit, this reads only the low 32 bits of an 8-byte interface pointer and compares against a 64-bit zero.
@@ -1831,7 +1831,7 @@ if PNativeInt(@opsSimpleStage)^ <> NativeInt(nil) then
 
 ---
 
-### `TOmniParallelLoop.OnStopInvoke` missing nil-task guard — Severity: Medium
+### ~~`TOmniParallelLoop.OnStopInvoke` missing nil-task guard~~ — Severity: Medium — FINISHED
 **File**: `OtlParallel.pas:3680`
 **Category**: 3.2 Incomplete Adaptations
 **Description**: The generic `TOmniParallelLoop<T>.OnStopInvoke` (line 3937) correctly guards against a nil `task` parameter (which is nil when called synchronously from the non-NoWait path). The non-generic `TOmniParallelLoop.OnStopInvoke` was copied but the nil guard was not included.
@@ -1866,7 +1866,7 @@ end;
 
 ---
 
-### `TOmniParallelSimpleLoop<T>.OnStopInvoke` missing nil-task guard — Severity: Medium
+### ~~`TOmniParallelSimpleLoop<T>.OnStopInvoke` missing nil-task guard~~ — Severity: Medium — FINISHED
 **File**: `OtlParallel.pas:4437`
 **Category**: 3.2 Incomplete Adaptations
 **Description**: Same pattern as above. The non-generic `TOmniParallelSimpleLoop.OnStopInvoke` (line 4310) has the nil-task guard. The generic `TOmniParallelSimpleLoop<T>.OnStopInvoke` was copied without it.
@@ -1891,7 +1891,7 @@ end;
 
 ## OtlContainers.pas
 
-### `IsFull` compares against `LastIn` instead of `FirstIn` — Severity: Critical
+### ~~`IsFull` compares against `LastIn` instead of `FirstIn`~~ — Severity: Critical — FINISHED
 **File**: `OtlContainers.pas:923`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: `TOmniBaseBoundedQueue.IsFull` computes the next `LastIn` position (one slot ahead of the current write pointer, wrapped) and then checks whether it equals `obqPublicRingBuffer.LastIn.PData` — i.e. `NextLastIn == CurrentLastIn`. A ring buffer is full when the write pointer catches up to the read pointer, so the comparison should be against `FirstIn.PData`. Compare with `IsEmpty` (line 911) which correctly compares `FirstIn.PData = LastIn.PData`.
@@ -1919,7 +1919,7 @@ result := (NativeInt(NewLastIn) = NativeInt(obqPublicRingBuffer.FirstIn.PData)) 
 
 ---
 
-### `CollectionNotifyEvent` uses wrong threshold for `coiNotifyOnPartlyEmpty` — Severity: High
+### ~~`CollectionNotifyEvent` uses wrong threshold for `coiNotifyOnPartlyEmpty`~~ — Severity: High — FINISHED
 **File**: `OtlContainers.pas:1715`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: After a remove, the code checks `FAlmostFullThreshold` to decide whether to fire `coiNotifyOnPartlyEmpty`. It was copied from the `cnAdded` branch (which correctly checks `FAlmostFullThreshold` for `coiNotifyOnAlmostFull`) and the threshold variable was not updated. `FPartlyEmptyThreshold` is initialized but never consulted anywhere.
@@ -1938,7 +1938,7 @@ cnExtracted:
 
 ---
 
-### Wrong class name in `TOmniBaseBoundedQueue.Initialize` assert messages — Severity: Low
+### ~~Wrong class name in `TOmniBaseBoundedQueue.Initialize` assert messages~~ — Severity: Low — FINISHED
 **File**: `OtlContainers.pas:832`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: Assert messages say `TOmniBaseContainer: obcPublicRingBuffer` and `TOmniBaseContainer: obcRecycleRingBuffer`. The actual class is `TOmniBaseBoundedQueue` and the field prefix is `obq`, not `obc`. Copied from `TOmniBaseQueue`.
@@ -1952,7 +1952,7 @@ Assert(NativeInt(obqPublicRingBuffer) mod (SizeOf(pointer) * 2) = 0,
 
 ---
 
-### Wrong class name in `TOmniBaseBoundedStack.Initialize` exception — Severity: Low
+### ~~Wrong class name in `TOmniBaseBoundedStack.Initialize` exception~~ — Severity: Low — FINISHED
 **File**: `OtlContainers.pas:505`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: Exception message says `TOmniBaseContainer: obcBuffer is not aligned` but the class is `TOmniBaseBoundedStack` and the field prefix is `obs`.
@@ -1965,7 +1965,7 @@ raise Exception.Create('TOmniBaseContainer: obcBuffer is not aligned');
 
 ---
 
-### Wrong class name in `TOmniValueQueue.Dequeue` exception — Severity: Low
+### ~~Wrong class name in `TOmniValueQueue.Dequeue` exception~~ — Severity: Low — FINISHED
 **File**: `OtlContainers.pas:1745`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: Exception says `TOmniBaseQueue.Dequeue` but the method is `TOmniValueQueue.Dequeue`. Copied from `TOmniBaseQueue.Dequeue` at line 1268.
@@ -1978,7 +1978,7 @@ raise Exception.Create('TOmniBaseQueue.Dequeue: Message queue is empty');
 
 ---
 
-### Double semicolon in `TOmniValueQueue.Create` — Severity: Low
+### ~~Double semicolon in `TOmniValueQueue.Create`~~ — Severity: Low — FINISHED
 **File**: `OtlContainers.pas:1673`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: A stray double semicolon — harmless but a copy-paste residue.
@@ -1993,7 +1993,7 @@ FContainerSubject := TOmniContainerSubject.Create;;
 
 ## OtlTaskControl.pas
 
-### `RemoveTerminationEvents` missing three fields from `RebuildWaitHandles` — Severity: High
+### ~~`RemoveTerminationEvents` missing three fields from `RebuildWaitHandles`~~ — Severity: High — FINISHED
 **File**: `OtlTaskControl.pas:2458`
 **Category**: 3.2 Incomplete Adaptations
 **Description**: `RemoveTerminationEvents` was written to mirror `RebuildWaitHandles` (line 2405) but omits three fields: `NewMessageEvent`, `IdxFirstWaitObject`, and `IdxLastWaitObject`. The destination `msgInfo` record is zero-initialized (it contains managed types), so `NewMessageEvent` is nil and both wait-object indices are 0.
@@ -2027,7 +2027,7 @@ dstMsgInfo.IdxLastWaitObject  := srcMsgInfo.IdxLastWaitObject  - offset;
 
 ---
 
-### Wrong class name in three `TOmniTaskControl.Invoke` end comments — Severity: Low
+### ~~Wrong class name in three `TOmniTaskControl.Invoke` end comments~~ — Severity: Low — FINISHED
 **File**: `OtlTaskControl.pas:3013, 3019, 3025`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: Three `TOmniTaskControl.Invoke` overloads have end comments saying `{ TOmniCommunicationEndpoint.Invoke }`. Copied from earlier code.
@@ -2040,7 +2040,7 @@ end; { TOmniCommunicationEndpoint.Invoke }   // should be TOmniTaskControl.Invok
 
 ---
 
-### Truncated method name in end comment — Severity: Low
+### ~~Truncated method name in end comment~~ — Severity: Low — FINISHED
 **File**: `OtlTaskControl.pas:3984`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: `TOmniMessageExec.OnTerminated` end comment says `{ TOmniMessageExec.OnTerminate }` — missing trailing `d`.
@@ -2049,7 +2049,7 @@ end; { TOmniCommunicationEndpoint.Invoke }   // should be TOmniTaskControl.Invok
 
 ---
 
-### Missing class qualifier in `RebuildWaitHandles` end comment — Severity: Low
+### ~~Missing class qualifier in `RebuildWaitHandles` end comment~~ — Severity: Low — FINISHED
 **File**: `OtlTaskControl.pas:2456`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: End comment says `{ RebuildWaitHandles }` without the `TOmniTaskExecutor.` prefix that every other method in the file uses.
@@ -2060,7 +2060,7 @@ end; { TOmniCommunicationEndpoint.Invoke }   // should be TOmniTaskControl.Invok
 
 ## OtlThreadPool.pas
 
-### `Cancel` multiplies already-millisecond timeout by 1000 — Severity: High
+### ~~`Cancel` multiplies already-millisecond timeout by 1000~~ — Severity: High — FINISHED
 **File**: `OtlThreadPool.pas:1006`
 **Category**: 3.2 Incomplete Adaptations
 **Description**: `TOTPWorker.Cancel` stores the timeout in `waitForTask_ms` (already in milliseconds — line 997 converts from seconds: `int64(WaitOnTerminate_sec.Value) * 1000`). But line 1006 multiplies it by 1000 again when computing the deadline. This was copied from `InternalStop` (line 1130) where the source value is in seconds.
@@ -2082,7 +2082,7 @@ endWait_ms := Time.Timestamp_ms + waitForTask_ms;
 
 ## OtlHooks.pas
 
-### All three notification classes store `@localProc` (stack address) instead of function pointer — Severity: Critical
+### ~~All three notification classes store `@localProc` (stack address) instead of function pointer~~ — Severity: Critical — FALSE REPORT
 **File**: `OtlHooks.pas:351, 361, 409, 419, 471, 481`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: `TThreadNotifications.Register(notifyProc)`, `TPoolNotifications.Register(notifyProc)`, and `TExceptionFilters.Register(filterProc)` all use `pointer(@notifyProc)` — taking the address of a stack-local parameter. This stores a dangling stack pointer. The `Unregister` methods have the same error, so `Remove` also searches for a different dangling stack address and will never find the original entry. The `Notify` methods cast the stored pointer back to a proc type and call it (e.g., line 338: `TThreadNotificationProc(tnList[iObserver+1])(notifyType, threadName)`), confirming the intent is to store the function address, not a pointer-to-local.
@@ -2107,7 +2107,7 @@ end;
 
 ## OtlSync.pas
 
-### `Move128` 32-bit path moves only 8 bytes, not 16 — Severity: High
+### ~~`Move128` 32-bit path moves only 8 bytes, not 16~~ — Severity: High — FALSE REPORT
 **File**: `OtlSync.pas:1034`
 **Category**: 3.2 Incomplete Adaptations
 **Description**: The function comment says "Move 16 bytes atomically" but the `{$IFNDEF CPUX64}` implementation uses `int64` (8 bytes). The 64-bit path correctly uses `InterlockedCompareExchange128`. The 32-bit body was copied from `Move64`/`MoveDPtr` without adaptation.
@@ -2128,7 +2128,7 @@ end;
 
 ---
 
-### `CAS16` offset mask not adapted from `CAS8` — Severity: Medium
+### ~~`CAS16` offset mask not adapted from `CAS8`~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlSync.pas:933`
 **Category**: 3.2 Incomplete Adaptations
 **Description**: `CAS16` was copied from `CAS8` but the alignment mask was not adapted. For `CAS8`, `and 3` yields byte offsets 0–3 within a 4-byte word, all valid for a single byte. For `CAS16`, byte offset 3 would straddle a 4-byte boundary: `$FFFF shl 24` produces `$FF000000`, silently discarding the upper 8 bits of the 16-bit value.
@@ -2147,7 +2147,7 @@ offset := integer(NativeUInt(@destination) and 3) * 8;  // offset 24 is invalid 
 
 ---
 
-### `CreateOmniEvent(TEvent, boolean)` factory calls non-existent constructor — Severity: Medium
+### ~~`CreateOmniEvent(TEvent, boolean)` factory calls non-existent constructor~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlSync.pas:900`
 **Category**: 3.2 Incomplete Adaptations
 **Description**: The factory `CreateOmniEvent(AExternalEvent: TEvent; ATakeOwnership: boolean)` was added alongside the `THandle`-based constructor, but no matching `TOmniEvent.Create(TEvent, boolean)` constructor was ever implemented. `TOmniEvent` only has `Create(boolean, boolean)` and `Create(THandle, boolean)`. No callers exist in the codebase, so this compiles; if ever called, it would produce a type error or silently misresolve the overload.
@@ -2165,7 +2165,7 @@ end;
 
 ## OtlCommon.pas
 
-### `TOmniValueContainer.Grow` copy loops skip last element — Severity: Low
+### ~~`TOmniValueContainer.Grow` copy loops skip last element~~ — Severity: Low — FINISHED
 **File**: `OtlCommon.pas:1591`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: Both copy loops in `Grow` use `High(...) - 1` instead of `High(...)`, skipping the last element. The second loop was copied from the first, carrying the same off-by-one. In practice this is benign because `SetLength` on dynamic arrays already preserves existing elements when growing, making the entire copy round-trip redundant. The bug is masked but present.
@@ -2187,7 +2187,7 @@ end;
 
 ---
 
-### `CastToUInt64` error message says "int64" — Severity: Low
+### ~~`CastToUInt64` error message says "int64"~~ — Severity: Low — FINISHED
 **File**: `OtlCommon.pas:2377`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: The error message was copied from `CastToInt64` and says "cannot be converted to int64" but the method is `CastToUInt64`.
@@ -2204,7 +2204,7 @@ end;
 
 ---
 
-### Wrong end-comment on `TOmniExecutable.Clear` — Severity: Low
+### ~~Wrong end-comment on `TOmniExecutable.Clear`~~ — Severity: Low — FINISHED
 **File**: `OtlCommon.pas:4044`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: The closing comment says `{ TOmniExecutable.IsNull }` but the method is `Clear`.
@@ -2220,7 +2220,7 @@ end; { TOmniExecutable.IsNull }   // should say Clear
 
 ---
 
-### Wrong class/field name in `TOmniCounter.Initialize` assert — Severity: Low
+### ~~Wrong class/field name in `TOmniCounter.Initialize` assert~~ — Severity: Low — FINISHED
 **File**: `OtlCommon.pas:1687`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: Assert message says `TOmniCS.Initialize: ocsSync is not aligned` but this is `TOmniCounter.Initialize` operating on `ocCounter`. Copied from `TOmniCS.Initialize`.
@@ -2236,7 +2236,7 @@ Assert(cardinal(@ocCounter) mod SizeOf(ocCounter) = 0,
 
 ## OtlContainerObserver.pas
 
-### Wrong method name in `NotifyOnce` end comment — Severity: Low
+### ~~Wrong method name in `NotifyOnce` end comment~~ — Severity: Low — FINISHED
 **File**: `OtlContainerObserver.pas:310`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: End comment says `{ TOmniContainerSubject.NotifyAndRemove }` but the method was renamed to `NotifyOnce`.
@@ -2253,7 +2253,7 @@ end; { TOmniContainerSubject.NotifyAndRemove }
 
 ## OtlComm.pas
 
-### Orphaned duplicate end comment — Severity: Low
+### ~~Orphaned duplicate end comment~~ — Severity: Low — FINISHED
 **File**: `OtlComm.pas:401`
 **Category**: 3.1 Duplicated Code with Wrong Identifiers
 **Description**: A duplicate `{ TOmniCommunicationEndpoint.GetNewMessageEvent }` comment appears orphaned between `GetNewMessageEvent` and `GetReader`, probably left behind during a refactor.
