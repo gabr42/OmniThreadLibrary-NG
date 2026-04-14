@@ -1652,7 +1652,7 @@ obcTailPointer.Slot := NextSlot(AllocateBlock);  // AllocateBlock result leaked
 
 ## OtlBackgroundObserver.pas
 
-### ~~Constructor leaks FState on OpenThread failure~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~Constructor leaks FState on OpenThread failure~~ — Severity: High — FINISHED
 **File**: `OtlBackgroundObserver.pas:184`
 **Category**: 2.1 Resource Leaks
 **Description**: `FState := AllocMem(SizeOf(TAPCState))` is allocated before `OpenThread`. If `OpenThread` returns 0 and raises `EOSError`, `FState` (a raw pointer) is leaked. Interface fields (`FNotifyEvent`) are cleaned up by Delphi's constructor exception handling, but `AllocMem` pointers are not.
@@ -2641,7 +2641,8 @@ end;
 
 ## OtlHooks.pas
 
-### ~~Procedure pointer registration stores stack address instead of function address~~ — Severity: Critical — CONFIRMED, DEFERRED
+### ~~Procedure pointer registration stores stack address instead of function address~~ — Severity: Critical — FALSE REPORT
+**Reason**: With `{$T-}` (default untyped `@` operator), `@notifyProc` returns the code address value, not the address of the local parameter. The code is correct.
 **File**: `OtlHooks.pas:351`, `361`, `409`, `419`, `471`, `481`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: All six `Register`/`Unregister` methods for procedure-type callbacks store `pointer(@notifyProc)` — the address of the **local parameter variable on the stack** — rather than the procedure pointer value itself. The parameter `notifyProc` is a by-value local copy; `@notifyProc` yields a stack address that becomes invalid as soon as the method returns. The correct expression is `pointer(notifyProc)` (the value of the proc pointer). This is a copy-and-paste pattern repeated in all three notification classes (`TThreadNotifications`, `TPoolNotifications`, `TExceptionFilters`). The `TMethod` overloads are correct.
@@ -2664,7 +2665,7 @@ end;
 
 ---
 
-### ~~Notification callbacks executed while read lock is held~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~Notification callbacks executed while read lock is held~~ — Severity: High — FINISHED
 **File**: `OtlHooks.pas:325-347`, `383-405`, `441-462`
 **Category**: 5.3 Callback Safety
 **Description**: `TThreadNotifications.Notify`, `TPoolNotifications.Notify`, and `TExceptionFilters.Filter` all acquire a read lock on the internal list and then directly invoke user-provided callbacks without releasing the lock. If a callback attempts to register or unregister a notification (which requires a write lock on the same `TOmniMREW`), a deadlock occurs since `TOmniMREW` does not allow upgrading a read lock to a write lock on the same thread.
@@ -2721,7 +2722,7 @@ end;
 
 ---
 
-### ~~Incomplete `TOmniWrappedEvent` ownership — raises exception on valid API use~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~Incomplete `TOmniWrappedEvent` ownership — raises exception on valid API use~~ — Severity: High — FINISHED
 **File**: `OtlSync.pas:2709-2726`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `CreateOmniEvent(AExternalEvent: THandle; ATakeOwnership: boolean)` is a public API that promises to optionally take ownership of the passed handle. The backing `TOmniWrappedEvent` class raises an exception unconditionally when `ATakeOwnership = true`. The condition check `(FHandle <> 0)` is also wrong — `FHandle` is the auto-created handle from `inherited Create(nil, false, false, '')`, not the parameter.
@@ -2741,7 +2742,7 @@ end;
 
 ---
 
-### ~~`FManualReset` unset for handle-wrapped events~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`FManualReset` unset for handle-wrapped events~~ — Severity: Medium — FINISHED
 **File**: `OtlSync.pas:2752-2760`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `TOmniEvent.Create(AExternalEvent: THandle, ...)` never sets `FManualReset`. It defaults to `false`. When the event is consumed by an observer (via `ConsumeSignalFromObserver`), `FEvent.ResetEvent` is always called, treating it as auto-reset regardless of the actual event type.
@@ -2761,7 +2762,7 @@ end;
 
 ---
 
-### ~~Unprotected `FState` write in `TOmniEvent.WaitFor`~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~Unprotected `FState` write in `TOmniEvent.WaitFor`~~ — Severity: Medium — FINISHED
 **File**: `OtlSync.pas:2797-2798`
 **Category**: 5.2 Precondition Checking
 **Description**: `TOmniEvent.WaitFor` modifies `FState := False` after the wait returns, without holding the gate lock or the spin lock. All other modifications to `FState` happen inside `PerformObservableAction` which acquires the gate. A concurrent `SetEvent` or `Reset` on another thread can race with this write.
@@ -2880,7 +2881,7 @@ end;
 
 ---
 
-### ~~`TOmniBaseBoundedQueue.IsEmpty` reads without lock, inconsistent with `IsFull`~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`TOmniBaseBoundedQueue.IsEmpty` reads without lock, inconsistent with `IsFull`~~ — Severity: Medium — FINISHED
 **File**: `OtlContainers.pas:909-912`
 **Category**: 5.2 Precondition Checking
 **Description**: `TOmniBaseBoundedQueue.IsEmpty` directly compares two shared pointers without calling `Acquire`. `IsFull` on the same class (lines 914-926) wraps itself in `Acquire`/`Release`. This is an inconsistent contract.
@@ -2988,7 +2989,7 @@ Result := (owExecutor as TOmniTaskExecutor).EventInfo(awaited);  // line 1525
 
 ---
 
-### ~~Missing bounds check in `Asy_UnregisterComm`: silent delete at index -1~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~Missing bounds check in `Asy_UnregisterComm`: silent delete at index -1~~ — Severity: High — FINISHED
 **File**: `OtlTaskControl.pas:1817`
 **Category**: 5.2 Precondition Checking
 **Description**: `Asy_UnregisterComm` calls `oteCommList.IndexOf(comm)` and immediately passes the result to `oteCommList.Delete(idxComm)` without checking whether `idxComm = -1`. Passing a never-registered or already-unregistered endpoint causes `TInterfaceList.Delete(-1)`.
