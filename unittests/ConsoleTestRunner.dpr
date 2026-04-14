@@ -35,7 +35,7 @@ uses
   , TestChannel1 in 'TestChannel1.pas'
   , TestSelect1 in 'TestSelect1.pas'
   , TestMergeRace1 in 'TestMergeRace1.pas'
-//  {$IFDEF MSWindows}, TestTask in 'TestTask.pas'{$ENDIF } // TestStartTask still hangs intermittently
+  {$IFDEF MSWindows}, TestTask in 'TestTask.pas'{$ENDIF }
   {$IFDEF MSWindows}, TestOtlParallel in 'TestOtlParallel.pas'{$ENDIF }
   ;
 

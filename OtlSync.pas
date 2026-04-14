@@ -2111,27 +2111,36 @@ begin
         if Test(signaller1) then
           Result := wrSignaled
         else begin
-          elapsed := timer.ElapsedMilliseconds;
-          waitTime := timeout_ms - elapsed;
-          case FCondVar.WaitFor(TCriticalSection(FController.FGate.GetSyncObj), waitTime) of
-            wrSignaled:
-              begin
-                if Test(signaller1) then
-                  Result := wrSignaled
-                else if waitTime = 0 then
-                  Result := wrTimeout
-                else
-                  Result := wrIOCompletion
-              end;
-            wrTimeout:
+          repeat
+            elapsed := timer.ElapsedMilliseconds;
+            if elapsed >= timeout_ms then begin
               Result := wrTimeout;
-            wrAbandoned,
-            wrError,
-            wrIOCompletion:
-            begin
-              Result := wrError;
+              break; //repeat
             end;
-          end; // case
+            waitTime := timeout_ms - elapsed;
+            case FCondVar.WaitFor(TCriticalSection(FController.FGate.GetSyncObj), waitTime) of
+              wrSignaled:
+                begin
+                  if Test(signaller1) then begin
+                    Result := wrSignaled;
+                    break; //repeat
+                  end;
+                  // Spurious wakeup — loop back and re-wait
+                end;
+              wrTimeout:
+                begin
+                  Result := wrTimeout;
+                  break; //repeat
+                end;
+              wrAbandoned,
+              wrError,
+              wrIOCompletion:
+              begin
+                Result := wrError;
+                break; //repeat
+              end;
+            end; // case
+          until false;
         end;
       finally
         for so in FController.SynchObjects do
