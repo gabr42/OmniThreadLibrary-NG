@@ -3,7 +3,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2020, Primoz Gabrijelcic
+///Copyright (c) 2026, Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -34,10 +34,12 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Creation date     : 2020-09-16
-///   Last modification : 2020-09-16
-///   Version           : 1.0
+///   Last modification : 2026-04-13
+///   Version           : 1.0b
 ///</para><para>
 ///   History:
+///     1.0b: 2026-04-13
+///       - Fully qualified unit names for cross-platform compatibility.
 ///     1.0a: 2021-02-09
 ///       - IOmniSynchronizer<T>/TOmniSynchronizer<T> did not compile when T was not a string.
 ///     1.0: 2020-09-16

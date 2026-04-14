@@ -3,7 +3,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2019, Primoz Gabrijelcic
+///Copyright (c) 2026, Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -35,11 +35,13 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-04-12
-///   Version           : 2.01
+///   Last modification : 2026-04-14
+///   Version           : 3.01
 ///</para><para>
 ///   History:
-///     2.01: 2026-04-12
+///     3.01: 2026-04-14
+///       - Replaced TOmniTransitionEvent with IOmniEvent.
+///     3.0: 2026-04-12 [OTL-NG]
 ///       - Removed unused Winapi.Windows import.
 ///     2.0: 2018-04-24
 ///       - DSiTimeGetTime64 replaced with OtlPlatform.Time.

@@ -3,7 +3,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2020, Primoz Gabrijelcic
+///Copyright (c) 2026, Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -36,10 +36,12 @@
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin
 ///   Creation date     : 2008-06-12
 ///   Last modification : 2026-04-12
-///   Version           : 3.02
+///   Version           : 3.03
 /// </para><para>
 ///   History:
-///     3.02: 2026-04-12
+///     3.03: 2026-04-12
+///       - Removed SuspendThread/ResumeThread from force-kill and idle-worker paths.
+///     3.02: 2026-04-12 [OTL-NG]
 ///       - Removed DSiWin32, GpStuff, and Winapi.Messages dependencies.
 ///       - Replaced DSiGetThreadTimes with direct WinAPI GetThreadTimes call.
 ///       - Removed unused WM_REQUEST_COMPLETED constant.

@@ -36,10 +36,12 @@
 ///   Contributors      : GJ, Lee_Nover, scarre, Sean B. Durkin
 ///
 ///   Creation date     : 2011-08-31
-///   Last modification : 2026-03-18
-///   Version           : 1.0b
+///   Last modification : 2026-04-12
+///   Version           : 2.02
 ///</para><para>
 ///   History:
+///     2.02: 2026-04-12
+///       - Removed OTL_NameThreadHasStringParameter conditional (always true in Delphi 11+).
 ///     2.01: 2026-03-18
 ///       - On Windows, SetThreadName also calls SetThreadDescription API
 ///         if it is available.

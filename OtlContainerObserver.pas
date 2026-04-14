@@ -4,7 +4,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2019 Primoz Gabrijelcic
+///Copyright (c) 2026 Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -34,22 +34,23 @@
 ///   Author            : Primoz Gabrijelcic
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
-///   Contributors      : Sean B. Durkin
+///   Contributors      : Sean B. Durkin, Claude AI
 ///   Creation date     : 2009-02-19
-///   Last modification : 2026-04-12
-///   Version           : 1.10
+///   Last modification : 2026-04-13
+///   Version           : 2.04
 ///</para><para>
 ///   History:
-///     1.10: 2026-04-12
+///     2.04: 2026-04-13
+///       - Added missing inherited Create call in TOmniContainerEventObserverImpl.
+///     2.03: 2026-04-12
 ///       - Removed TOmniContainerWindowsMessageObserver class and factory function
 ///         (replaced by cross-platform TOmniContainerQueueObserver in OtlParallel.pas
 ///         and TOmniContainerBackgroundObserver in OtlBackgroundObserver.pas).
 ///       - Removed Winapi.Windows dependency.
-///     1.09: 2026-04-12
+///     2.02: 2026-04-12
 ///       - Removed unused TOmniContainerWindowsEventObserver class and factory function.
-///     1.08: 2026-04-12
 ///       - Qualified Winapi.Windows.SetEvent call to avoid ambiguity with OtlSync.SetEvent.
-///     1.07: 2026-04-11
+///     2.0: 2026-04-11 [OTL-NG]
 ///       - Removed DSiWin32 dependency.
 ///       - Removed OTL_PlatformIndependent guards (always platform-independent now).
 ///       - Removed OTL_RaiseLastOSErrorHasAdditionalInfo guard (always available).

@@ -3,7 +3,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2019, Primoz Gabrijelcic
+///Copyright (c) 2026, Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -33,14 +33,15 @@
 ///   Author            : Primoz Gabrijelcic
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
-///   Contributors      : GJ, Lee_Nover, Sean B. Durkin
-///
+///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, Claude AI
 ///   Creation date     : 2010-04-13
 ///   Last modification : 2026-04-12
-///   Version           : 2.03
+///   Version           : 3.01
 ///</para><para>
 ///   History:
-///     2.03: 2026-04-12
+///     3.01: 2026-04-12
+///       - Suppressed H2445 inline expansion hint around GetBufferList.
+///     3.0: 2026-04-12 [OTL-NG]
 ///       - Unified TOmniOutputBufferSet to use TWaitFor on all platforms,
 ///         removing WaitForMultipleObjects/THandle dependency.
 ///       - Removed Winapi.Windows from implementation uses.

@@ -3,7 +3,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2020, Primoz Gabrijelcic
+///Copyright (c) 2026, Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -33,14 +33,15 @@
 ///   Author            : Primoz Gabrijelcic
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
-///   Contributors      : GJ, Lee_Nover
-///
+///   Contributors      : GJ, Lee_Nover, Claude AI
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-04-12
-///   Version           : 2.1
+///   Last modification : 2026-04-14
+///   Version           : 3.01
 ///</para><para>
 ///   History:
-///     2.1: 2026-04-12
+///     3.01: 2026-04-14
+///       - Replaced TOmniTransitionEvent with IOmniEvent.
+///     3.0: 2026-04-12 [OTL-NG]
 ///       - Unified IOmniEvent = IOmniEvent on all platforms.
 ///       - TOmniWaitObjectList uses TList<IOmniEvent> unconditionally.
 ///       - Removed THandle overloads of RegisterWaitObject/UnregisterWaitObject.
