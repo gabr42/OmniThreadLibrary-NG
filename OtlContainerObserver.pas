@@ -36,10 +36,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin, Claude AI
 ///   Creation date     : 2009-02-19
-///   Last modification : 2026-04-13
-///   Version           : 2.04
+///   Last modification : 2026-04-14
+///   Version           : 2.05
 ///</para><para>
 ///   History:
+///     2.05: 2026-04-14
+///       - Fixed Notify/NotifyOnce: snapshot observer list under read lock
+///         then dispatch outside the lock, preventing deadlock if callback
+///         calls Attach/Detach.
 ///     2.04: 2026-04-13
 ///       - Added missing inherited Create call in TOmniContainerEventObserverImpl.
 ///     2.03: 2026-04-12
@@ -276,15 +280,18 @@ procedure TOmniContainerSubject.Notify(interest: TOmniContainerObserverInterest)
 var
   iObserver: integer;
   list     : TList;
+  snapshot : TArray<pointer>;
 begin
   {$R-}
   csListLocks[interest].EnterReadLock;
   try
     list := csObserverLists[interest];
-    for iObserver := 0 to list.Count - 1 do begin
-      TOmniContainerObserver(list[iObserver]).Notify;
-    end;
+    SetLength(snapshot, list.Count);
+    for iObserver := 0 to list.Count - 1 do
+      snapshot[iObserver] := list[iObserver];
   finally csListLocks[interest].ExitReadLock; end;
+  for iObserver := 0 to High(snapshot) do
+    TOmniContainerObserver(snapshot[iObserver]).Notify;
   {$R+}
 end; { TOmniContainerSubject.Notify }
 
@@ -293,19 +300,23 @@ var
   iObserver: integer;
   list     : TList;
   observer : TOmniContainerObserver;
+  snapshot : TArray<pointer>;
 begin
   {$R-}
   csListLocks[interest].EnterReadLock;
   try
     list := csObserverLists[interest];
-    for iObserver := 0 to list.Count - 1 do begin
-      observer := TOmniContainerObserver(list[iObserver]);
-      if observer.CanNotify then begin
-        observer.Notify;
-        observer.Deactivate;
-      end;
-    end;
+    SetLength(snapshot, list.Count);
+    for iObserver := 0 to list.Count - 1 do
+      snapshot[iObserver] := list[iObserver];
   finally csListLocks[interest].ExitReadLock; end;
+  for iObserver := 0 to High(snapshot) do begin
+    observer := TOmniContainerObserver(snapshot[iObserver]);
+    if observer.CanNotify then begin
+      observer.Notify;
+      observer.Deactivate;
+    end;
+  end;
   {$R+}
 end; { TOmniContainerSubject.NotifyOnce }
 

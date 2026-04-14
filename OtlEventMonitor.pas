@@ -35,10 +35,13 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, Claude AI
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-04-12
-///   Version           : 2.0d
+///   Last modification : 2026-04-14
+///   Version           : 2.0e
 ///</para><para>
 ///   History:
+///     2.0e: 2026-04-14
+///       - Fixed ProcessTerminated: apply FilterMessage to drain loop,
+///         preventing internal OTL messages from leaking to user callback.
 ///     2.0d: 2026-04-12
 ///       - Removed OTL_HasForceQueue conditionals (always true on Delphi 11+).
 ///     2.0c: 2026-04-12
@@ -359,7 +362,9 @@ begin
   if assigned(task) then begin
     endpoint := (task as IOmniTaskControlSharedInfo).SharedInfo.CommChannel.Endpoint1;
     while endpoint.Receive(emCurrentMsg) do
-      if Assigned(emOnTaskMessage) then
+      if (not (task as IOmniTaskControlInternals).FilterMessage(emCurrentMsg))
+         and assigned(emOnTaskMessage)
+      then
         emOnTaskMessage(task, emCurrentMsg);
     endpoint := (task as IOmniTaskControlSharedInfo).SharedInfo.CommChannel.Endpoint2;
     while endpoint.Receive(emCurrentMsg) do

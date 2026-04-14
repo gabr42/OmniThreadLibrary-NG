@@ -56,6 +56,8 @@
 ///       - Fixed wrong class names in assert/exception messages.
 ///       - Fixed double semicolon in TOmniValueQueue.Create.
 ///       - Fixed wrong class name in TOmniValueQueue.Dequeue exception.
+///       - Fixed TOmniBaseBoundedStack.IsEmpty/IsFull not protected by
+///         Acquire/Release, now consistent with other methods.
 ///     4.0: 2026-04-11 [OTL-NG]
 ///       - Platform abstraction — removed DSiWin32, GpStuff, Winapi.Windows
 ///         dependencies; removed all inline assembly (replaced with TThread.SpinWait);
@@ -541,12 +543,18 @@ end; { TOmniBaseBoundedStack.Initialize }
 
 function TOmniBaseBoundedStack.IsEmpty: boolean;
 begin
-  Result := not assigned(obsPublicChainP^.PData);
+  Acquire;
+  try
+    Result := not assigned(obsPublicChainP^.PData);
+  finally Release; end;
 end; { TOmniBaseBoundedStack.IsEmpty }
 
 function TOmniBaseBoundedStack.IsFull: boolean;
 begin
-  Result := not assigned(obsRecycleChainP^.PData);
+  Acquire;
+  try
+    Result := not assigned(obsRecycleChainP^.PData);
+  finally Release; end;
 end; { TOmniBaseBoundedStack.IsFull }
 
 procedure TOmniBaseBoundedStack.MeasureExecutionTimes;

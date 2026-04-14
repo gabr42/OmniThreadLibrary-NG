@@ -40,6 +40,10 @@
 ///</para><para>
 ///   History:
 ///     3.02: 2026-04-14
+///       - Fixed CAS16 offset mask: added alignment assert to prevent
+///         straddling 4-byte boundary at byte offset 3.
+///       - Removed dead CreateOmniEvent(TEvent, boolean) factory (no
+///         matching constructor, no callers).
 ///       - Fixed TOmniSynchroObject.Destroy use-after-free: moved inherited
 ///         call after the spin lock `with` block to prevent TSynchroSpin
 ///         from accessing destroyed Self.
@@ -682,7 +686,6 @@ function CreateResourceCount(initialCount: integer): IOmniResourceCount;
 
 function CreateOmniCountdownEvent(Count: Integer; SpinCount: Integer; const AShareLock: IOmniCriticalSection = nil): IOmniCountdownEvent;
 function CreateOmniEvent(AManualReset, InitialState: boolean; const AShareLock: IOmniCriticalSection = nil): IOmniEvent; overload;
-function CreateOmniEvent(AExternalEvent: TEvent; ATakeOwnership: boolean = false): IOmniEvent; overload;
 {$IFDEF MSWINDOWS}
 function CreateOmniEvent(AExternalEvent: THandle; ATakeOwnership: boolean = false): IOmniEvent; overload;
 {$ENDIF MSWINDOWS}
@@ -915,11 +918,6 @@ begin
   Result := TOmniEvent.Create(AManualReset, InitialState, AShareLock);
 end; { CreateOmniEvent }
 
-function CreateOmniEvent(AExternalEvent: TEvent; ATakeOwnership: boolean): IOmniEvent;
-begin
-  Result := TOmniEvent.Create(AExternalEvent, ATakeOwnership);
-end; { CreateOmniEvent }
-
 {$IFDEF MSWINDOWS}
 function CreateOmniEvent(AExternalEvent: THandle; ATakeOwnership: boolean): IOmniEvent;
 begin
@@ -955,6 +953,7 @@ var
   oldWord   : integer;
   newWord   : integer;
 begin
+  Assert(NativeUInt(@destination) and 1 = 0, 'CAS16: destination must be 2-byte aligned');
   alignedPtr := PInteger(NativeUInt(@destination) and not NativeUInt(3));
   offset := integer(NativeUInt(@destination) and 3) * 8;
   repeat

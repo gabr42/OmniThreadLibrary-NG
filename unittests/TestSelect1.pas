@@ -19,6 +19,7 @@ type
     [Test] procedure TestSelectLoop;
     [Test] procedure TestFanIn;
     [Test] procedure TestSelectWithCrossThread;
+    [Test] procedure TestSelectNoMissedWakeup;
   end;
 
 implementation
@@ -261,6 +262,45 @@ begin
 
   Assert.AreEqual<integer>(123, received);
   Assert.IsTrue(result = srHandled);
+end;
+
+procedure TestParallelSelect.TestSelectNoMissedWakeup;
+// Stress test: producer sends immediately after select starts waiting.
+// With the condvar-based notifier, there's a window between the poll
+// and the wait where a signal can be lost. This test catches that by
+// running many iterations with tight timing.
+const
+  CIterations = 200;
+var
+  count: integer;
+begin
+  count := 0;
+  for var iteration := 1 to CIterations do begin
+    var ch := Parallel.Channel<integer>;
+    var received := false;
+
+    // Producer sends with minimal delay — maximizes chance of hitting
+    // the window between poll and wait
+    TTask.Run(
+      procedure
+      begin
+        ch.Sender.Send(iteration);
+      end);
+
+    var sel := Parallel.Select([
+      SelectCase.Receive<integer>(ch.Receiver,
+        procedure(v: integer) begin received := true end)
+    ]);
+
+    // Use a finite timeout so we don't hang on missed wakeup
+    var result := sel.Wait(500);
+    if (result = srHandled) and received then
+      Inc(count);
+  end;
+
+  // All iterations must succeed — even one miss indicates a wakeup bug
+  Assert.AreEqual<integer>(CIterations, count,
+    'Missed wakeup detected: not all Select.Wait calls received data');
 end;
 
 end.

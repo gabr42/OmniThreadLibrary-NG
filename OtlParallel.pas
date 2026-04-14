@@ -50,6 +50,8 @@
 ///         unconditionally, not only on successful WaitFor.
 ///       - Fixed PInteger used instead of PNativeInt in pipeline stage
 ///         dispatch (wrong on 64-bit).
+///       - Fixed Select.Wait missed-wakeup: replaced condvar-based notifier
+///         with auto-reset event (signal is never lost).
 ///     3.01: 2026-04-13
 ///       - Implemented Parallel.Merge<T> — fan-in convenience merging multiple
 ///         channels into a single output channel via background select loop.
@@ -1518,14 +1520,12 @@ type
 
   TOmniSelectNotifier = class(TInterfacedObject, IOmniSelectNotifier)
   strict private
-    FCondVar: TConditionVariableCS;
-    FLock   : TCriticalSection;
+    FEvent: TEvent;
   public
     constructor Create;
     destructor  Destroy; override;
     procedure Notify;
     procedure WaitFor(timeout_ms: cardinal);
-    property  Lock: TCriticalSection read FLock;
   end; { TOmniSelectNotifier }
 
   TOmniSelect = class(TInterfacedObject, IOmniSelect)
@@ -2951,31 +2951,23 @@ end; { TOmniSelectDefaultCase.ExecuteDefault }
 constructor TOmniSelectNotifier.Create;
 begin
   inherited Create;
-  FLock := TCriticalSection.Create;
-  FCondVar := TConditionVariableCS.Create;
+  FEvent := TEvent.Create(nil, false, false, '');
 end; { TOmniSelectNotifier.Create }
 
 destructor TOmniSelectNotifier.Destroy;
 begin
-  FreeAndNil(FCondVar);
-  FreeAndNil(FLock);
+  FreeAndNil(FEvent);
   inherited;
 end; { TOmniSelectNotifier.Destroy }
 
 procedure TOmniSelectNotifier.Notify;
 begin
-  FLock.Enter;
-  try
-    FCondVar.ReleaseAll;
-  finally FLock.Leave; end;
+  FEvent.SetEvent;
 end; { TOmniSelectNotifier.Notify }
 
 procedure TOmniSelectNotifier.WaitFor(timeout_ms: cardinal);
 begin
-  FLock.Enter;
-  try
-    FCondVar.WaitFor(FLock, timeout_ms);
-  finally FLock.Leave; end;
+  FEvent.WaitFor(timeout_ms);
 end; { TOmniSelectNotifier.WaitFor }
 
 { TOmniSelect }

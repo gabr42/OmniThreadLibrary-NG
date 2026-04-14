@@ -705,7 +705,7 @@ end;
 
 ---
 
-### Select.Wait missed-wakeup window between poll and condvar wait — Severity: Medium — CONFIRMED, DEFERRED
+### ~~Select.Wait missed-wakeup window between poll and condvar wait~~ — Severity: Medium — FINISHED
 **File**: `OtlParallel.pas:3030`
 **Status**: Real issue confirmed. Requires architectural change (switch condvar to auto-reset event, or restructure poll-under-lock). Deferred for separate PR.
 **Category**: 1.5 Event/Signal Correctness
@@ -1720,7 +1720,8 @@ end;
 
 ## OtlDataManager.pas
 
-### ~~ReleaseOutputBuffer crashes when dmoPreserveOrder not set~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~ReleaseOutputBuffer crashes when dmoPreserveOrder not set~~ — Severity: High — FALSE REPORT
+**Reason**: ReleaseOutputBuffer is only called from InternalExecuteIntoOrdered which is only reached when dmoPreserveOrder is set. The code path where dmUnusedBuffers is nil can never reach this method.
 **File**: `OtlDataManager.pas:1109`
 **Category**: 2.1 Resource Leaks / nil dereference
 **Description**: `dmUnusedBuffers` is only created when `dmoPreserveOrder in dmOptions` (line 981). However, `ReleaseOutputBuffer` unconditionally calls `dmUnusedBuffers.Add(buffer)` without checking if `dmUnusedBuffers` is assigned.
@@ -2136,7 +2137,7 @@ end;
 
 ---
 
-### ~~`CAS16` offset mask not adapted from `CAS8`~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`CAS16` offset mask not adapted from `CAS8`~~ — Severity: Medium — FINISHED
 **File**: `OtlSync.pas:933`
 **Category**: 3.2 Incomplete Adaptations
 **Description**: `CAS16` was copied from `CAS8` but the alignment mask was not adapted. For `CAS8`, `and 3` yields byte offsets 0–3 within a 4-byte word, all valid for a single byte. For `CAS16`, byte offset 3 would straddle a 4-byte boundary: `$FFFF shl 24` produces `$FF000000`, silently discarding the upper 8 bits of the 16-bit value.
@@ -2155,7 +2156,7 @@ offset := integer(NativeUInt(@destination) and 3) * 8;  // offset 24 is invalid 
 
 ---
 
-### ~~`CreateOmniEvent(TEvent, boolean)` factory calls non-existent constructor~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`CreateOmniEvent(TEvent, boolean)` factory calls non-existent constructor~~ — Severity: Medium — FINISHED
 **File**: `OtlSync.pas:900`
 **Category**: 3.2 Incomplete Adaptations
 **Description**: The factory `CreateOmniEvent(AExternalEvent: TEvent; ATakeOwnership: boolean)` was added alongside the `THandle`-based constructor, but no matching `TOmniEvent.Create(TEvent, boolean)` constructor was ever implemented. `TOmniEvent` only has `Create(boolean, boolean)` and `Create(THandle, boolean)`. No callers exist in the codebase, so this compiles; if ever called, it would produce a type error or silently misresolve the overload.
@@ -2780,7 +2781,8 @@ end;
 
 ---
 
-### ~~`BeforeSignal`/`AfterSignal` callbacks called while gate lock is held~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`BeforeSignal`/`AfterSignal` callbacks called while gate lock is held~~ — Severity: Medium — FALSE REPORT
+**Reason**: The gate lock serializes signal delivery with condition evaluation — this is the intended design. The callbacks are the observer's own methods (BeforeSignal/AfterSignal), not user callbacks.
 **File**: `OtlSync.pas:2567-2571`
 **Category**: 5.3 Callback Safety
 **Description**: `PerformObservableAction` enters the gate lock and then invokes `BeforeSignal` and `AfterSignal` callbacks on all observers while those gates remain held. The callback context (which thread, which locks held) is not documented in the `IOmniSynchroObserver` interface.
@@ -2798,7 +2800,8 @@ for iObserver := 0 to count - 1 do
 
 ---
 
-### ~~Re-entrant gate lock in `TCondition.Test` — undocumented dependency~~ — Severity: Low — CONFIRMED, DEFERRED
+### ~~Re-entrant gate lock in `TCondition.Test` — undocumented dependency~~ — Severity: Low — FALSE REPORT
+**Reason**: TCriticalSection is reentrant by design on all platforms. This is not a dependency on an implementation detail but on a documented property of the synchronization primitive.
 **File**: `OtlSync.pas:2377`, `2398`
 **Category**: 5.2 Precondition Checking
 **Description**: `TOneCondition.Test` and `TAllCondition.Test` unconditionally acquire `FController.Gate`. All callers already hold the gate. This works because Windows critical sections are re-entrant, but it is undocumented.
@@ -2860,7 +2863,7 @@ end;
 
 ---
 
-### ~~`TOmniBaseBoundedStack.IsEmpty`/`IsFull` read shared pointers without lock~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`TOmniBaseBoundedStack.IsEmpty`/`IsFull` read shared pointers without lock~~ — Severity: Medium — FINISHED
 **File**: `OtlContainers.pas:524-531`
 **Category**: 5.2 Precondition Checking
 **Description**: `IsEmpty` and `IsFull` directly read `obsPublicChainP^.PData` and `obsRecycleChainP^.PData` without acquiring `obsLock`. In the non-CAS path, all mutations go through `Acquire`/`Release` which delegate to `obsLock`. The unprotected reads from `IsEmpty`/`IsFull` are inconsistent with how `Pop`/`Push`/`Empty` protect themselves.
@@ -2905,7 +2908,8 @@ end;
 
 ---
 
-### ~~Observer callbacks called while internal lock is held — deadlock risk~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~Observer callbacks called while internal lock is held — deadlock risk~~ — Severity: Medium — FINISHED
+**Note**: Fixed by snapshot-then-invoke pattern in OtlContainerObserver.pas Notify/NotifyOnce. Container lock (obsLock) was never held during callbacks — only the observer list read lock was, and that is now released before dispatch.
 **File**: `OtlContainers.pas:705-729`, `1066-1090`
 **Category**: 5.3 Callback Safety
 **Description**: `TOmniBoundedStack.Pop/Push` and `TOmniBoundedQueue.Dequeue/Enqueue` call `ContainerSubject.Notify` and `NotifyOnce` after the data operation returns but still in the same call frame. `Notify` acquires a read lock on the per-interest list and calls `observer.Notify`. No documentation warns that observer callbacks must not re-enter the container.
@@ -3829,7 +3833,7 @@ end;
 
 ## OtlContainerObserver.pas
 
-### ~~`NotifyOnce` callbacks fired under read lock~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`NotifyOnce` callbacks fired under read lock~~ — Severity: Medium — FINISHED
 **File**: `OtlContainerObserver.pas:291-310`
 **Category**: 5.3 Callback Safety
 **Description**: `TOmniContainerSubject.NotifyOnce` and `Notify` iterate the observer list under a per-interest read lock and call `observer.Notify` while the lock is held. An observer callback that calls `Attach`/`Detach` on the same subject will deadlock on the write lock.
@@ -3872,7 +3876,7 @@ end;
 
 ## OtlEventMonitor.pas
 
-### ~~`ProcessTerminated` does not filter internal OTL messages~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`ProcessTerminated` does not filter internal OTL messages~~ — Severity: Medium — FINISHED
 **File**: `OtlEventMonitor.pas:360-363`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `ProcessNewMessage` filters internal OTL messages via `FilterMessage` before calling the user's `OnTaskMessage` handler. `ProcessTerminated` drains Endpoint1 without `FilterMessage`, so internal messages (Invoke, control) leak to the user callback during termination.
@@ -4446,7 +4450,7 @@ end;
 
 ## OtlEventMonitor.pas
 
-### ~~`ProcessTerminated` does not call `FilterMessage`~~ — Medium — CONFIRMED, DEFERRED
+### ~~`ProcessTerminated` does not call `FilterMessage`~~ — Medium — FINISHED
 **File**: `OtlEventMonitor.pas:361-367`
 **Category**: 7.2 Inconsistent Patterns
 **Description**: In `ProcessNewMessage`, the code calls `(task as IOmniTaskControlInternals).FilterMessage(emCurrentMsg)` to filter out internal messages before passing them to the event handler. However, in `ProcessTerminated`, which also drains the comm channels, `FilterMessage` is never called. Internal messages (e.g., Invoke dispatches) are passed directly to `emOnTaskMessage` and `emOnTaskUndeliveredMessage`.
