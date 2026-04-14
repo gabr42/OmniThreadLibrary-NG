@@ -3,7 +3,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2020, Primoz Gabrijelcic
+///Copyright (c) 2026, Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -33,30 +33,18 @@
 ///   Author            : Primoz Gabrijelcic
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
-///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack
-///   Last modification : 2026-04-12
-///   Version           : 2.07
+///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
+///   Last modification : 2026-04-14
+///   Version           : 3.01
 ///</para><para>
 ///   History:
-///     2.07: 2026-04-12
-///       - Added ProcessMessages and WaitForMessage to IOmniTaskControl for
-///         non-main-thread task owners.
-///       - On Windows, background thread owners get automatic callback delivery
-///         via QueueUserAPC (OtlBackgroundObserver unit).
-///       - Added SleepEx(0, TRUE) to task message loop for APC processing.
-///       - ForwardTaskTerminated is now guarded against double-firing.
-///     2.06: 2026-04-12
-///       - Added TOmniCOMInitType enum and IOmniTaskControl.COMInitialize method.
-///         On Windows, calls CoInitializeEx/CoUninitialize around task execution.
-///         On non-Windows platforms, the setting is a no-op.
-///     2.05: 2026-04-12
-///       - Replaced MsgWaitForMultipleObjectsEx-based WaitForEvent with
-///         CV-based TWaitFor.WaitAny on all platforms.
-///       - Removed Windows thread message pumping from task loop
-///         (ProcessThreadMessages).
-///       - Removed Winapi.Messages dependency.
-///       - Deprecated MsgWait and Alertable methods (now no-ops).
-///     2.04: 2026-04-12
+///     3.01: 2026-04-14
+///       - Replaced TOmniTransitionEvent with IOmniEvent.
+///     3.0: 2026-04-12 [OTL-NG]
+///       - Removed DSiWin32 and GpStuff dependencies.
+///       - Group affinity uses direct Winapi.Windows.SetThreadGroupAffinity.
+///       - WaitFor uses direct WaitForMultipleObjects instead of DSiWaitForTwoObjects.
+///       - Fixed stale TSynchroWaitFor references (renamed to TWaitFor in Step 1.2).
 ///       - Unified IOmniEvent = IOmniEvent on all platforms.
 ///       - Removed all OTL_PlatformIndependent conditionals.
 ///       - Removed THandle overloads of TerminateWhen, RegisterWaitObject,
@@ -64,11 +52,21 @@
 ///       - WaitHandles, oteCommNewMsgList, oteTerminateHandles use IOmniSynchro/IOmniEvent
 ///         unconditionally.
 ///       - DispatchEvent and WaitForEvent simplified to use TWaitFor.Signalled uniformly.
-///     2.03: 2026-04-12
-///       - Removed DSiWin32 and GpStuff dependencies.
-///       - Group affinity uses direct Winapi.Windows.SetThreadGroupAffinity.
-///       - WaitFor uses direct WaitForMultipleObjects instead of DSiWaitForTwoObjects.
-///       - Fixed stale TSynchroWaitFor references (renamed to TWaitFor in Step 1.2).
+///       - Replaced MsgWaitForMultipleObjectsEx-based WaitForEvent with
+///         CV-based TWaitFor.WaitAny on all platforms.
+///       - Removed Windows thread message pumping from task loop
+///         (ProcessThreadMessages).
+///       - Removed Winapi.Messages dependency.
+///       - Deprecated MsgWait and Alertable methods (now no-ops).
+///       - Added TOmniCOMInitType enum and IOmniTaskControl.COMInitialize method.
+///         On Windows, calls CoInitializeEx/CoUninitialize around task execution.
+///         On non-Windows platforms, the setting is a no-op.
+///       - Added ProcessMessages and WaitForMessage to IOmniTaskControl for
+///         non-main-thread task owners.
+///       - On Windows, background thread owners get automatic callback delivery
+///         via QueueUserAPC (OtlBackgroundObserver unit).
+///       - Added SleepEx(0, TRUE) to task message loop for APC processing.
+///       - ForwardTaskTerminated is now guarded against double-firing.
 ///     2.02: 2020-05-20
 ///       - Method dispatch uses ERTTI.
 ///     2.01: 2020-04-26

@@ -1,10 +1,9 @@
 ///<summary>Synchronisation primitives. Part of the OmniThreadLibrary project.</summary>
-///<remarks>Move* family of functions require Pentium 4 processor (or newer).</remarks>
 ///<author>Primoz Gabrijelcic</author>
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2025, Primoz Gabrijelcic
+///Copyright (c) 2026, Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -34,21 +33,25 @@
 ///   Author            : Primoz Gabrijelcic
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
-///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu
+///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
-///   Last modification : 2026-04-12
-///   Version           : 2.06
+///   Last modification : 2026-04-14
+///   Version           : 3.01
 ///</para><para>
 ///   History:
-///     2.06: 2026-04-12
+///     3.01: 2026-04-14
+///       - Fixed TCondition.Wait spurious wakeup bug — condvar wait now loops
+///         instead of returning wrIOCompletion on spurious wakeup.
+///       - Fixed lock-order inversion deadlock in PerformObservableAction —
+///         snapshot-based approach releases spin lock before entering gates.
+///       - Removed TOmniTransitionEvent type alias (replaced with IOmniEvent).
+///     3.0: 2026-04-12
+///       - OTL-NG: TOmniTransitionEvent is now unconditionally IOmniEvent on all platforms.
+///       - Added TWaitFor.SetSynchObjects for updating synchro objects after construction.
+///       - Simplified SetEvent(IOmniEvent) helper (removed conditional).
+///       - Removed unused GpSync.CondVar import.
 ///       - Fixed TPreSignalData.Create parameter name bug (AllSignalled self-assignment).
 ///       - Fixed W1035 warnings in Atomic<T>.Initialize and Locked<T>.Initialize.
-///     2.05: 2026-04-12
-///       - Removed unused GpSync.CondVar import.
-///     2.04: 2026-04-12
-///       - TOmniTransitionEvent is now unconditionally IOmniEvent on all platforms.
-///       - Added TWaitFor.SetSynchObjects for updating synchro objects after construction.
-///       - Simplified SetEvent(TOmniTransitionEvent) helper (removed conditional).
 ///     2.03a: 2025-11-20
 ///       - Implemented Locked<T>.IsInitialized.
 ///     2.03: 2025-11-11
