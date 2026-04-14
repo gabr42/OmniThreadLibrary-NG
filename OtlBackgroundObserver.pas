@@ -1,33 +1,59 @@
 ///<summary>Cross-platform container observer for background thread notification.
 ///    Part of the OmniThreadLibrary project.</summary>
 ///<author>Primoz Gabrijelcic, Claude</author>
+///<license>
+///This software is distributed under the BSD license.
+///
+///Copyright (c) 2026 Primoz Gabrijelcic
+///All rights reserved.
+///
+///Redistribution and use in source and binary forms, with or without modification,
+///are permitted provided that the following conditions are met:
+///- Redistributions of source code must retain the above copyright notice, this
+///  list of conditions and the following disclaimer.
+///- Redistributions in binary form must reproduce the above copyright notice,
+///  this list of conditions and the following disclaimer in the documentation
+///  and/or other materials provided with the distribution.
+///- The name of the Primoz Gabrijelcic may not be used to endorse or promote
+///  products derived from this software without specific prior written permission.
+///
+///THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+///ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+///WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+///DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+///ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+///(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+///LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+///ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+///(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+///SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+///</license>
 ///<remarks><para>
 ///   Home              : http://www.omnithreadlibrary.com
 ///   Support           : https://en.delphipraxis.net/forum/32-omnithreadlibrary/
 ///   Author            : Primoz Gabrijelcic
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
+///   Contributors      : Claude AI
 ///   Creation date     : 2026-04-12
 ///   Last modification : 2026-04-12
-///   Version           : 1.02
+///   Version           : 1.0
 ///</para><para>
 ///   History:
-///     1.02: 2026-04-12
-///       - Added IOmniEvent to all observer implementations for wait-set injection.
-///         When owner is an OTL worker task, the event is registered as a wait object
-///         in the owner's message loop for immediate notification delivery.
-///       - Windows APC delivery retained for non-OTL-task owners (plain TThread).
-///     1.01: 2026-04-12
+///     1.0: 2026-04-12 [OTL-NG]
+///       - Initial implementation. APC-based container observer for delivering
+///         task notifications to background thread owners on Windows.
+///         Modeled on GpEventBus QueueUserAPC dispatch pattern.
 ///       - Cross-platform restructure. Renamed from OtlAPCDispatch.pas.
 ///       - Windows: QueueUserAPC-based delivery (unchanged logic).
 ///       - POSIX: Atomic pending flag + thread-local registry for semi-automatic
 ///         delivery in OTL worker thread owners.
 ///       - Fixed bug: removed incorrect CanNotify check from Notify (was silencing
 ///         observer after first notification).
-///     1.0: 2026-04-12
-///       - Initial implementation. APC-based container observer for delivering
-///         task notifications to background thread owners on Windows.
-///         Modeled on GpEventBus QueueUserAPC dispatch pattern.
+///       - Added IOmniEvent to all observer implementations for wait-set injection.
+///         When owner is an OTL worker task, the event is registered as a wait object
+///         in the owner's message loop for immediate notification delivery.
+///       - Windows APC delivery retained for non-OTL-task owners (plain TThread).
 ///</para></remarks>
 
 unit OtlBackgroundObserver;

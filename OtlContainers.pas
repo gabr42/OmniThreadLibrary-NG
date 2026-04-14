@@ -5,7 +5,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2025 Primoz Gabrijelcic
+///Copyright (c) 2026 Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -35,16 +35,14 @@
 ///   Author            : Primoz Gabrijelcic
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
-///   Contributors      : GJ, Sean B. Durkin
+///   Contributors      : GJ, Sean B. Durkin, Claude AI
 ///   Creation date     : 2008-07-13
-///   Last modification : 2026-04-12
-///   Version           : 3.04
+///   Last modification : 2026-04-11
+///   Version           : 4.0
 ///</para><para>
 ///   History:
-///     3.04: 2026-04-12
-///       - Suppressed H2443 hint for TSpinLock.Enter inline expansion.
-///     3.03: 2026-04-11
-///       - OTL NG: Platform abstraction — removed DSiWin32, GpStuff, Winapi.Windows
+///     4.0: 2026-04-11 [OTL-NG]
+///       - Platform abstraction — removed DSiWin32, GpStuff, Winapi.Windows
 ///         dependencies; removed all inline assembly (replaced with TThread.SpinWait);
 ///         removed {$IFDEF OTL_MobileSupport} guards; unified TReferencedPtr layout;
 ///         always allocate critical section locks; removed automatic OTL_OLDCPU.
@@ -123,6 +121,9 @@ unit OtlContainers;
 interface
 
 uses
+{$IFDEF MSWindows}
+  Winapi.Windows,
+{$ENDIF}
   System.Classes,
   System.SyncObjs,
   OtlCommon,
@@ -1804,12 +1805,10 @@ begin
   FLock.Create(True);
 end; { TOmniValueQueueSpin.Create }
 
-{$HINTS OFF} // H2443: TSpinLock.Enter inline not expanded (Winapi.Windows not in uses) — harmless
 procedure TOmniValueQueueSpin.EnterCriticalSection;
 begin
   FLock.Enter;
 end; { TOmniValueQueueSpin.EnterCriticalSection }
-{$HINTS ON}
 
 procedure TOmniValueQueueSpin.LeaveCriticalSection;
 begin

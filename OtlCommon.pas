@@ -3,7 +3,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2025, Primoz Gabrijelcic
+///Copyright (c) 2026, Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -33,13 +33,13 @@
 ///   Author            : Primoz Gabrijelcic
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
-///   Contributors      : GJ, Lee_Nover, scarre, Sean B. Durkin, HHasenack
+///   Contributors      : GJ, Lee_Nover, scarre, Sean B. Durkin, HHasenack, Claude AI
 ///   Creation date     : 2008-06-12
 ///   Last modification : 2026-04-12
-///   Version           : 2.0c
+///   Version           : 3.0
 ///</para><para>
 ///   History:
-///     2.0c: 2026-04-12
+///     3.0: 2026-04-12 [OTL-NG]
 ///       - Removed transitional version-check conditionals (always true on Delphi 11+).
 ///     2.0b: 2025-12-01
 ///       - Improved LogValue.

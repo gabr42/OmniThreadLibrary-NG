@@ -4,7 +4,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2018, Primoz Gabrijelcic
+///Copyright (c) 2026, Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -34,7 +34,6 @@
 ///   Author            : Primoz Gabrijelcic
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
-///
 ///   Creation date     : 2018-05-10
 ///   Last modification : 2018-05-10
 ///   Version           : 1.0

@@ -3,7 +3,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2019, Primoz Gabrijelcic
+///Copyright (c) 2026, Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -33,13 +33,13 @@
 ///   Author            : Primoz Gabrijelcic
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
-///   Contributors      : GJ, Lee_Nover
+///   Contributors      : GJ, Lee_Nover, Claude AI
 ///   Creation date     : 2010-07-08
 ///   Last modification : 2026-04-12
 ///   Version           : 1.03
 ///</para><para>
 ///   History:
-///     1.03: 2026-04-12
+///     1.03: 2026-04-12 [OTL-NG]
 ///       - Removed unused DSiWin32 import.
 ///     1.02: 2015-10-04
 ///       - Adapted for non-Windows platforms.

@@ -4,7 +4,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2022 Primoz Gabrijelcic
+///Copyright (c) 2026 Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -34,31 +34,28 @@
 ///   Author            : Primoz Gabrijelcic
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
-///   Contributors      : Sean B. Durkin, HHasenack, SMelnyk64
+///   Contributors      : Sean B. Durkin, HHasenack, SMelnyk64, Claude AI
 ///   Last modification : 2026-04-13
-///   Version           : 2.1a
-///     2.1a: 2026-04-13
+///   Version           : 3.01
+///     3.01: 2026-04-13
 ///       - Implemented Parallel.Merge<T> — fan-in convenience merging multiple
 ///         channels into a single output channel via background select loop.
 ///       - Implemented Parallel.Race<T> / TryRace<T> — returns the first value
 ///         received from any of the given channels.
 ///       - Added ESelectTimeout exception.
-///     2.1: 2026-04-13
 ///       - Implemented Parallel.Channel<T> — Go-style typed, directional, bounded
 ///         channel for producer/consumer communication.
 ///       - Implemented Parallel.Select / SelectCase — multiplexed channel waiting
 ///         (Go-style select). Waits on multiple channels simultaneously, fires
 ///         exactly one handler per Wait call.
-///     2.0d: 2026-04-12
-///       - Removed Parallel.ForkJoin (Step 3.1.1).
-///       - Removed unused variables in TOmniParallelMapper<T1,T2>.Execute.
-///     2.0c: 2026-04-12
-///       - Removed Winapi.Windows from implementation uses (not needed).
-///     2.0b: 2026-04-12
+///     3.0: 2026-04-12 [OTL-NG]
 ///       - Removed DSiWin32 and GpStuff dependencies.
 ///       - Unified WaitForSingleObject(FCountStopped.Handle) to FCountStopped.Synchro.WaitFor.
 ///       - Replaced DSiYield with TThread.Yield.
 ///       - Replaced DSiAllocateHWnd/DSiDeallocateHWnd with System.Classes equivalents.
+///       - Removed Parallel.ForkJoin (Step 3.1.1).
+///       - Removed unused variables in TOmniParallelMapper<T1,T2>.Execute.
+///       - Removed Winapi.Windows from implementation uses (not needed).
 ///     2.0a: 2025-09-08
 ///       - [SMelnyk64] Prevent potentinal AV in TOmniParallelLoopBase.InternalExecute.
 ///     2.0: 2018-06-14

@@ -3,7 +3,7 @@
 ///<license>
 ///This software is distributed under the BSD license.
 ///
-///Copyright (c) 2021 Primoz Gabrijelcic
+///Copyright (c) 2026 Primoz Gabrijelcic
 ///All rights reserved.
 ///
 ///Redistribution and use in source and binary forms, with or without modification,
@@ -33,14 +33,14 @@
 ///   Author            : Primoz Gabrijelcic
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
-///   Contributors      : Sean B. Durkin
+///   Contributors      : Sean B. Durkin, Claude AI
 ///   Creation date     : 2009-12-27
 ///   Last modification : 2026-04-11
-///   Version           : 2.02
+///   Version           : 3.0
 ///</para><para>
 ///   History:
-///     2.02: 2026-04-11
-///       - OTL NG: Platform abstraction — removed DSiWin32, GpStuff, Winapi.Windows,
+///     3.0: 2026-04-11 [OTL-NG]
+///       - Platform abstraction — removed DSiWin32, GpStuff, Winapi.Windows,
 ///         OtlPlatform dependencies; replaced WaitForMultipleObjects/DSiWaitForTwoObjects
 ///         with TWaitFor (condition-variable-based); unified TryTake and TryAdd to single
 ///         cross-platform implementation; replaced asm pause with TThread.SpinWait;
