@@ -367,14 +367,14 @@ maps to the collection's queue size. Throttling high/low watermarks default
 to capacity / capacity-1 so `Send` blocks when the channel is full.
 
 #### 3.3.3 Implementation tasks
-- [ ] `IOmniChannelReceiver<T>`, `IOmniChannelSender<T>`, `IOmniChannel<T>` interfaces in OtlParallel.pas
-- [ ] `TOmniChannel<T>` implementation wrapping `IOmniBlockingCollection`
-- [ ] `Parallel.Channel<T>` factory method
-- [ ] `Receive` / `TryReceive` — `Take` / `TryTake` + `CastTo<T>`
-- [ ] `Send` / `TrySend` — `CastFrom<T>` + `Add` / `TryAdd` with throttling
-- [ ] `Close` — `CompleteAdding`, idempotent
-- [ ] `GetEnumerator` — `for-in` iteration until closed and drained
-- [ ] Unit tests: basic send/receive, for-in, close semantics, TrySend/TryReceive timeout, capacity blocking, fan-out (multiple consumers)
+- [x] `IOmniChannelReceiver<T>`, `IOmniChannelSender<T>`, `IOmniChannel<T>` interfaces in OtlParallel.pas
+- [x] `TOmniChannel<T>` implementation wrapping `IOmniBlockingCollection`
+- [x] `Parallel.Channel<T>` factory method
+- [x] `Receive` / `TryReceive` — `Take` / `TryTake` + `CastTo<T>`
+- [x] `Send` / `TrySend` — `CastFrom<T>` + `Add` / `TryAdd` with throttling
+- [x] `Close` — `CompleteAdding`, idempotent
+- [x] `GetEnumerator` — `for-in` iteration until closed and drained
+- [x] Unit tests: 13 tests in TestChannel1.pas (basic send/receive, for-in, close semantics, TrySend/TryReceive, capacity blocking, fan-out, cross-thread, string/record channels)
 
 #### 3.3.4 Parallel.Select — multiplexed channel waiting
 
