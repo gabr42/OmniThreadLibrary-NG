@@ -50,7 +50,7 @@ end;
 
 ---
 
-### MeasureExecutionTimes has a race on class variables without synchronization — Severity: High
+### ~~MeasureExecutionTimes has a race on class variables without synchronization~~ — Severity: High — FINISHED
 **File**: `OtlContainers.pas:563` (stack), `OtlContainers.pas:957` (queue)
 **Category**: 1.1 Race Conditions
 **Description**: `obsIsInitialized` / `obqIsInitialized` are plain boolean class variables checked without any lock or interlocked operation. If two threads create instances concurrently, both can enter the measurement block. Both will write to `obsTaskPopLoops` / `obsTaskPushLoops` simultaneously.
@@ -72,7 +72,7 @@ end;
 
 ---
 
-### TOmniBaseBoundedStack.Empty is not protected by Acquire/Release — Severity: High
+### ~~TOmniBaseBoundedStack.Empty is not protected by Acquire/Release~~ — Severity: High — FINISHED
 **File**: `OtlContainers.pas:470`
 **Category**: 1.1 Race Conditions
 **Description**: On the CS-fallback path, `Pop` and `Push` acquire the lock, but `Empty` calls `PopLink` and `PushLink` in a loop without holding the lock.
@@ -95,7 +95,7 @@ end;
 
 ---
 
-### TOmniBaseBoundedQueue.IsEmpty reads two fields non-atomically without lock — Severity: High
+### ~~TOmniBaseBoundedQueue.IsEmpty reads two fields non-atomically without lock~~ — Severity: High — FINISHED
 **File**: `OtlContainers.pas:909`
 **Category**: 1.1 Race Conditions (TOCTOU)
 **Description**: `IsEmpty` reads `FirstIn.PData` and `LastIn.PData` without acquiring the lock, while `IsFull` (line 918) does acquire the lock. Inconsistent locking between the two methods.
@@ -111,8 +111,9 @@ end;
 
 ---
 
-### TOmniValueQueue.IsEmpty lacks try/finally around critical section — Severity: Medium
+### ~~TOmniValueQueue.IsEmpty lacks try/finally around critical section~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlContainers.pas:1769`
+**Reason**: The body is a simple integer comparison (`FInnerQueue.Count = 0`) that cannot raise an exception. A try/finally is unnecessary overhead here.
 **Category**: 1.2 Lock Ordering
 **Description**: `IsEmpty` enters the critical section but does not use try/finally to ensure it is released.
 **Evidence**:

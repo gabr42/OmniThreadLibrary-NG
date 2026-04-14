@@ -46,6 +46,11 @@
 ///         (Low to Low instead of Low to High).
 ///       - Fixed CollectionNotifyEvent using FAlmostFullThreshold instead of
 ///         FPartlyEmptyThreshold for coiNotifyOnPartlyEmpty detection.
+///       - Fixed MeasureExecutionTimes race on class variables using
+///         TInterlocked.CompareExchange for thread-safe one-time initialization.
+///       - Fixed TOmniBaseBoundedStack.Empty not protected by Acquire/Release.
+///       - Fixed TOmniBaseBoundedQueue.IsEmpty not protected by Acquire/Release,
+///         now consistent with IsFull.
 ///     4.0: 2026-04-11 [OTL-NG]
 ///       - Platform abstraction — removed DSiWin32, GpStuff, Winapi.Windows
 ///         dependencies; removed all inline assembly (replaced with TThread.SpinWait);
@@ -204,7 +209,7 @@ type
     obsRecycleChainP: PReferencedPtr;
     obsLock         : IOmniCriticalSection;
   class var
-    class var obsIsInitialized: boolean;                //default is false
+    class var obsIsInitialized: integer;                 //0=false, 1=true
     class var obsTaskPopLoops : NativeInt;
     class var obsTaskPushLoops: NativeInt;
   strict protected
@@ -253,7 +258,7 @@ type
     obqRecycleRingMem   : pointer;
     obqLock             : IOmniCriticalSection;
   class var
-    class var obqIsInitialized  : boolean;
+    class var obqIsInitialized  : integer;              //0=false, 1=true
     class var obqTaskInsertLoops: NativeInt;             //default is false
     class var obqTaskRemoveLoops: NativeInt;
   strict protected
@@ -476,12 +481,15 @@ procedure TOmniBaseBoundedStack.Empty;
 var
   linkedData: POmniLinkedData;
 begin
-  repeat
-    linkedData := PopLink(obsPublicChainP^);
-    if not assigned(linkedData) then
-      break; //repeat
-    PushLink(linkedData, obsRecycleChainP^);
-  until false;
+  Acquire;
+  try
+    repeat
+      linkedData := PopLink(obsPublicChainP^);
+      if not assigned(linkedData) then
+        break; //repeat
+      PushLink(linkedData, obsRecycleChainP^);
+    until false;
+  finally Release; end;
 end; { TOmniBaseBoundedStack.Empty }
 
 procedure TOmniBaseBoundedStack.Initialize(numElements, elementSize: integer);
@@ -565,7 +573,7 @@ var
   n          : integer;
 
 begin { TOmniBaseBoundedStack.MeasureExecutionTimes }
-  if not obsIsInitialized then begin
+  if (obsIsInitialized = 0) and (TInterlocked.CompareExchange(obsIsInitialized, 1, 0) = 0) then begin
     affinity := TPlatform.ThreadAffinity;
     TPlatform.ThreadAffinity := affinity[1];
     try
@@ -587,7 +595,6 @@ begin { TOmniBaseBoundedStack.MeasureExecutionTimes }
       obsTaskPopLoops := GetMinAndClear(0, 4) div 4;
       //Calculate first 4 minimum average for InsertLink rutine
       obsTaskPushLoops := GetMinAndClear(1, 4) div 4;
-      obsIsInitialized := true;
     finally TPlatform.ThreadAffinity := affinity; end;
   end;
 end;  { TOmniBaseBoundedStack.MeasureExecutionTimes }
@@ -913,7 +920,10 @@ end; { TOmniBaseBoundedQueue.InsertLink }
 
 function TOmniBaseBoundedQueue.IsEmpty: boolean;
 begin
-  Result := (obqPublicRingBuffer.FirstIn.PData = obqPublicRingBuffer.LastIn.PData);
+  Acquire;
+  try
+    Result := (obqPublicRingBuffer.FirstIn.PData = obqPublicRingBuffer.LastIn.PData);
+  finally Release; end;
 end; { TOmniBaseBoundedQueue.IsEmpty }
 
 function TOmniBaseBoundedQueue.IsFull: boolean;
@@ -959,7 +969,7 @@ var
   n          : integer;
 
 begin { TOmniBaseBoundedQueue.MeasureExecutionTimes }
-  if not obqIsInitialized then begin
+  if (obqIsInitialized = 0) and (TInterlocked.CompareExchange(obqIsInitialized, 1, 0) = 0) then begin
     affinity := TPlatform.ThreadAffinity;
     TPlatform.ThreadAffinity := affinity[1];
     try
@@ -979,7 +989,6 @@ begin { TOmniBaseBoundedQueue.MeasureExecutionTimes }
       end;
       obqTaskRemoveLoops := GetMinAndClear(0, 4) div 4;
       obqTaskInsertLoops := GetMinAndClear(1, 4) div 4;
-      obqIsInitialized := true;
     finally TPlatform.ThreadAffinity := affinity; end;
   end;
 end; { TOmniBaseBoundedQueue.MeasureExecutionTimes }
