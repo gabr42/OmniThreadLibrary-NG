@@ -798,7 +798,7 @@ end;
 
 ## OtlThreadPool.pas
 
-### Cancel wait timeout overflow — waitForTask_ms doubled — Severity: High
+### ~~Cancel wait timeout overflow — waitForTask_ms doubled~~ — Severity: High — FINISHED
 **File**: `OtlThreadPool.pas:1006`
 **Category**: 1.6 Thread Pool Correctness
 **Description**: `waitForTask_ms` already holds milliseconds (from `WaitOnTerminate_sec.Value * 1000` on line 997). Line 1006 multiplies by 1000 again.
@@ -815,7 +815,7 @@ end;
 
 ---
 
-### GlobalOmniThreadPool lazy init is not thread-safe — Severity: Medium
+### ~~GlobalOmniThreadPool lazy init is not thread-safe~~ — Severity: Medium — FINISHED
 **File**: `OtlThreadPool.pas:617`
 **Category**: 1.1 Race Conditions
 **Description**: Classic check-then-act without synchronization on `GOmniThreadPool`.
@@ -833,8 +833,9 @@ end;
 
 ---
 
-### Asy_OnUnhandledWorkerException accessed cross-thread without synchronization — Severity: Medium
+### ~~Asy_OnUnhandledWorkerException accessed cross-thread without synchronization~~ — Severity: Medium — FALSE REPORT
 **File**: `OtlThreadPool.pas:450`
+**Reason**: The handler is set once during pool initialization (before workers start) and never modified afterwards. The set-once-then-read pattern is safe; modifying it while workers are running would be API misuse.
 **Category**: 1.1 Race Conditions
 **Description**: `owAsy_OnUnhandledWorkerException` (a `TMethod` — two pointer-sized values) is written from the main thread and read from worker threads without any lock. Writing a method pointer is not atomic.
 **Evidence**:
@@ -857,7 +858,7 @@ end;
 
 ## OtlDataManager.pas
 
-### idpPosition incremented non-atomically in GetNext — Severity: High
+### ~~idpPosition incremented non-atomically in GetNext~~ — Severity: High — FINISHED
 **File**: `OtlDataManager.pas:469`
 **Category**: 1.1 Race Conditions
 **Description**: `idpPosition` is a plain `integer` with non-atomic read-modify-write. The class comment says "All methods can and will be called from multiple threads at the same time!" Two threads could read the same position value and both increment, resulting in duplicate positions.
@@ -878,7 +879,7 @@ end;
 
 ---
 
-### vedpPosition incremented non-atomically in TOmniValueEnumeratorDataPackage.GetNext — Severity: Medium
+### ~~vedpPosition incremented non-atomically in TOmniValueEnumeratorDataPackage.GetNext~~ — Severity: Medium — FINISHED
 **File**: `OtlDataManager.pas:634`
 **Category**: 1.1 Race Conditions
 **Description**: Same pattern as above. `vedpPosition` is a plain `int64` with non-atomic read-modify-write. Concurrent access during work stealing can corrupt positions.
@@ -901,7 +902,7 @@ end;
 
 ## OtlHooks.pas
 
-### Callbacks invoked under read lock can deadlock if callback registers/unregisters — Severity: Medium
+### ~~Callbacks invoked under read lock can deadlock if callback registers/unregisters~~ — Severity: Medium — FINISHED
 **File**: `OtlHooks.pas:325`
 **Category**: 1.2 Lock Ordering & Deadlocks
 **Description**: The `Notify` and `Filter` methods acquire a read lock on `pmlLock` (a `TOmniMREW`) and invoke user callbacks while holding it. If a callback tries to register or unregister (which acquires a write lock), this deadlocks.
@@ -929,8 +930,9 @@ end;
 
 ## OtlCollections.pas
 
-### obcReraiseExceptions boolean flag read/written cross-thread without fence — Severity: Low
+### ~~obcReraiseExceptions boolean flag read/written cross-thread without fence~~ — Severity: Low — FALSE REPORT
 **File**: `OtlCollections.pas:200`
+**Reason**: Set once during configuration before concurrent use begins. This is a configure-then-use pattern; modifying it during concurrent access is API misuse.
 **Category**: 1.1 Race Conditions
 **Description**: `obcReraiseExceptions` is a plain boolean written by `ReraiseExceptions` (main thread) and read by `TryTake` (worker threads). No memory barrier.
 **Risk**: Worker thread might not see the updated flag on ARM. Low practical impact since typically set before concurrent use.
@@ -940,8 +942,9 @@ end;
 
 ## OtlComm.pas
 
-### TOmniTwoWayChannel double-checked locking on ARM — Severity: Low
+### ~~TOmniTwoWayChannel double-checked locking on ARM~~ — Severity: Low — FALSE REPORT
 **File**: `OtlComm.pas:602`
+**Reason**: The Endpoint properties use a lock (CreateInternalChannel acquires otcLock). The outer nil check is an optimization; the inner check under lock provides correctness. On ARM, the worst case is a redundant lock acquisition, not a correctness issue.
 **Category**: 1.1 Race Conditions
 **Description**: `Endpoint1` and `Endpoint2` use double-checked locking. On ARM the outer nil check could read a non-nil pointer before the pointed-to object is fully constructed.
 **Risk**: On ARM, a reader could see a partially-constructed endpoint. On x86 this is safe.
@@ -951,8 +954,9 @@ end;
 
 ## OtlCommon.pas
 
-### TOmniAlignedInt32.Initialize relies on address stability — Severity: Low
+### ~~TOmniAlignedInt32.Initialize relies on address stability~~ — Severity: Low — FALSE REPORT
 **File**: `OtlCommon.pas:4248`
+**Reason**: As noted in the finding itself, current usage (embedded in heap-allocated objects) is safe. The constraint is inherent to value-type wrappers for atomic operations and is well-understood.
 **Category**: 1.3 Lock-Free Code
 **Description**: `TOmniAlignedInt32` is a value-type record. `Initialize` computes `FAddr` from `@FData`. If the record were copied or moved (e.g., passed by value, stored in a resized dynamic array), `FAddr` would point to the old location.
 **Risk**: If used incorrectly (passed by value), atomic operations target wrong memory. Current usage (embedded in heap-allocated objects) is safe.

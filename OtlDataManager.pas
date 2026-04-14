@@ -35,10 +35,15 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, Claude AI
 ///   Creation date     : 2010-04-13
-///   Last modification : 2026-04-12
-///   Version           : 3.01
+///   Last modification : 2026-04-14
+///   Version           : 3.02
 ///</para><para>
 ///   History:
+///     3.02: 2026-04-14
+///       - Fixed non-atomic position increment in
+///         TOmniIntegerDataPackage.GetNext and
+///         TOmniValueEnumeratorDataPackage.GetNext using
+///         TInterlocked.Increment.
 ///     3.01: 2026-04-12
 ///       - Suppressed H2445 inline expansion hint around GetBufferList.
 ///     3.0: 2026-04-12 [OTL-NG]
@@ -470,10 +475,8 @@ function TOmniIntegerDataPackage.GetNext(var position: int64; var value: TOmniVa
   boolean;
 begin
   Result := GetNext(value);
-  if Result then begin
-    position := idpPosition;
-    Inc(idpPosition);
-  end;
+  if Result then
+    position := TInterlocked.Increment(idpPosition) - 1;
 end; { TOmniIntegerDataPackage.GetNext }
 
 function TOmniIntegerDataPackage.HasData: boolean;
@@ -635,10 +638,8 @@ function TOmniValueEnumeratorDataPackage.GetNext(var position: int64;
   var value: TOmniValue): boolean;
 begin
   Result := GetNext(value);
-  if Result then begin
-    position := vedpPosition;
-    Inc(vedpPosition);
-  end;
+  if Result then
+    position := TInterlocked.Increment(vedpPosition) - 1;
 end; { TOmniValueEnumeratorDataPackage.GetNext }
 
 class function TOmniValueEnumeratorDataPackage.GetPackageSizeLimit: integer;

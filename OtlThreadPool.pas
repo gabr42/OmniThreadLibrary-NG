@@ -35,10 +35,15 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-04-12
-///   Version           : 3.03
+///   Last modification : 2026-04-14
+///   Version           : 3.04
 /// </para><para>
 ///   History:
+///     3.04: 2026-04-14
+///       - Fixed Cancel timeout overflow: removed spurious * 1000 on
+///         already-millisecond waitForTask_ms.
+///       - Fixed GlobalOmniThreadPool lazy init race using
+///         Atomic<IOmniThreadPool>.Initialize.
 ///     3.03: 2026-04-12
 ///       - Removed SuspendThread/ResumeThread from force-kill and idle-worker paths.
 ///     3.02: 2026-04-12 [OTL-NG]
@@ -616,9 +621,11 @@ var
 
 function GlobalOmniThreadPool: IOmniThreadPool;
 begin
-  if not assigned(GOmniThreadPool) then
-    GOmniThreadPool := CreateThreadPool(CGlobalOmniThreadPoolName);
-  Result := GOmniThreadPool;
+  Result := Atomic<IOmniThreadPool>.Initialize(GOmniThreadPool,
+    function: IOmniThreadPool
+    begin
+      Result := CreateThreadPool(CGlobalOmniThreadPoolName);
+    end);
 end; { GlobalOmniThreadPool }
 
 function CreateThreadPool(const threadPoolName: string): IOmniThreadPool;
@@ -1003,7 +1010,7 @@ begin
       {$IFDEF LogThreadPool}Log('Cancel request %d on thread %p:%d', [taskID, pointer(worker), worker.threadID]); {$ENDIF LogThreadPool}
       owRunningWorkers.Delete(iWorker);
       worker.Asy_Stop(signalToken);
-      endWait_ms := Time.Timestamp_ms + waitForTask_ms * 1000;
+      endWait_ms := Time.Timestamp_ms + waitForTask_ms;
       while (Time.Timestamp_ms < endWait_ms) and (not worker.Stopped) do begin
         ProcessMessages;
         Sleep(10);

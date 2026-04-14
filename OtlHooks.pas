@@ -34,10 +34,13 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Creation date     : 2009-05-17
-///   Last modification : 2016-08-31
-///   Version           : 1.04
+///   Last modification : 2026-04-14
+///   Version           : 1.05
 ///</para><para>
 ///   History:
+///     1.05: 2026-04-14
+///       - Fixed potential deadlock in Notify/Filter: callbacks are now
+///         invoked outside the read lock (snapshot-then-invoke pattern).
 ///     1.04: 2016-08-31
 ///       - Added thread pool lifecycle notifications.
 ///     1.03: 2015-10-04
@@ -327,23 +330,27 @@ procedure TThreadNotifications.Notify(notifyType: TThreadNotificationType;
 var
   iObserver: integer;
   meth     : TMethod;
+  snapshot : TArray<pointer>;
 begin
   if not assigned(Self) then
     Exit; //finalization
   tnList.EnterReadLock;
   try
-    iObserver := 0;
-    while iObserver < tnList.Count do begin
-      if tnList[iObserver] = nil then
-        TThreadNotificationProc(tnList[iObserver+1])(notifyType, threadName)
-      else begin
-        meth.Data := tnList[iObserver];
-        meth.Code := tnList[iObserver+1];
-        TThreadNotificationMeth(meth)(notifyType, threadName);
-      end;
-      Inc(iObserver, 2);
-    end;
+    SetLength(snapshot, tnList.Count);
+    for iObserver := 0 to tnList.Count - 1 do
+      snapshot[iObserver] := tnList[iObserver];
   finally tnList.ExitReadLock; end;
+  iObserver := 0;
+  while iObserver < Length(snapshot) do begin
+    if snapshot[iObserver] = nil then
+      TThreadNotificationProc(snapshot[iObserver+1])(notifyType, threadName)
+    else begin
+      meth.Data := snapshot[iObserver];
+      meth.Code := snapshot[iObserver+1];
+      TThreadNotificationMeth(meth)(notifyType, threadName);
+    end;
+    Inc(iObserver, 2);
+  end;
 end; { TThreadNotifications.Notify }
 
 procedure TThreadNotifications.Register(notifyProc: TThreadNotificationProc);
@@ -385,23 +392,27 @@ procedure TPoolNotifications.Notify(notifyType: TPoolNotificationType;
 var
   iObserver: integer;
   meth     : TMethod;
+  snapshot : TArray<pointer>;
 begin
   if not assigned(Self) then
     Exit; //finalization
   pnList.EnterReadLock;
   try
-    iObserver := 0;
-    while iObserver < pnList.Count do begin
-      if pnList[iObserver] = nil then
-        TPoolNotificationProc(pnList[iObserver+1])(notifyType, pool)
-      else begin
-        meth.Data := pnList[iObserver];
-        meth.Code := pnList[iObserver+1];
-        TPoolNotificationMeth(meth)(notifyType, pool);
-      end;
-      Inc(iObserver, 2);
-    end;
+    SetLength(snapshot, pnList.Count);
+    for iObserver := 0 to pnList.Count - 1 do
+      snapshot[iObserver] := pnList[iObserver];
   finally pnList.ExitReadLock; end;
+  iObserver := 0;
+  while iObserver < Length(snapshot) do begin
+    if snapshot[iObserver] = nil then
+      TPoolNotificationProc(snapshot[iObserver+1])(notifyType, pool)
+    else begin
+      meth.Data := snapshot[iObserver];
+      meth.Code := snapshot[iObserver+1];
+      TPoolNotificationMeth(meth)(notifyType, pool);
+    end;
+    Inc(iObserver, 2);
+  end;
 end; { TPoolNotifications.Notify }
 
 procedure TPoolNotifications.Register(notifyProc: TPoolNotificationProc);
@@ -443,22 +454,26 @@ var
   continueProcessing: boolean;
   iObserver         : integer;
   meth              : TMethod;
+  snapshot          : TArray<pointer>;
 begin
   efList.EnterReadLock;
   try
-    iObserver := 0;
-    continueProcessing := true;
-    while continueProcessing and (iObserver < efList.Count) do begin
-      if efList[iObserver] = nil then
-        TExceptionFilterProc(efList[iObserver+1])(e, continueProcessing)
-      else begin
-        meth.Data := efList[iObserver];
-        meth.Code := efList[iObserver+1];
-        TExceptionFilterMeth(meth)(e, continueProcessing);
-      end;
-      Inc(iObserver, 2);
-    end;
+    SetLength(snapshot, efList.Count);
+    for iObserver := 0 to efList.Count - 1 do
+      snapshot[iObserver] := efList[iObserver];
   finally efList.ExitReadLock; end;
+  iObserver := 0;
+  continueProcessing := true;
+  while continueProcessing and (iObserver < Length(snapshot)) do begin
+    if snapshot[iObserver] = nil then
+      TExceptionFilterProc(snapshot[iObserver+1])(e, continueProcessing)
+    else begin
+      meth.Data := snapshot[iObserver];
+      meth.Code := snapshot[iObserver+1];
+      TExceptionFilterMeth(meth)(e, continueProcessing);
+    end;
+    Inc(iObserver, 2);
+  end;
 end; { TExceptionFilters.Filter }
 
 procedure TExceptionFilters.Register(filterMethod: TExceptionFilterMeth);
