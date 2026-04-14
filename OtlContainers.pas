@@ -37,10 +37,15 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Sean B. Durkin, Claude AI
 ///   Creation date     : 2008-07-13
-///   Last modification : 2026-04-11
-///   Version           : 4.0
+///   Last modification : 2026-04-14
+///   Version           : 4.01
 ///</para><para>
 ///   History:
+///     4.01: 2026-04-14
+///       - Fixed PropagateNotifications loop iterating only the first enum value
+///         (Low to Low instead of Low to High).
+///       - Fixed CollectionNotifyEvent using FAlmostFullThreshold instead of
+///         FPartlyEmptyThreshold for coiNotifyOnPartlyEmpty detection.
 ///     4.0: 2026-04-11 [OTL-NG]
 ///       - Platform abstraction — removed DSiWin32, GpStuff, Winapi.Windows
 ///         dependencies; removed all inline assembly (replaced with TThread.SpinWait);
@@ -1712,7 +1717,7 @@ begin
     cnExtracted:
       begin
         Include(FNotifiableEvents, coiNotifyOnAllRemoves);
-        if AfterCount = FAlmostFullThreshold then
+        if AfterCount = FPartlyEmptyThreshold then
           Include(FNotifiableEvents, coiNotifyOnPartlyEmpty);
       end;
   end; //case Action
@@ -1776,7 +1781,7 @@ var
   Ev: TOmniContainerObserverInterest;
 begin
   if assigned(FContainerSubject) and (Events <> []) then
-    for Ev := Low(TOmniContainerObserverInterest) to Low(TOmniContainerObserverInterest) do
+    for Ev := Low(TOmniContainerObserverInterest) to High(TOmniContainerObserverInterest) do
       if Ev in Events then
         FContainerSubject.Notify(Ev);
 end; { TOmniValueQueue.PropagateNotifications }
