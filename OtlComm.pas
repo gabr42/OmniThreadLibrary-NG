@@ -130,7 +130,7 @@ type
   {:Single producer/single consumer communication channel. No thread safety.
   }
   IOmniCommunicationEndpoint = interface ['{910D329C-D049-48B9-B0C0-9434D2E57870}']
-    function  GetNewMessageEvent: TOmniTransitionEvent;
+    function  GetNewMessageEvent: IOmniEvent;
     function  GetOtherEndpoint: IOmniCommunicationEndpoint;
     function  GetReader: TOmniMessageQueue;
     function  GetWriter: TOmniMessageQueue;
@@ -145,7 +145,7 @@ type
     procedure Send(msgID: word; msgData: TOmniValue); overload;
     function  SendWait(msgID: word; timeout_ms: cardinal = CMaxSendWaitTime_ms): boolean; overload;
     function  SendWait(msgID: word; msgData: TOmniValue; timeout_ms: cardinal = CMaxSendWaitTime_ms): boolean; overload;
-    property NewMessageEvent: TOmniTransitionEvent read GetNewMessageEvent;
+    property NewMessageEvent: IOmniEvent read GetNewMessageEvent;
     property OtherEndpoint: IOmniCommunicationEndpoint read GetOtherEndpoint;
     property Reader: TOmniMessageQueue read GetReader;
     property Writer: TOmniMessageQueue read GetWriter;
@@ -171,7 +171,7 @@ type
     function  Dequeue: TOmniMessage; reintroduce;
     function  Enqueue(const value: TOmniMessage): boolean; reintroduce;
     procedure Empty;
-    function  GetNewMessageEvent: TOmniTransitionEvent;
+    function  GetNewMessageEvent: IOmniEvent;
     function  TryDequeue(var msg: TOmniMessage): boolean; reintroduce;
     property EventObserver: TOmniContainerEventObserver read mqEventObserver;
   end; { TOmniMessageQueue }
@@ -222,7 +222,7 @@ type
     FMultiWaitLock           : IOmniCriticalSection;
   protected
     procedure DetachFromQueues;
-    function  GetNewMessageEvent: TOmniTransitionEvent;
+    function  GetNewMessageEvent: IOmniEvent;
     function  GetOtherEndpoint: IOmniCommunicationEndpoint;
     function  GetReader: TOmniMessageQueue;
     function  GetWriter: TOmniMessageQueue;
@@ -242,7 +242,7 @@ type
     function  SendWait(msgID: word; timeout_ms: cardinal = CMaxSendWaitTime_ms): boolean; overload; inline;
     function  SendWait(msgID: word; msgData: TOmniValue;
       timeout_ms: cardinal = CMaxSendWaitTime_ms): boolean; overload;
-    property NewMessageEvent: TOmniTransitionEvent read GetNewMessageEvent;
+    property NewMessageEvent: IOmniEvent read GetNewMessageEvent;
     property OtherEndpoint: IOmniCommunicationEndpoint read GetOtherEndpoint;
     property Reader: TOmniMessageQueue read GetReader;
     property Writer: TOmniMessageQueue read GetWriter;
@@ -343,7 +343,7 @@ begin
     tmp.MsgData._Release;
 end; { TOmniMessageQueue.Enqueue }
 
-function TOmniMessageQueue.GetNewMessageEvent: TOmniTransitionEvent;
+function TOmniMessageQueue.GetNewMessageEvent: IOmniEvent;
 begin
   AttachEventObserver;
   Result := mqEventObserver.GetEvent;
@@ -386,7 +386,7 @@ begin
   ceWriter_ref := nil;
 end; { TOmniCommunicationEndpoint.DetachFromQueues }
 
-function TOmniCommunicationEndpoint.GetNewMessageEvent: TOmniTransitionEvent;
+function TOmniCommunicationEndpoint.GetNewMessageEvent: IOmniEvent;
 begin
   Result := ceReader_ref.GetNewMessageEvent;
 end; { TOmniCommunicationEndpoint.GetNewMessageEvent }

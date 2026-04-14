@@ -95,7 +95,7 @@ end;
 
 procedure TestOmniMessageQueue.TestNewMessageEvent;
 var
-  evt: TOmniTransitionEvent;
+  evt: IOmniEvent;
   mq: TOmniMessageQueue;
   msg: TOmniMessage;
 

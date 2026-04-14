@@ -57,7 +57,7 @@
 ///       - Removed Winapi.Messages dependency.
 ///       - Deprecated MsgWait and Alertable methods (now no-ops).
 ///     2.04: 2026-04-12
-///       - Unified TOmniTransitionEvent = IOmniEvent on all platforms.
+///       - Unified IOmniEvent = IOmniEvent on all platforms.
 ///       - Removed all OTL_PlatformIndependent conditionals.
 ///       - Removed THandle overloads of TerminateWhen, RegisterWaitObject,
 ///         UnregisterWaitObject.
@@ -565,7 +565,7 @@ type
       IdxLastTerminate  : integer;
       IdxLastWaitObject : integer;
       IdxRebuildHandles : integer;
-      NewMessageEvent   : TOmniTransitionEvent;
+      NewMessageEvent   : IOmniEvent;
       NumWaitHandles    : integer;
       WaitHandles       : TOmniSynchroArray;
       Waiter            : TWaitFor;
@@ -606,7 +606,7 @@ type
     procedure CallOmniTimer;
     procedure CheckTimers;
     procedure Cleanup;
-    procedure DispatchCommMessage(newMsgHandle: TOmniTransitionEvent;
+    procedure DispatchCommMessage(newMsgHandle: IOmniEvent;
       const task: IOmniTask; var msgInfo: TOmniMessageInfo);
     procedure DispatchMessages(const task: IOmniTask);
     function  GetExitCode: integer; inline;
@@ -650,16 +650,16 @@ type
     destructor  Destroy; override;
     procedure Asy_Execute(const task: IOmniTask);
     procedure Asy_RegisterComm(const comm: IOmniCommunicationEndpoint);
-    procedure Asy_RegisterWaitObject(waitObject: TOmniTransitionEvent; responseHandler: TOmniWaitObjectMethod);
+    procedure Asy_RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod);
     procedure Asy_SetExitStatus(exitCode: integer; const exitMessage: string);
     procedure SetProcessorGroup(procGroupNumber: integer);
     procedure SetNUMANode(numaNodeNumber: integer);
     procedure Asy_SetTimer(timerID: integer; interval_ms: cardinal; const timerMessage:
       TOmniMessageID); overload;
     procedure Asy_UnregisterComm(const comm: IOmniCommunicationEndpoint);
-    procedure Asy_UnregisterWaitObject(waitObject: TOmniTransitionEvent);
+    procedure Asy_UnregisterWaitObject(waitObject: IOmniEvent);
     procedure EmptyMessageQueues(const task: IOmniTask);
-    procedure TerminateWhen(handle: TOmniTransitionEvent); overload;
+    procedure TerminateWhen(handle: IOmniEvent); overload;
     class function VerifyNUMANode(numaNodeNumber: integer): IOmniNUMANode;
     class procedure VerifyProcessorGroup(procGroupNumber: integer);
     function  WaitForInit: boolean;
@@ -1771,7 +1771,7 @@ begin
   finally oteInternalLock.Release; end;
 end; { TOmniTaskExecutor.Asy_RegisterComm }
 
-procedure TOmniTaskExecutor.Asy_RegisterWaitObject(waitObject: TOmniTransitionEvent;
+procedure TOmniTaskExecutor.Asy_RegisterWaitObject(waitObject: IOmniEvent;
   responseHandler: TOmniWaitObjectMethod);
 begin
   if oteExecutorType <> etWorker then
@@ -1827,7 +1827,7 @@ begin
   finally oteInternalLock.Release; end;
 end; { TOmniTaskExecutor.Asy_UnregisterComm }
 
-procedure TOmniTaskExecutor.Asy_UnregisterWaitObject(waitObject: TOmniTransitionEvent);
+procedure TOmniTaskExecutor.Asy_UnregisterWaitObject(waitObject: IOmniEvent);
 begin
   if oteExecutorType <> etWorker then
     raise Exception.Create('TOmniTaskExecutor.Asy_UnregisterWaitObject: ' +
@@ -1895,7 +1895,7 @@ begin
   {$ENDIF}
 end; { TOmniTaskExecutor.Cleanup }
 
-procedure TOmniTaskExecutor.DispatchCommMessage(newMsgHandle: TOmniTransitionEvent;
+procedure TOmniTaskExecutor.DispatchCommMessage(newMsgHandle: IOmniEvent;
   const task: IOmniTask; var msgInfo: TOmniMessageInfo);
 var
   gotMsg: boolean;
@@ -2569,7 +2569,7 @@ begin
   end;
 end; { TOmniTaskExecutor.SetTimer }
 
-procedure TOmniTaskExecutor.TerminateWhen(handle: TOmniTransitionEvent);
+procedure TOmniTaskExecutor.TerminateWhen(handle: IOmniEvent);
 begin
   if not assigned(oteTerminateHandles) then
     oteTerminateHandles := TList<IOmniSynchro>.Create;

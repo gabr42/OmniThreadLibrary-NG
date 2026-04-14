@@ -41,7 +41,7 @@
 ///</para><para>
 ///   History:
 ///     2.1: 2026-04-12
-///       - Unified TOmniTransitionEvent = IOmniEvent on all platforms.
+///       - Unified IOmniEvent = IOmniEvent on all platforms.
 ///       - TOmniWaitObjectList uses TList<IOmniEvent> unconditionally.
 ///       - Removed THandle overloads of RegisterWaitObject/UnregisterWaitObject.
 ///       - Removed IOmniEventAndProc, TOmniEventProcList, DecorateEvent stubs.
@@ -119,16 +119,16 @@ type
     owolWaitObjects     : TList<IOmniEvent>;
   strict protected
     function  GetResponseHandlers(idxHandler: integer): TOmniWaitObjectMethod;
-    function  GetWaitObjects(idxWaitObject: integer): TOmniTransitionEvent;
+    function  GetWaitObjects(idxWaitObject: integer): IOmniEvent;
   public
     constructor Create;
     destructor  Destroy; override;
-    procedure Add(waitObject: TOmniTransitionEvent; responseHandler: TOmniWaitObjectMethod);
+    procedure Add(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod);
     function  Count: integer;
-    procedure Remove(waitObject: TOmniTransitionEvent);
+    procedure Remove(waitObject: IOmniEvent);
     property ResponseHandlers[idxHandler: integer]: TOmniWaitObjectMethod read
       GetResponseHandlers;
-    property WaitObjects[idxWaitObject: integer]: TOmniTransitionEvent read GetWaitObjects;
+    property WaitObjects[idxWaitObject: integer]: IOmniEvent read GetWaitObjects;
   end; { TOmniWaitObjectList }
 
   TOmniSynchroArray = TArray<IOmniSynchro>;
@@ -207,7 +207,7 @@ begin
   inherited Destroy;
 end; { TOmniWaitObjectList.Destroy }
 
-procedure TOmniWaitObjectList.Add(waitObject: TOmniTransitionEvent;
+procedure TOmniWaitObjectList.Add(waitObject: IOmniEvent;
   responseHandler: TOmniWaitObjectMethod);
 begin
   Remove(waitObject);
@@ -226,12 +226,12 @@ begin
   Result := TOmniWaitObjectMethod(owolResponseHandlers[idxHandler]);
 end; { TOmniWaitObjectList.GetResponseHandlers }
 
-function TOmniWaitObjectList.GetWaitObjects(idxWaitObject: integer): TOmniTransitionEvent;
+function TOmniWaitObjectList.GetWaitObjects(idxWaitObject: integer): IOmniEvent;
 begin
   Result := owolWaitObjects[idxWaitObject];
 end; { TOmniWaitObjectList.GetWaitObjects }
 
-procedure TOmniWaitObjectList.Remove(waitObject: TOmniTransitionEvent);
+procedure TOmniWaitObjectList.Remove(waitObject: IOmniEvent);
 var
   idxWaitObject: integer;
 begin

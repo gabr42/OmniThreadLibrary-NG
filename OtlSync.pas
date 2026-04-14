@@ -298,7 +298,7 @@ type
     procedure Reset;
   end; { IOmniCountdownEvent }
 
-  TOmniTransitionEvent = IOmniEvent;
+
 
   //IOmniHandleObject removed — use IOmniSynchroObject instead
 
@@ -699,7 +699,7 @@ function WaitForAllObjects(const handles: array of THandle; timeout_ms: cardinal
 
 function GetCPUTimeStamp: int64;
 
-function SetEvent(event: TOmniTransitionEvent): boolean;
+function SetEvent(event: IOmniEvent): boolean;
 
 var
   GOmniCancellationToken: IOmniCancellationToken;
@@ -860,7 +860,7 @@ var
 
 { transitional }
 
-function SetEvent(event: TOmniTransitionEvent): boolean;
+function SetEvent(event: IOmniEvent): boolean;
 begin
   Result := true;
   if assigned(event) then
