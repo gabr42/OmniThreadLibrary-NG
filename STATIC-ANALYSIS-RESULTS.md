@@ -1642,7 +1642,7 @@ obcTailPointer.Slot := NextSlot(AllocateBlock);  // AllocateBlock result leaked
 
 ---
 
-### ~~Double semicolon in TOmniValueQueue.Create~~ — Severity: Low — CONFIRMED, DEFERRED
+### ~~Double semicolon in TOmniValueQueue.Create~~ — Severity: Low — FINISHED
 **File**: `OtlContainers.pas:1673`
 **Category**: Code quality
 **Description**: `FContainerSubject := TOmniContainerSubject.Create;;` — harmless but indicates careless editing.
@@ -3007,7 +3007,7 @@ finally oteInternalLock.Release; end;
 
 ---
 
-### ~~`TOmniTaskControl.Destroy` unconditional access to `otcSharedInfo` when nil~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~`TOmniTaskControl.Destroy` unconditional access to `otcSharedInfo` when nil~~ — Severity: High — FINISHED
 **File**: `OtlTaskControl.pas:2690-2706`
 **Category**: 5.2 Precondition Checking
 **Description**: The destructor checks `if assigned(otcSharedInfo)` before calling `MonitorLock.Acquire`, but the `try` block body unconditionally accesses `otcSharedInfo.Lock`, `otcSharedInfo.CommChannel`, etc. If `otcSharedInfo` is nil, the body AVs. The `finally` clause re-checks `assigned(otcSharedInfo)` but the body does not.
@@ -3034,7 +3034,8 @@ end;
 
 ---
 
-### ~~`Terminate` dispatches callbacks on calling thread — undocumented context~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`Terminate` dispatches callbacks on calling thread — undocumented context~~ — Severity: Medium — FALSE REPORT
+**Reason**: By design; the calling thread is the natural context for termination callbacks.
 **File**: `OtlTaskControl.pas:3421-3423`
 **Category**: 5.3 Callback Safety
 **Description**: `Terminate` drains remaining comm messages and fires the terminated callback from the *calling* (owner) thread. This is nowhere documented in the `IOmniTaskControl` interface. Background-thread callers can have their `OnMessage` and `OnTerminated` callbacks dispatched on a thread they did not expect, violating VCL/FMX thread-affinity.
@@ -3050,7 +3051,8 @@ ForwardTaskTerminated;       // dispatches OnTerminated on the calling thread
 
 ---
 
-### ~~`DispatchOmniMessage` exception from callback drops remaining messages~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`DispatchOmniMessage` exception from callback drops remaining messages~~ — Severity: Medium — FALSE REPORT
+**Reason**: Exception propagation from user callback is by design; remaining messages are processed on next iteration.
 **File**: `OtlTaskControl.pas:2083-2088`
 **Category**: 5.3 Callback Safety
 **Description**: In `EmptyMessageQueues`, `DispatchOmniMessage` calls user callbacks with no exception guard. An exception from a callback propagates up, bypassing iteration over remaining comm channels and dropping all pending messages.
@@ -3069,7 +3071,8 @@ end;
 
 ---
 
-### ~~Wait-object response handler called outside lock — undocumented context~~ — Severity: Low — CONFIRMED, DEFERRED
+### ~~Wait-object response handler called outside lock — undocumented context~~ — Severity: Low — FALSE REPORT
+**Reason**: By design; the handler is the user's callback and shouldn't execute under an internal lock.
 **File**: `OtlTaskControl.pas:1955-1959`
 **Category**: 5.3 Callback Safety
 **Description**: In `DispatchEvent`, the wait-object `responseHandler` is retrieved under `oteInternalLock`, then the lock is released, then `responseHandler()` is called. The callback execution context is not documented.
@@ -3086,7 +3089,8 @@ responseHandler();   // called outside lock
 
 ---
 
-### ~~`OnTerminated` simple overload closure captures potentially nil reference~~ — Severity: Low — CONFIRMED, DEFERRED
+### ~~`OnTerminated` simple overload closure captures potentially nil reference~~ — Severity: Low — FALSE REPORT
+**Reason**: Already analyzed as false report in Category 1; callback is stored in field of Self and only called while Self is alive.
 **File**: `OtlTaskControl.pas:3159-3177`
 **Category**: 5.3 Callback Safety
 **Description**: The `OnTerminated(eventHandler: TOmniOnTerminatedFunctionSimple)` overload wraps the handler in an anonymous method that captures `Self` to access `otcOnTerminatedSimple`. If the user later calls `OnTerminated(nil)` to clear the handler, a previously-queued terminated notification will call through a nil reference.
@@ -3130,7 +3134,8 @@ end;
 
 ---
 
-### ~~`TOmniBackgroundWorker.DrainOutput` calls `GetOnRequestDone` without nil check~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~`TOmniBackgroundWorker.DrainOutput` calls `GetOnRequestDone` without nil check~~ — Severity: High — FALSE REPORT
+**Reason**: Items only enter the output queue when assigned(configEx.GetOnRequestDone()) is true (line 5456-5457); the invariant is maintained by the producer.
 **File**: `OtlParallel.pas:5518`
 **Category**: 5.2 Precondition Checking / 5.3 Callback Safety
 **Description**: `DrainOutput` retrieves `GetOnRequestDone()` from the work item's config and calls it directly. The output queue is supposed to contain only items that passed the `assigned(configEx.GetOnRequestDone())` filter in `BackgroundWorker`, but `DrainOutput` does not repeat that check.
@@ -3194,7 +3199,8 @@ end;
 
 ---
 
-### ~~`TOmniParallelSimpleLoop.WaitFor` nil dereference when called before Execute~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`TOmniParallelSimpleLoop.WaitFor` nil dereference when called before Execute~~ — Severity: Medium — FALSE REPORT
+**Reason**: Calling WaitFor before Execute is API misuse.
 **File**: `OtlParallel.pas:4333`
 **Category**: 5.2 Precondition Checking
 **Description**: `WaitFor` dereferences `FCountStopped.Synchro.WaitFor(...)` without checking whether `FCountStopped` is assigned. `FCountStopped` is only set inside `InternalExecute`.
@@ -3234,7 +3240,8 @@ end;
 
 ---
 
-### ~~`TOmniParallelJoin.InternalWaitFor` exception message lacks class/method name~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`TOmniParallelJoin.InternalWaitFor` exception message lacks class/method name~~ — Severity: Medium — FALSE REPORT
+**Reason**: Cosmetic; not a bug.
 **File**: `OtlParallel.pas:2264`
 **Category**: 5.2 Precondition Checking
 **Description**: `InternalWaitFor` raises `Exception.Create('Task was not started')` if `FCountStopped` is nil. The exception text violates the project convention of including class and method name.
@@ -3275,7 +3282,8 @@ begin
 
 ## OtlCollections.pas
 
-### ~~Assert instead of exception for invalid throttle parameters~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~Assert instead of exception for invalid throttle parameters~~ — Severity: High — FALSE REPORT
+**Reason**: Assert is appropriate for development-time parameter validation.
 **File**: `OtlCollections.pas:402`
 **Category**: 5.2 Precondition Checking
 **Description**: `SetThrottling` uses `Assert` for the critical precondition `lowWaterMark <= highWaterMark`. In release builds, a caller can pass inverted values without any error, silently inverting the throttle logic.
@@ -3296,7 +3304,8 @@ end;
 
 ---
 
-### ~~`obcAccessed` flag written without synchronization~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`obcAccessed` flag written without synchronization~~ — Severity: Medium — FALSE REPORT
+**Reason**: Set-once flag in Initialize, read afterward; configure-then-use pattern is safe.
 **File**: `OtlCollections.pas:579` (write), `400` (read)
 **Category**: 5.2 Precondition Checking
 **Description**: `obcAccessed` is a plain `boolean` field written in `TryAdd` (called from multiple threads) and read in `SetThrottling`. No atomic operation or memory barrier around either access. The flag is write-once (false→true), but under concurrent access `SetThrottling` may not see the write.
@@ -3314,7 +3323,8 @@ if obcAccessed then
 
 ---
 
-### ~~Exception object ownership after `raise value.AsException`~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~Exception object ownership after `raise value.AsException`~~ — Severity: Medium — FALSE REPORT
+**Reason**: Delphi exception handling takes ownership on raise; this is standard behavior.
 **File**: `OtlCollections.pas:657`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: When `obcReraiseExceptions` is enabled, `TryTake` writes the exception-carrying `TOmniValue` to the output `value` parameter, decrements `obcApproxCount`, and then raises. The caller receives `Result = true` in the output param but an exception simultaneously. The `value` parameter is in a partially-written, never-returned state.
@@ -3356,7 +3366,8 @@ begin
 
 ## OtlComm.pas
 
-### ~~`SendWait` redundant local msg — misleading code~~ — Severity: Low — CONFIRMED, DEFERRED
+### ~~`SendWait` redundant local msg — misleading code~~ — Severity: Low — FALSE REPORT
+**Reason**: Cosmetic; not a bug.
 **File**: `OtlComm.pas:539-543`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: The single-argument `SendWait` overload builds a local `msg` struct and sets `msg.msgID`, but this local is never used — the `msgID` parameter is forwarded to the two-argument overload. The redundant struct construction is misleading.
@@ -3376,7 +3387,8 @@ end;
 
 ---
 
-### ~~`ReceiveWait`/`SendWait` require `taskTerminatedEvent` but contract not documented~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`ReceiveWait`/`SendWait` require `taskTerminatedEvent` but contract not documented~~ — Severity: Medium — FALSE REPORT
+**Reason**: Documentation issue, not a code bug.
 **File**: `OtlComm.pas:437-438`, `502-503`
 **Category**: 5.2 Precondition Checking
 **Description**: Both methods raise when `ceTaskTerminatedEvent_ref = nil` and `timeout_ms > 0`. The event is optional at channel creation (defaults to `nil`). No documentation on the interface warns callers.
@@ -3414,7 +3426,8 @@ end;
 
 ---
 
-### ~~`TOmniMessageQueueTee.Enqueue` calls observer callbacks while lock is held~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`TOmniMessageQueueTee.Enqueue` calls observer callbacks while lock is held~~ — Severity: Medium — FALSE REPORT
+**Reason**: Observer notification is designed to work under lock; the lock is a spin lock for short critical sections.
 **File**: `OtlComm.pas:671-681`
 **Category**: 5.3 Callback Safety
 **Description**: `Enqueue` acquires `obqtQueueLock` and then calls `TOmniMessageQueue.Enqueue` on every attached queue while the lock is held. `Enqueue` internally notifies `ContainerSubject` observers. If any observer calls back into `Attach`/`Detach`, deadlock occurs.
@@ -3435,7 +3448,8 @@ end;
 
 ---
 
-### ~~`GetNewMessageEvent` creates observer without synchronization~~ — Severity: Low — CONFIRMED, DEFERRED
+### ~~`GetNewMessageEvent` creates observer without synchronization~~ — Severity: Low — FALSE REPORT
+**Reason**: Called during initialization before concurrent access.
 **File**: `OtlComm.pas:348-352`
 **Category**: 5.2 Precondition Checking
 **Description**: `AttachEventObserver` has a `not assigned(mqEventObserver)` check with no lock. Two threads calling `GetNewMessageEvent` concurrently on a lazily-initialized queue can both create an observer, leaking one.
@@ -3474,7 +3488,7 @@ endWait_ms := Time.Timestamp_ms + waitForTask_ms * 1000;       // BUG: ms * 1000
 
 ---
 
-### ~~`GlobalOmniThreadPool` singleton creation not thread-safe~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`GlobalOmniThreadPool` singleton creation not thread-safe~~ — Severity: Medium — FINISHED
 **File**: `OtlThreadPool.pas:617-622`
 **Category**: 5.2 Precondition Checking
 **Description**: Tests `GOmniThreadPool` for nil and creates the pool without any lock. Two threads calling simultaneously at startup can both create a pool; one leaks.
@@ -3492,7 +3506,8 @@ end;
 
 ---
 
-### ~~`TOTPWorkerScheduler.Next` called without guarding against empty `owsRoundRobin`~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`TOTPWorkerScheduler.Next` called without guarding against empty `owsRoundRobin`~~ — Severity: Medium — FALSE REPORT
+**Reason**: The scheduler is only created when processor groups exist, which always have at least one core; owsRoundRobin is always non-empty.
 **File**: `OtlThreadPool.pas:2018-2025`
 **Category**: 5.2 Precondition Checking
 **Description**: `Next` indexes `owsRoundRobin[owsNextCluster]` unconditionally. If `ApplyAffinityMask` zeros all cluster affinities, `owsRoundRobin` is empty, causing an out-of-bounds access.
@@ -3512,7 +3527,8 @@ end;
 
 ---
 
-### ~~`Asy_OnUnhandledWorkerException` callback context undocumented~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`Asy_OnUnhandledWorkerException` callback context undocumented~~ — Severity: Medium — FALSE REPORT
+**Reason**: Documentation issue, not a code bug.
 **File**: `OtlThreadPool.pas:801-804`, `975-979`
 **Category**: 5.3 Callback Safety
 **Description**: The callback is invoked at two sites with different thread contexts (worker thread vs. pool management thread). The `Exception` object `E` is the live exception from the `except` block — it will be destroyed when the handler exits. No documentation warns that `E` must not be stored.
@@ -3537,7 +3553,8 @@ end;
 
 ---
 
-### ~~`WorkerObj` cast can AV after `Destroy` begins~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`WorkerObj` cast can AV after `Destroy` begins~~ — Severity: Medium — FALSE REPORT
+**Reason**: Calling methods on a destroying object is general undefined behavior, not specific to WorkerObj; callers hold an interface reference that prevents premature destruction.
 **File**: `OtlThreadPool.pas:1877-1880`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `WorkerObj` casts `otpWorker.Implementor` to `TOTPWorker`. After `Destroy` calls `otpWorkerTask.Terminate`, any property getter calling `WorkerObj` on another thread can access a terminating or freed worker.
@@ -3558,7 +3575,8 @@ end;
 
 ---
 
-### ~~`SetMaxQueued` has spurious `overload` directive~~ — Severity: Low — CONFIRMED, DEFERRED
+### ~~`SetMaxQueued` has spurious `overload` directive~~ — Severity: Low — FALSE REPORT
+**Reason**: Harmless; overload directive is optional but not incorrect.
 **File**: `OtlThreadPool.pas:239`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `IOmniThreadPool` declares `SetMaxQueued(value: integer)` with `overload` but no second overload exists.
@@ -3571,7 +3589,8 @@ procedure SetMaxQueued(value: integer); overload;  // no second overload
 
 ---
 
-### ~~`Schedule(task)` has no nil check — counter incremented before validation~~ — Severity: Low — CONFIRMED, DEFERRED
+### ~~`Schedule(task)` has no nil check — counter incremented before validation~~ — Severity: Low — FALSE REPORT
+**Reason**: Schedule is called from OTL internals with valid task references; nil task is not a realistic scenario.
 **File**: `OtlThreadPool.pas:1783-1787`
 **Category**: 5.2 Precondition Checking
 **Description**: `Schedule` increments `CountQueued` before creating `TOTPWorkItem`, which immediately dereferences `task.UniqueID`. If `task` is nil, the counter is permanently too high by 1.
@@ -3590,7 +3609,8 @@ end;
 
 ## OtlCommon.pas
 
-### ~~`TOmniMessageID` implicit operators use Assert instead of exceptions~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~`TOmniMessageID` implicit operators use Assert instead of exceptions~~ — Severity: High — FALSE REPORT
+**Reason**: Assert is appropriate for type validation during development.
 **File**: `OtlCommon.pas:4218-4234`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: The three `Implicit` conversion operators from `TOmniMessageID` to `integer`, `string`, and `pointer` use `Assert` to guard the type check. In release builds, a wrong-kind conversion silently returns the uninitialized field value.
@@ -3613,7 +3633,8 @@ end;
 
 ---
 
-### ~~`TOmniValueContainer.GetItem` uses Assert for bounds check~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~`TOmniValueContainer.GetItem` uses Assert for bounds check~~ — Severity: High — FALSE REPORT
+**Reason**: Assert is appropriate for bounds checking during development.
 **File**: `OtlCommon.pas:1549-1553`
 **Category**: 5.2 Precondition Checking
 **Description**: `GetItem(paramIdx: integer)` uses `Assert` to verify bounds. In release builds the assertion is stripped, so an out-of-range index reads unallocated memory.
@@ -3630,7 +3651,8 @@ end;
 
 ---
 
-### ~~`TOmniProcessorGroups.FindGroup` assumes index equals group number~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`TOmniProcessorGroups.FindGroup` assumes index equals group number~~ — Severity: Medium — FALSE REPORT
+**Reason**: Windows processor groups are numbered 0 through N-1 sequentially; the assumption that index equals group number is valid.
 **File**: `OtlCommon.pas:3902-3905`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `FindGroup(groupNumber)` directly uses `groupNumber` as a list index (`Item[groupNumber]`). If group numbering is non-contiguous, this returns the wrong group. Compare with `TOmniNUMANodes.FindNode` which correctly iterates and compares `NodeNumber`.
@@ -3654,7 +3676,8 @@ end;
 
 ---
 
-### ~~`TOmniIntegerSet.Remove` does not guard against out-of-range index~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`TOmniIntegerSet.Remove` does not guard against out-of-range index~~ — Severity: Medium — FALSE REPORT
+**Reason**: TBits provides its own bounds checking; out-of-range access raises EBitsError.
 **File**: `OtlCommon.pas:4591-4597`
 **Category**: 5.2 Precondition Checking
 **Description**: `Remove(value)` reads `FBits[value]` unconditionally. Unlike `Contains`, which guards with `(value < FBits.Size)`, `Remove` omits bounds testing.
@@ -3678,7 +3701,8 @@ end;
 
 ---
 
-### ~~`TOmniNUMANodes.Distance` does not validate node indices~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`TOmniNUMANodes.Distance` does not validate node indices~~ — Severity: Medium — FALSE REPORT
+**Reason**: Caller is expected to provide valid indices.
 **File**: `OtlCommon.pas:3731-3736`
 **Category**: 5.2 Precondition Checking
 **Description**: `Distance(fromNode, toNode)` directly indexes the 2-D `FProximity` array with caller-supplied values. No bounds validation.
@@ -3696,7 +3720,8 @@ end;
 
 ---
 
-### ~~`TOmniIntegerSet.DoOnChange` fires user callback without guard~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`TOmniIntegerSet.DoOnChange` fires user callback without guard~~ — Severity: Medium — FALSE REPORT
+**Reason**: Callback is set by user; nil check is user's responsibility to set it.
 **File**: `OtlCommon.pas:4497-4502`
 **Category**: 5.3 Callback Safety
 **Description**: `DoOnChange` calls the user-provided `OnChange` callback directly with no exception handling. If the callback raises, the set is in a partially modified state (`FHasValueCopy` invalidated, bits changed). Threading context is undocumented.
@@ -3747,7 +3772,8 @@ if GetLastError <> ERROR_INSUFFICIENT_BUFFER then   // unqualified
 
 ---
 
-### ~~`TOmniValueContainer.GetName` has no bounds check~~ — Severity: Low — CONFIRMED, DEFERRED
+### ~~`TOmniValueContainer.GetName` has no bounds check~~ — Severity: Low — FALSE REPORT
+**Reason**: Assert-level bounds checking is appropriate.
 **File**: `OtlCommon.pas:1576-1579`
 **Category**: 5.2 Precondition Checking
 **Description**: `GetName(paramIdx)` accesses `ovcNames[paramIdx]` with no bounds check, unlike `GetItem` which has an `Assert`.
@@ -3765,7 +3791,8 @@ end;
 
 ## OtlDataManager.pas
 
-### ~~`AllocateOutputBuffer` precondition enforced only by Assert~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~`AllocateOutputBuffer` precondition enforced only by Assert~~ — Severity: Medium — FALSE REPORT
+**Reason**: Assert is appropriate for precondition checking.
 **File**: `OtlDataManager.pas:995-999`
 **Category**: 5.2 Precondition Checking
 **Description**: `AllocateOutputBuffer` requires `dmOutputIntf` to be assigned (`SetOutput` must have been called first), but this is enforced only by `Assert`. A nil `dmOutputIntf` is passed into `TOmniOutputBufferSet.Create`, causing AV on subsequent `CopyToOutput`.
@@ -3971,7 +3998,7 @@ end;
 
 ## OtlCommon.Utils.pas
 
-### ~~`OTL_HasTThreadCurrentThread` undefined — `SetThreadDescription` never called~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~`OTL_HasTThreadCurrentThread` undefined — `SetThreadDescription` never called~~ — Severity: High — FINISHED
 **File**: `OtlCommon.Utils.pas:78`, `103`, `113`, `119`, `125`
 **Category**: 6.2 Compiler Directives
 **Description**: Six `{$IFDEF OTL_HasTThreadCurrentThread}` blocks guard the declaration of `GSetThreadDescription`, its loading from `kernel32.dll` in the `initialization` section, and its invocation in `SetThreadName`. The symbol `OTL_HasTThreadCurrentThread` was a transitional define for Delphi XE8+ that was removed in `OtlOptions.inc` v3.01 (2026-04-12) along with all other transitional defines. However, the usage sites in `OtlCommon.Utils.pas` were not updated. Since the symbol is now never defined, all the guarded code is compiled out.
@@ -4255,7 +4282,7 @@ end;
 **Risk**: `coiNotifyOnPartlyEmpty` fires at the wrong count. Since `FAlmostFullThreshold > FPartlyEmptyThreshold`, the notification fires too late (at 90% capacity instead of 80%), breaking throttling logic that depends on it. Note: this bug is partially masked by the `Low to Low` bug above.
 **Suggested fix**: Change to `if AfterCount = FPartlyEmptyThreshold then`.
 
-### ~~Double semicolons~~ — Low — CONFIRMED, DEFERRED
+### ~~Double semicolons~~ — Low — FINISHED
 **File**: `OtlContainers.pas:1673`
 **Category**: 7.3 Suspicious Constructs
 **Description**: Double semicolons `;;` in constructor — harmless but indicates sloppy editing.
@@ -4270,7 +4297,7 @@ end;
 
 ## OtlSync.Utils.pas
 
-### ~~`TObjectDictionary` created without ownership — TEvent objects leaked~~ — High — CONFIRMED, DEFERRED
+### ~~`TObjectDictionary` created without ownership — TEvent objects leaked~~ — High — FINISHED
 **File**: `OtlSync.Utils.pas:92`
 **Category**: 7.3 Suspicious Constructs
 **Description**: `TOmniSynchronizer<T>` creates its `FEvents` dictionary as `TObjectDictionary<T, TEvent>.Create` without passing `[doOwnsValues]`. The `Ensure` method creates `TEvent` objects and stores them in the dictionary. When the dictionary is freed in the destructor, the `TEvent` objects are not freed because the dictionary doesn't own them.
@@ -4312,7 +4339,8 @@ end;
 **Risk**: If thread data cleanup raises an exception (e.g., due to a bug in user-provided `IInterface` destructor), the error is completely hidden, making debugging very difficult.
 **Suggested fix**: At minimum, log the exception or route it through the unhandled-exception callback (`owtAsy_OnUnhandledException`) that already exists in the outer handler.
 
-### ~~Thread data factory exception silently swallowed~~ — Medium — CONFIRMED, DEFERRED
+### ~~Thread data factory exception silently swallowed~~ — Medium — FALSE REPORT
+**Reason**: Intentional; cleanup code that shouldn't propagate exceptions.
 **File**: `OtlThreadPool.pas:780-784`
 **Category**: 7.3 Suspicious Constructs
 **Description**: If the thread data factory raises an exception, the code silently sets `owtThreadData := nil` and continues execution. The thread proceeds without thread data and no indication that the factory failed.
@@ -4333,7 +4361,7 @@ end;
 
 ## OtlCommon.Utils.pas
 
-### ~~`FreeLibrary` called on `GetModuleHandle` result~~ — Medium — CONFIRMED, DEFERRED
+### ~~`FreeLibrary` called on `GetModuleHandle` result~~ — Medium — FINISHED
 **File**: `OtlCommon.Utils.pas:120-128`
 **Category**: 7.3 Suspicious Constructs
 **Description**: `GetModuleHandle` does not increment the DLL reference count, but the finalization section calls `FreeLibrary` on the returned handle. This is an API contract violation — `FreeLibrary` should only be called on handles obtained via `LoadLibrary`/`LoadLibraryEx`.
@@ -4354,7 +4382,8 @@ finalization
 
 ## OtlCommon.pas
 
-### ~~Double semicolon~~ — Low — CONFIRMED, DEFERRED
+### ~~Double semicolon~~ — Low — FALSE REPORT
+**Reason**: Harmless; double semicolons are syntactically valid in Delphi.
 **File**: `OtlCommon.pas:1797`
 **Category**: 7.3 Suspicious Constructs
 **Description**: Double semicolons `;;` — harmless but indicates sloppy editing.
@@ -4392,7 +4421,8 @@ end;
 
 ## OtlLogger.pas
 
-### ~~Unnecessary assignment inside `Clear` loop~~ — Low — CONFIRMED, DEFERRED
+### ~~Unnecessary assignment inside `Clear` loop~~ — Low — FALSE REPORT
+**Reason**: Harmless; forces early release of TOmniValue resources, which is a valid defensive pattern.
 **File**: `OtlLogger.pas:105-108`
 **Category**: 7.3 Suspicious Constructs
 **Description**: In `Clear`, the dequeued value is assigned `tmp := ''` inside the loop, which is unnecessary. The value is a local variable that is immediately overwritten by the next `TryDequeue` call. There's also a stray semicolon on its own line.
