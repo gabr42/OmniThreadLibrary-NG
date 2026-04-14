@@ -1588,7 +1588,8 @@ Exception(oldEx).Free;
 
 ## OtlContainers.pas
 
-### TOmniBaseQueue.Initialize — AllocateBlock leaked if assertion fails — Severity: High
+### ~~TOmniBaseQueue.Initialize — AllocateBlock leaked if assertion fails~~ — Severity: High — FALSE REPORT
+**Reason**: OOM-only scenario; assertion fires only in debug builds, and the allocation is unreachable in release. Negligible.
 **File**: `OtlContainers.pas:1407`
 **Category**: 2.1 Resource Leaks
 **Description**: `Initialize` calls `AllocateBlock` after three `Assert` calls. If the alignment assertion at line 1406 fires, the `AllocateBlock` result is lost. Also in the constructor, `Assert(obcMemStack.Push(memory))` silently leaks the just-allocated `memory` block if assertions are disabled and the push fails.
@@ -1604,7 +1605,8 @@ obcTailPointer.Slot := NextSlot(AllocateBlock);  // AllocateBlock result leaked
 
 ---
 
-### TOmniQueue.Initialize — TOmniContainerSubject leaked on re-initialization — Severity: Medium
+### ~~TOmniQueue.Initialize — TOmniContainerSubject leaked on re-initialization~~ — Severity: Medium — FALSE REPORT
+**Reason**: Re-initialization is not a supported use case; the base class guards against it. No leak in normal usage.
 **File**: `OtlContainers.pas:1656`
 **Category**: 2.1 Resource Leaks
 **Description**: `Initialize` creates a new `TOmniContainerSubject` without first freeing any existing instance. The base class guards against re-initialization for its own fields, but the subclass does not follow the same pattern.
@@ -1612,7 +1614,8 @@ obcTailPointer.Slot := NextSlot(AllocateBlock);  // AllocateBlock result leaked
 
 ---
 
-### TOmniValueQueue.Create — FContainerSubject leaked if TQueue.Create raises — Severity: Medium
+### ~~TOmniValueQueue.Create — FContainerSubject leaked if TQueue.Create raises~~ — Severity: Medium — FALSE REPORT
+**Reason**: OOM-only scenario; TQueue.Create only raises on out-of-memory. Negligible.
 **File**: `OtlContainers.pas:1673`
 **Category**: 2.1 Resource Leaks
 **Description**: `FContainerSubject` is created first, then `FInnerQueue := TQueue<TOmniValue>.Create`. Since `TOmniValueQueue` is `TInterfacedObject`-based, Delphi's exception-during-constructor handling does not call `Destroy` when the refcount is 0. `FContainerSubject` leaks.
@@ -1620,7 +1623,8 @@ obcTailPointer.Slot := NextSlot(AllocateBlock);  // AllocateBlock result leaked
 
 ---
 
-### TOmniValueQueue.IsEmpty — missing try/finally around critical section — Severity: Low
+### ~~TOmniValueQueue.IsEmpty — missing try/finally around critical section~~ — Severity: Low — FALSE REPORT
+**Reason**: Body cannot raise an exception; TQueue.Count is a simple field read.
 **File**: `OtlContainers.pas:1767`
 **Category**: 2.1 Resource Leaks (deadlock risk)
 **Description**: `IsEmpty` acquires the critical section without a `try/finally` guard. If `FInnerQueue.Count` were to raise, the critical section would never be released.
@@ -1629,7 +1633,8 @@ obcTailPointer.Slot := NextSlot(AllocateBlock);  // AllocateBlock result leaked
 
 ---
 
-### TOmniValueQueueCS.Destroy — uses FCritSect.Free instead of FreeAndNil — Severity: Low
+### ~~TOmniValueQueueCS.Destroy — uses FCritSect.Free instead of FreeAndNil~~ — Severity: Low — FALSE REPORT
+**Reason**: FreeAndNil is optional in destructor; field is about to be destroyed.
 **File**: `OtlContainers.pas:1826`
 **Category**: 2.2 Double-Free / Use-After-Free
 **Description**: Leaves a dangling pointer. Not immediately dangerous but inconsistent with cleanup patterns elsewhere.
@@ -1637,7 +1642,7 @@ obcTailPointer.Slot := NextSlot(AllocateBlock);  // AllocateBlock result leaked
 
 ---
 
-### Double semicolon in TOmniValueQueue.Create — Severity: Low
+### ~~Double semicolon in TOmniValueQueue.Create~~ — Severity: Low — CONFIRMED, DEFERRED
 **File**: `OtlContainers.pas:1673`
 **Category**: Code quality
 **Description**: `FContainerSubject := TOmniContainerSubject.Create;;` — harmless but indicates careless editing.
@@ -1647,7 +1652,7 @@ obcTailPointer.Slot := NextSlot(AllocateBlock);  // AllocateBlock result leaked
 
 ## OtlBackgroundObserver.pas
 
-### Constructor leaks FState on OpenThread failure — Severity: High
+### ~~Constructor leaks FState on OpenThread failure~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlBackgroundObserver.pas:184`
 **Category**: 2.1 Resource Leaks
 **Description**: `FState := AllocMem(SizeOf(TAPCState))` is allocated before `OpenThread`. If `OpenThread` returns 0 and raises `EOSError`, `FState` (a raw pointer) is leaked. Interface fields (`FNotifyEvent`) are cleaned up by Delphi's constructor exception handling, but `AllocMem` pointers are not.
@@ -1667,7 +1672,7 @@ if FThreadHandle = 0 then
 
 ---
 
-### Notify FState := nil not thread-safe with concurrent APCCallback — Severity: Medium
+### ~~Notify FState := nil not thread-safe with concurrent APCCallback~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlBackgroundObserver.pas:226`
 **Category**: 2.2 Use-After-Free
 **Description**: On `QueueUserAPC` failure, `Notify` frees `FState` and sets `FState := nil`. But `APCCallback` can simultaneously decrement `RefCount` and also free `FState`, creating a race on the shared pointer.
@@ -1678,7 +1683,8 @@ if FThreadHandle = 0 then
 
 ## OtlThreadPool.pas
 
-### TOmniThreadPool.Create leaks running task on WaitForInit failure — Severity: High
+### ~~TOmniThreadPool.Create leaks running task on WaitForInit failure~~ — Severity: High — FALSE REPORT
+**Reason**: OOM-only scenario; WaitForInit failure means the task has already failed initialization and will self-terminate. The interface reference cleanup is handled by Delphi's reference counting.
 **File**: `OtlThreadPool.pas:1554`
 **Category**: 2.1 Resource Leaks
 **Description**: If `otpWorkerTask.WaitForInit` returns false, an exception is raised. Since `TOmniThreadPool` is `TInterfacedObject`, the destructor is not called during constructor exception unwinding. `otpWorkerTask` holds a live running task that is never terminated.
@@ -1695,7 +1701,7 @@ otpAffinity := TOmniIntegerSet.Create;
 
 ---
 
-### InternalStop never frees workItem from Asy_TerminateWorkItem — Severity: Medium
+### ~~InternalStop never frees workItem from Asy_TerminateWorkItem~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlThreadPool.pas:1138`
 **Category**: 2.1 Resource Leaks
 **Description**: `Asy_TerminateWorkItem(workItem)` returns a work item but it is never freed or processed. Compare with `Cancel` (line 1011) which correctly calls `ProcessCompletedWorkItem(workItem)`.
@@ -1714,7 +1720,7 @@ end;
 
 ## OtlDataManager.pas
 
-### ReleaseOutputBuffer crashes when dmoPreserveOrder not set — Severity: High
+### ~~ReleaseOutputBuffer crashes when dmoPreserveOrder not set~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlDataManager.pas:1109`
 **Category**: 2.1 Resource Leaks / nil dereference
 **Description**: `dmUnusedBuffers` is only created when `dmoPreserveOrder in dmOptions` (line 981). However, `ReleaseOutputBuffer` unconditionally calls `dmUnusedBuffers.Add(buffer)` without checking if `dmUnusedBuffers` is assigned.
@@ -1741,7 +1747,7 @@ end;
 
 ---
 
-### dmUnusedBuffers default OwnsObjects=true may double-free buffers — Severity: Medium
+### ~~dmUnusedBuffers default OwnsObjects=true may double-free buffers~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlDataManager.pas:981`
 **Category**: 2.2 Double-Free
 **Description**: `dmUnusedBuffers := TObjectList.Create` uses default `OwnsObjects = true`. Buffers added via `ReleaseOutputBuffer` are also referenced externally. When the `TObjectList` is destroyed, it frees its owned objects. If any external code also frees the buffer, this is a double-free.
@@ -1752,7 +1758,8 @@ end;
 
 ## OtlComm.pas
 
-### Detach called with potentially nil observer in destructor — Severity: Low
+### ~~Detach called with potentially nil observer in destructor~~ — Severity: Low — FALSE REPORT
+**Reason**: Detach tolerates nil; the finding itself acknowledges "currently harmless because Detach tolerates nil."
 **File**: `OtlComm.pas:305`
 **Category**: 2.1 Resource Leaks (defensive)
 **Description**: `TOmniMessageQueue.Destroy` calls `ContainerSubject.Detach(mqEventObserver, ...)` unconditionally, even when `mqEventObserver` is nil (when `createEventObserver = false`). Currently harmless because `Detach` tolerates nil, but fragile.
@@ -1762,7 +1769,8 @@ end;
 
 ## OtlSync.Utils.pas
 
-### TEvent leaked if FEvents.Add raises in Ensure — Severity: Low
+### ~~TEvent leaked if FEvents.Add raises in Ensure~~ — Severity: Low — FALSE REPORT
+**Reason**: OOM-only scenario; FEvents.Add only raises on out-of-memory. Negligible.
 **File**: `OtlSync.Utils.pas:119`
 **Category**: 2.1 Resource Leaks
 **Description**: `TOmniSynchronizer<T>.Ensure` creates a `TEvent`, then calls `FEvents.Add(name, Result)` inside the write lock. If `Add` raises (e.g., OOM), the newly created `TEvent` is leaked.
@@ -2320,7 +2328,7 @@ Several findings in this category were also flagged under different categories:
 
 ## OtlThreadPool.pas
 
-### Cancel doubles an already-millisecond timeout with `* 1000` — Severity: Critical
+### ~~Cancel doubles an already-millisecond timeout with `* 1000`~~ — Severity: Critical — FINISHED
 **File**: `OtlThreadPool.pas:1006`
 **Category**: 4.2 Integer Overflow / Type Mismatch
 **Description**: In `TOTPWorker.Cancel`, when `waitForTask_ms < 0`, the code sets `waitForTask_ms` from `WaitOnTerminate_sec * 1000` (converting seconds to milliseconds — correct). But then on line 1006 it computes `endWait_ms := Time.Timestamp_ms + waitForTask_ms * 1000`, multiplying the **already-millisecond** value by 1000 again. This makes every cancel wait 1000x longer than intended.
@@ -2342,7 +2350,7 @@ while iWorker < owRunningWorkers.Count do begin
 
 ## OtlContainers.pas
 
-### CollectionNotifyEvent uses wrong threshold for PartlyEmpty — Severity: Critical
+### ~~CollectionNotifyEvent uses wrong threshold for PartlyEmpty~~ — Severity: Critical — FINISHED
 **File**: `OtlContainers.pas:1715`
 **Category**: 4.4 Boolean Logic
 **Description**: In `TOmniValueQueue.CollectionNotifyEvent`, the `cnRemoved`/`cnExtracted` branch checks `AfterCount = FAlmostFullThreshold` to fire `coiNotifyOnPartlyEmpty`. It should check `AfterCount = FPartlyEmptyThreshold`. This means the "partly empty" notification fires at 90% load (almost full threshold) instead of at 80% load (partly empty threshold).
@@ -2363,7 +2371,7 @@ cnExtracted:
 
 ## OtlCommon.pas
 
-### `{$IFDEF Defined(...)}` is always false — dead optimization code — Severity: High
+### ~~`{$IFDEF Defined(...)}` is always false — dead optimization code~~ — Severity: High — FINISHED
 **File**: `OtlCommon.pas:4281` (and 4300, 4405, 4424)
 **Category**: 4.4 Boolean Logic
 **Description**: Four locations use `{$IFDEF Defined(CPU386) or Defined(CPUX64)}` to select between direct memory access and interlocked operations. However, `{$IFDEF}` takes a single symbol name — it does not understand `Defined()` or `or` expressions. The literal symbol `Defined(CPU386) or Defined(CPUX64)` is never defined, so the `{$IFDEF}` block is always skipped. The correct form is `{$IF Defined(CPU386) or Defined(CPUX64)}`.
@@ -2385,7 +2393,8 @@ end;
 
 ## OtlCommon.pas
 
-### GetLastError called without qualification may call wrong function — Severity: High
+### ~~GetLastError called without qualification may call wrong function~~ — Severity: High — FALSE REPORT
+**Reason**: No local GetLastError override exists in the codebase.
 **File**: `OtlCommon.pas:3424`
 **Category**: 4.3 Missing or Wrong Error Handling
 **Description**: In `TOmniAffinity.GetCountPhysical`, `GetLastError` is called without the `Winapi.Windows.` qualification. Per the CLAUDE.md rule, the codebase may implement its own `GetLastError` method. Additionally, on line 3424, `GetLastError` is called after `GetLogicalProcessorInformation(nil, bufLen)` which correctly sets the Win32 error, but any intervening Delphi RTL call could reset it.
@@ -2399,7 +2408,7 @@ if GetLastError <> ERROR_INSUFFICIENT_BUFFER then   // unqualified
 **Risk**: If the codebase has its own `GetLastError` function (search shows qualified uses in OtlBackgroundObserver and OtlCommon lines 3635/3637/3991/3995), calling the wrong `GetLastError` would return a stale or wrong error code, causing the NUMA detection to silently fall back to incorrect topology.
 **Suggested fix**: Qualify as `Winapi.Windows.GetLastError`.
 
-### Double GetLastError calls may return different values — Severity: Medium
+### ~~Double GetLastError calls may return different values~~ — Severity: Medium — FINISHED
 **File**: `OtlCommon.pas:3635-3637`
 **Category**: 4.3 Missing or Wrong Error Handling
 **Description**: In `TOmniThreadEnvironment.GetGroupAffinity`, `Winapi.Windows.GetLastError` is called three times: first to compare against `ERROR_NOT_SUPPORTED`, then twice in the exception format string. Each call is independent; although on x86 Windows `GetLastError` is thread-local and stable until next API call, the pattern is fragile.
@@ -2413,7 +2422,7 @@ else if Winapi.Windows.GetLastError <> ERROR_NOT_SUPPORTED then
 **Risk**: If `GetLastError` is called and some intervening call (like memory allocation for the format string) resets it, the exception message would contain error code 0 (ERROR_SUCCESS) instead of the actual error. This makes debugging very difficult.
 **Suggested fix**: Capture `GetLastError` once into a local variable before using it.
 
-### Sequential double GetLastError calls in NUMA detection — Severity: Medium
+### ~~Sequential double GetLastError calls in NUMA detection~~ — Severity: Medium — FINISHED
 **File**: `OtlCommon.pas:3991-3995`
 **Category**: 4.3 Missing or Wrong Error Handling
 **Description**: In `TOmniProcessEnvironment.ReadProcessorGroups`, after calling `GetLogicalProcessorInformationEx`, `GetLastError` is called twice sequentially: first to check for `ERROR_NOT_SUPPORTED`, and if that test fails, again to check for `ERROR_INSUFFICIENT_BUFFER`. The second call is only valid if the first comparison failed without any intervening API calls — but critically, if the first check succeeds (error IS `ERROR_NOT_SUPPORTED`), the code enters the `if` branch and exits. If it fails, the error code is still valid for the second check.
@@ -2436,7 +2445,7 @@ end;
 
 ## OtlSync.pas
 
-### TOmniLockManager.Lock passes negative wait_ms as cardinal — Severity: High
+### ~~TOmniLockManager.Lock passes negative wait_ms as cardinal~~ — Severity: High — FINISHED
 **File**: `OtlSync.pas:1952-1953`
 **Category**: 4.2 Integer Overflow / Type Mismatch
 **Description**: In `TOmniLockManager<K>.Lock`, `wait_ms` is computed as `integer(timeout_ms) - integer(Time.Elapsed_ms(startWait))`. When the elapsed time exceeds the timeout, `wait_ms` becomes negative. This negative value is then passed to `waitEvent.WaitFor(cardinal(wait_ms))`, which casts it to a very large positive cardinal, causing an extremely long wait instead of an immediate timeout.
@@ -2456,7 +2465,8 @@ if wait_ms <= 0 then
 waitResult := waitEvent.WaitFor(cardinal(wait_ms));
 ```
 
-### TCondition.Wait timeout_ms check allows zero-timeout to enter wait loop — Severity: Low
+### ~~TCondition.Wait timeout_ms check allows zero-timeout to enter wait loop~~ — Severity: Low — FALSE REPORT
+**Reason**: Cardinal can't be negative, code is correct. The <= 0 is equivalent to = 0 which is the intended behavior.
 **File**: `OtlSync.pas:2107`
 **Category**: 4.4 Boolean Logic
 **Description**: The condition `timeout_ms <= 0` is checked using unsigned `cardinal` comparison. Since `timeout_ms` is `cardinal`, it can never be less than 0 — the `<= 0` is equivalent to `= 0`. While functionally correct (zero timeout means "don't wait"), using `<=` on an unsigned type is misleading and suggests the developer expected signed values.
@@ -2472,7 +2482,8 @@ else if (timeout_ms <= 0) or (timeout_ms <= timer.ElapsedMilliseconds) then
 
 ## OtlTaskControl.pas
 
-### ReportInvalidHandle calls unqualified GetLastError — Severity: Medium
+### ~~ReportInvalidHandle calls unqualified GetLastError~~ — Severity: Medium — FALSE REPORT
+**Reason**: No local GetLastError override exists in the codebase.
 **File**: `OtlTaskControl.pas:2481`
 **Category**: 4.3 Missing or Wrong Error Handling
 **Description**: `ReportInvalidHandle` calls `SysErrorMessage(GetLastError)` without the `Winapi.Windows.` qualification. Per the CLAUDE.md coding standard, this should be qualified to avoid calling a potential local `GetLastError` method.
@@ -2488,7 +2499,8 @@ begin
 **Risk**: If a local `GetLastError` exists, the wrong error code would be included in the exception message, making it harder to debug handle failures.
 **Suggested fix**: Qualify as `Winapi.Windows.GetLastError`.
 
-### WaitForEvent debug log calls GetLastError after intervening API calls — Severity: Low
+### ~~WaitForEvent debug log calls GetLastError after intervening API calls~~ — Severity: Low — FALSE REPORT
+**Reason**: Debug log only; not production code.
 **File**: `OtlTaskControl.pas:2648`
 **Category**: 4.3 Missing or Wrong Error Handling
 **Description**: In `WaitForEvent`, the debug-only `GetLastError` call occurs after `WaitForMultipleObjectsEx` (line 2640) and `DrainBackgroundObservers` — both of which may reset the Win32 error code. By the time `GetLastError` is called, it may no longer reflect the error from the `WaitAny` call that returned `waFailed`.
@@ -2512,7 +2524,7 @@ if Result = waFailed then
 
 ## OtlParallel.pas
 
-### Two OnStopInvoke implementations don't guard against nil task — Severity: Medium
+### ~~Two OnStopInvoke implementations don't guard against nil task~~ — Severity: Medium — FINISHED
 **File**: `OtlParallel.pas:3680` and `OtlParallel.pas:4882`
 **Category**: 4.3 Missing or Wrong Error Handling
 **Description**: `TOmniParallelLoop.OnStopInvoke` and `TOmniPipeline.OnStopInvoke` call `task.Invoke(...)` without checking `assigned(task)`. Other implementations (`TOmniParallelJoin.OnStopInvoke` at line 2221, `TOmniParallelLoop<T>.OnStopInvoke` at line 3942, `TOmniParallelSimpleLoop.OnStopInvoke` at line 4315) correctly include `if not assigned(task) then stopCode() else task.Invoke(...)`.
@@ -2550,7 +2562,7 @@ end;
 
 ## OtlDataManager.pas
 
-### TOmniIntegerDataPackage.GetNext position tracking not thread-safe — Severity: Medium
+### ~~TOmniIntegerDataPackage.GetNext position tracking not thread-safe~~ — Severity: Medium — FINISHED
 **File**: `OtlDataManager.pas:469-477`
 **Category**: 4.1 Off-By-One Errors
 **Description**: In `TOmniIntegerDataPackage.GetNext(var position, var value)`, the `idpPosition` field is incremented non-atomically (`Inc(idpPosition)`), while the corresponding value is fetched via the atomic `idpLow.Add(idpStep)`. If two threads call `GetNext` simultaneously, they each get a unique value from the atomic `idpLow.Add`, but they may get the same `idpPosition` due to the non-atomic increment, or positions may be assigned out of order relative to values.
@@ -2573,7 +2585,8 @@ end;
 
 ## OtlThreadPool.pas
 
-### Empty except block silently swallows ThreadData destruction errors — Severity: Low
+### ~~Empty except block silently swallows ThreadData destruction errors~~ — Severity: Low — FALSE REPORT
+**Reason**: The except block is intentional cleanup code; thread data destruction must not propagate exceptions as it would prevent MSG_THREAD_DESTROYING from being sent.
 **File**: `OtlThreadPool.pas:796-799`
 **Category**: 4.3 Missing or Wrong Error Handling
 **Description**: In `TOTPWorkerThread.Execute`, the `try owtThreadData := nil; except end;` block silently swallows any exception thrown during thread data destruction. While this is intentional (the code must continue to send `MSG_THREAD_DESTROYING`), there's no logging or notification of the failure.
@@ -2588,7 +2601,8 @@ end;
 **Risk**: If the thread data factory creates objects whose destructors fail (e.g., database connections that throw on close), the failure is completely invisible. Debugging resource leaks becomes very difficult.
 **Suggested fix**: At minimum, log the exception before swallowing it, or pass it to `owtAsy_OnUnhandledException`.
 
-### TOmniAlignedInt32 operator Add returns cardinal from int64 arithmetic — Severity: Low
+### ~~TOmniAlignedInt32 operator Add returns cardinal from int64 arithmetic~~ — Severity: Low — FALSE REPORT
+**Reason**: The operator is intentionally designed for unsigned arithmetic on aligned counters. The int64 intermediate prevents overflow during computation, and the cardinal result is the intended type for counter use cases.
 **File**: `OtlCommon.pas:4307-4310`
 **Category**: 4.2 Integer Overflow / Type Mismatch
 **Description**: The `TOmniAlignedInt32.Add` class operator computes `cardinal(int64(ai.Value) + i)`. If `ai.Value` is near `MaxInt` and `i` is positive, the `int64` intermediate is correct, but the `cardinal()` cast truncates to 32 bits. Since the operator returns `cardinal` but `TOmniAlignedInt32.Value` is signed `integer`, mixing signed/unsigned is confusing and can produce unexpected results when the value is negative.
@@ -2627,7 +2641,7 @@ end;
 
 ## OtlHooks.pas
 
-### Procedure pointer registration stores stack address instead of function address — Severity: Critical
+### ~~Procedure pointer registration stores stack address instead of function address~~ — Severity: Critical — CONFIRMED, DEFERRED
 **File**: `OtlHooks.pas:351`, `361`, `409`, `419`, `471`, `481`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: All six `Register`/`Unregister` methods for procedure-type callbacks store `pointer(@notifyProc)` — the address of the **local parameter variable on the stack** — rather than the procedure pointer value itself. The parameter `notifyProc` is a by-value local copy; `@notifyProc` yields a stack address that becomes invalid as soon as the method returns. The correct expression is `pointer(notifyProc)` (the value of the proc pointer). This is a copy-and-paste pattern repeated in all three notification classes (`TThreadNotifications`, `TPoolNotifications`, `TExceptionFilters`). The `TMethod` overloads are correct.
@@ -2650,7 +2664,7 @@ end;
 
 ---
 
-### Notification callbacks executed while read lock is held — Severity: High
+### ~~Notification callbacks executed while read lock is held~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlHooks.pas:325-347`, `383-405`, `441-462`
 **Category**: 5.3 Callback Safety
 **Description**: `TThreadNotifications.Notify`, `TPoolNotifications.Notify`, and `TExceptionFilters.Filter` all acquire a read lock on the internal list and then directly invoke user-provided callbacks without releasing the lock. If a callback attempts to register or unregister a notification (which requires a write lock on the same `TOmniMREW`), a deadlock occurs since `TOmniMREW` does not allow upgrading a read lock to a write lock on the same thread.
@@ -2680,7 +2694,7 @@ end;
 
 ## OtlSync.pas
 
-### Broken double-checked locking in `Locked<T>.Initialize` — Severity: Critical
+### ~~Broken double-checked locking in `Locked<T>.Initialize`~~ — Severity: Critical — FINISHED
 **File**: `OtlSync.pas:1735-1753`
 **Category**: 5.2 Precondition Checking / 5.1 Interface Contract Consistency
 **Description**: `Locked<T>.Initialize(factory)` implements a double-checked locking pattern but creates the `FLock` object inside the unprotected outer check. Two threads can both observe `FInitialized = false`, both execute `FLock := TLightweightMREWExImpl.Create`, and both acquire their own independently-created lock instances. The second lock leaks, and neither thread is mutually excluded from calling `factory()`.
@@ -2707,7 +2721,7 @@ end;
 
 ---
 
-### Incomplete `TOmniWrappedEvent` ownership — raises exception on valid API use — Severity: High
+### ~~Incomplete `TOmniWrappedEvent` ownership — raises exception on valid API use~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlSync.pas:2709-2726`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `CreateOmniEvent(AExternalEvent: THandle; ATakeOwnership: boolean)` is a public API that promises to optionally take ownership of the passed handle. The backing `TOmniWrappedEvent` class raises an exception unconditionally when `ATakeOwnership = true`. The condition check `(FHandle <> 0)` is also wrong — `FHandle` is the auto-created handle from `inherited Create(nil, false, false, '')`, not the parameter.
@@ -2727,7 +2741,7 @@ end;
 
 ---
 
-### `FManualReset` unset for handle-wrapped events — Severity: Medium
+### ~~`FManualReset` unset for handle-wrapped events~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlSync.pas:2752-2760`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `TOmniEvent.Create(AExternalEvent: THandle, ...)` never sets `FManualReset`. It defaults to `false`. When the event is consumed by an observer (via `ConsumeSignalFromObserver`), `FEvent.ResetEvent` is always called, treating it as auto-reset regardless of the actual event type.
@@ -2747,7 +2761,7 @@ end;
 
 ---
 
-### Unprotected `FState` write in `TOmniEvent.WaitFor` — Severity: Medium
+### ~~Unprotected `FState` write in `TOmniEvent.WaitFor`~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlSync.pas:2797-2798`
 **Category**: 5.2 Precondition Checking
 **Description**: `TOmniEvent.WaitFor` modifies `FState := False` after the wait returns, without holding the gate lock or the spin lock. All other modifications to `FState` happen inside `PerformObservableAction` which acquires the gate. A concurrent `SetEvent` or `Reset` on another thread can race with this write.
@@ -2765,7 +2779,7 @@ end;
 
 ---
 
-### `BeforeSignal`/`AfterSignal` callbacks called while gate lock is held — Severity: Medium
+### ~~`BeforeSignal`/`AfterSignal` callbacks called while gate lock is held~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlSync.pas:2567-2571`
 **Category**: 5.3 Callback Safety
 **Description**: `PerformObservableAction` enters the gate lock and then invokes `BeforeSignal` and `AfterSignal` callbacks on all observers while those gates remain held. The callback context (which thread, which locks held) is not documented in the `IOmniSynchroObserver` interface.
@@ -2783,7 +2797,7 @@ for iObserver := 0 to count - 1 do
 
 ---
 
-### Re-entrant gate lock in `TCondition.Test` — undocumented dependency — Severity: Low
+### ~~Re-entrant gate lock in `TCondition.Test` — undocumented dependency~~ — Severity: Low — CONFIRMED, DEFERRED
 **File**: `OtlSync.pas:2377`, `2398`
 **Category**: 5.2 Precondition Checking
 **Description**: `TOneCondition.Test` and `TAllCondition.Test` unconditionally acquire `FController.Gate`. All callers already hold the gate. This works because Windows critical sections are re-entrant, but it is undocumented.
@@ -2802,7 +2816,8 @@ FController.Gate.Acquire;    // second acquisition of same CS
 
 ---
 
-### `TOmniResourceCount.TryAllocate` misleading cardinal comparison — Severity: Low
+### ~~`TOmniResourceCount.TryAllocate` misleading cardinal comparison~~ — Severity: Low — FALSE REPORT
+**Reason**: Cardinal can't be negative, code is correct. The <= 0 is equivalent to = 0 which is the intended behavior.
 **File**: `OtlSync.pas:1390`
 **Category**: 5.2 Precondition Checking
 **Description**: `timeout_ms` is `cardinal` (unsigned), so `timeout_ms <= 0` is equivalent to `timeout_ms = 0`. The `<= 0` form is misleading.
@@ -2821,7 +2836,7 @@ function TOmniResourceCount.TryAllocate(var resourceCount: cardinal;
 
 ## OtlContainers.pas
 
-### `TOmniBaseBoundedStack.Empty` does not acquire lock in non-CAS path — Severity: High
+### ~~`TOmniBaseBoundedStack.Empty` does not acquire lock in non-CAS path~~ — Severity: High — FINISHED
 **File**: `OtlContainers.pas:470-480`
 **Category**: 5.2 Precondition Checking
 **Description**: `TOmniBaseBoundedStack.Empty` calls `PopLink` and `PushLink` in a loop but does not call `Acquire`/`Release`. In the non-lock-free path (`{$IFNDEF OTL_HaveCmpx16b}`), `PopLink` and `PushLink` manipulate chain pointers without synchronization. This is inconsistent with `Pop` and `Push`, which both wrap themselves in `Acquire`/`Release`. `TOmniBaseBoundedQueue.Empty` (lines 776-790) does acquire the lock.
@@ -2844,7 +2859,7 @@ end;
 
 ---
 
-### `TOmniBaseBoundedStack.IsEmpty`/`IsFull` read shared pointers without lock — Severity: Medium
+### ~~`TOmniBaseBoundedStack.IsEmpty`/`IsFull` read shared pointers without lock~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlContainers.pas:524-531`
 **Category**: 5.2 Precondition Checking
 **Description**: `IsEmpty` and `IsFull` directly read `obsPublicChainP^.PData` and `obsRecycleChainP^.PData` without acquiring `obsLock`. In the non-CAS path, all mutations go through `Acquire`/`Release` which delegate to `obsLock`. The unprotected reads from `IsEmpty`/`IsFull` are inconsistent with how `Pop`/`Push`/`Empty` protect themselves.
@@ -2865,7 +2880,7 @@ end;
 
 ---
 
-### `TOmniBaseBoundedQueue.IsEmpty` reads without lock, inconsistent with `IsFull` — Severity: Medium
+### ~~`TOmniBaseBoundedQueue.IsEmpty` reads without lock, inconsistent with `IsFull`~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlContainers.pas:909-912`
 **Category**: 5.2 Precondition Checking
 **Description**: `TOmniBaseBoundedQueue.IsEmpty` directly compares two shared pointers without calling `Acquire`. `IsFull` on the same class (lines 914-926) wraps itself in `Acquire`/`Release`. This is an inconsistent contract.
@@ -2889,7 +2904,7 @@ end;
 
 ---
 
-### Observer callbacks called while internal lock is held — deadlock risk — Severity: Medium
+### ~~Observer callbacks called while internal lock is held — deadlock risk~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlContainers.pas:705-729`, `1066-1090`
 **Category**: 5.3 Callback Safety
 **Description**: `TOmniBoundedStack.Pop/Push` and `TOmniBoundedQueue.Dequeue/Enqueue` call `ContainerSubject.Notify` and `NotifyOnce` after the data operation returns but still in the same call frame. `Notify` acquires a read lock on the per-interest list and calls `observer.Notify`. No documentation warns that observer callbacks must not re-enter the container.
@@ -2911,7 +2926,8 @@ end;
 
 ---
 
-### `TOmniValueQueue.IsEmpty` missing try/finally around critical section — Severity: Low
+### ~~`TOmniValueQueue.IsEmpty` missing try/finally around critical section~~ — Severity: Low — FALSE REPORT
+**Reason**: Body cannot raise an exception; TQueue.Count is a simple field read. Duplicate of earlier finding.
 **File**: `OtlContainers.pas:1767-1772`
 **Category**: 5.2 Precondition Checking
 **Description**: `TOmniValueQueue.IsEmpty` calls `EnterCriticalSection`/`LeaveCriticalSection` manually without `try/finally`, unlike every other method which uses `DoWithCritSec`.
@@ -2929,7 +2945,7 @@ end;
 
 ---
 
-### `TOmniBoundedStack.Create` calls Initialize before setting fields — Severity: Low
+### ~~`TOmniBoundedStack.Create` calls Initialize before setting fields~~ — Severity: Low — CONFIRMED, DEFERRED
 **File**: `OtlContainers.pas:684-696`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `TOmniBoundedStack.Create` calls `Initialize(numElements, elementSize)` before setting `osContainerSubject`, `osInStackCount`, etc. `TOmniBoundedQueue.Create` calls `Initialize` last, after all field assignments. This asymmetry is a maintenance trap.
@@ -2958,7 +2974,7 @@ end;
 
 ## OtlTaskControl.pas
 
-### Unsafe `as` cast: `owExecutor` to `TOmniTaskExecutor` with no type guard — Severity: High
+### ~~Unsafe `as` cast: `owExecutor` to `TOmniTaskExecutor` with no type guard~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlTaskControl.pas:1525`, `1551`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `TOmniWorker.EventInfo` and `TOmniWorker.ProcessMessages` unconditionally cast `owExecutor` (typed `TObject`) to `TOmniTaskExecutor` using `as`. The interface contract (`IOmniWorker.SetExecutor(executor: TObject)`) gives no indication of this constraint. If any subclass or test harness sets a different executor, the cast raises `EInvalidCast`.
@@ -2972,7 +2988,7 @@ Result := (owExecutor as TOmniTaskExecutor).EventInfo(awaited);  // line 1525
 
 ---
 
-### Missing bounds check in `Asy_UnregisterComm`: silent delete at index -1 — Severity: High
+### ~~Missing bounds check in `Asy_UnregisterComm`: silent delete at index -1~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlTaskControl.pas:1817`
 **Category**: 5.2 Precondition Checking
 **Description**: `Asy_UnregisterComm` calls `oteCommList.IndexOf(comm)` and immediately passes the result to `oteCommList.Delete(idxComm)` without checking whether `idxComm = -1`. Passing a never-registered or already-unregistered endpoint causes `TInterfaceList.Delete(-1)`.
@@ -2991,7 +3007,7 @@ finally oteInternalLock.Release; end;
 
 ---
 
-### `TOmniTaskControl.Destroy` unconditional access to `otcSharedInfo` when nil — Severity: High
+### ~~`TOmniTaskControl.Destroy` unconditional access to `otcSharedInfo` when nil~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlTaskControl.pas:2690-2706`
 **Category**: 5.2 Precondition Checking
 **Description**: The destructor checks `if assigned(otcSharedInfo)` before calling `MonitorLock.Acquire`, but the `try` block body unconditionally accesses `otcSharedInfo.Lock`, `otcSharedInfo.CommChannel`, etc. If `otcSharedInfo` is nil, the body AVs. The `finally` clause re-checks `assigned(otcSharedInfo)` but the body does not.
@@ -3018,7 +3034,7 @@ end;
 
 ---
 
-### `Terminate` dispatches callbacks on calling thread — undocumented context — Severity: Medium
+### ~~`Terminate` dispatches callbacks on calling thread — undocumented context~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlTaskControl.pas:3421-3423`
 **Category**: 5.3 Callback Safety
 **Description**: `Terminate` drains remaining comm messages and fires the terminated callback from the *calling* (owner) thread. This is nowhere documented in the `IOmniTaskControl` interface. Background-thread callers can have their `OnMessage` and `OnTerminated` callbacks dispatched on a thread they did not expect, violating VCL/FMX thread-affinity.
@@ -3034,7 +3050,7 @@ ForwardTaskTerminated;       // dispatches OnTerminated on the calling thread
 
 ---
 
-### `DispatchOmniMessage` exception from callback drops remaining messages — Severity: Medium
+### ~~`DispatchOmniMessage` exception from callback drops remaining messages~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlTaskControl.pas:2083-2088`
 **Category**: 5.3 Callback Safety
 **Description**: In `EmptyMessageQueues`, `DispatchOmniMessage` calls user callbacks with no exception guard. An exception from a callback propagates up, bypassing iteration over remaining comm channels and dropping all pending messages.
@@ -3053,7 +3069,7 @@ end;
 
 ---
 
-### Wait-object response handler called outside lock — undocumented context — Severity: Low
+### ~~Wait-object response handler called outside lock — undocumented context~~ — Severity: Low — CONFIRMED, DEFERRED
 **File**: `OtlTaskControl.pas:1955-1959`
 **Category**: 5.3 Callback Safety
 **Description**: In `DispatchEvent`, the wait-object `responseHandler` is retrieved under `oteInternalLock`, then the lock is released, then `responseHandler()` is called. The callback execution context is not documented.
@@ -3070,7 +3086,7 @@ responseHandler();   // called outside lock
 
 ---
 
-### `OnTerminated` simple overload closure captures potentially nil reference — Severity: Low
+### ~~`OnTerminated` simple overload closure captures potentially nil reference~~ — Severity: Low — CONFIRMED, DEFERRED
 **File**: `OtlTaskControl.pas:3159-3177`
 **Category**: 5.3 Callback Safety
 **Description**: The `OnTerminated(eventHandler: TOmniOnTerminatedFunctionSimple)` overload wraps the handler in an anonymous method that captures `Self` to access `otcOnTerminatedSimple`. If the user later calls `OnTerminated(nil)` to clear the handler, a previously-queued terminated notification will call through a nil reference.
@@ -3089,7 +3105,7 @@ otcOnTerminatedExec.SetOnTerminated(TOmniOnTerminatedFunction(
 
 ## OtlParallel.pas
 
-### `TOmniParallelLoopBase.InternalExecute` calls Initializer/Finalizer without nil check — Severity: High
+### ~~`TOmniParallelLoopBase.InternalExecute` calls Initializer/Finalizer without nil check~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlParallel.pas:3244`
 **Category**: 5.2 Precondition Checking
 **Description**: The `InternalExecute(loopBody: TOmniIteratorStateTaskDelegate)` overload calls `FTaskInitializer(taskState)` and `FTaskFinalizer(taskState)` unconditionally. These fields are set only if the user calls `Initialize`/`Finalize` before the state-delegate form of `Execute`. This overload is reachable directly via `TOmniParallelLoop.Execute(loopBody: TOmniIteratorStateTaskDelegate)` without going through `IOmniParallelInitializedLoop`.
@@ -3114,7 +3130,7 @@ end;
 
 ---
 
-### `TOmniBackgroundWorker.DrainOutput` calls `GetOnRequestDone` without nil check — Severity: High
+### ~~`TOmniBackgroundWorker.DrainOutput` calls `GetOnRequestDone` without nil check~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlParallel.pas:5518`
 **Category**: 5.2 Precondition Checking / 5.3 Callback Safety
 **Description**: `DrainOutput` retrieves `GetOnRequestDone()` from the work item's config and calls it directly. The output queue is supposed to contain only items that passed the `assigned(configEx.GetOnRequestDone())` filter in `BackgroundWorker`, but `DrainOutput` does not repeat that check.
@@ -3133,7 +3149,7 @@ end;
 
 ---
 
-### `TOmniParallelJoin.Destroy` frees `FTasks` while NoWait workers may still reference it — Severity: High
+### ~~`TOmniParallelJoin.Destroy` frees `FTasks` while NoWait workers may still reference it~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlParallel.pas:2061`
 **Category**: 5.2 Precondition Checking
 **Description**: The destructor terminates tasks and frees `FTasks` but does not wait for `FCountStopped`. If `NoWait` is used and the interface reference drops before workers finish, `FTasks` is freed while workers are still reading from it.
@@ -3154,7 +3170,7 @@ end;
 
 ---
 
-### `TOmniParallelLoop.OnStopInvoke` missing nil guard for task — Severity: Medium
+### ~~`TOmniParallelLoop.OnStopInvoke` missing nil guard for task~~ — Severity: Medium — FINISHED
 **File**: `OtlParallel.pas:3680`
 **Category**: 5.3 Callback Safety
 **Description**: `TOmniParallelLoop.OnStopInvoke` wraps `stopCode` in an anonymous method that calls `task.Invoke(...)` unconditionally. In the synchronous execution path, `DoOnStop(nil)` passes `nil` as the task. The generic `TOmniParallelLoop<T>.OnStopInvoke` (line 3937), `TOmniParallelJoin.OnStopInvoke`, and `TOmniParallelSimpleLoop.OnStopInvoke` all check `if not assigned(task)` — this non-generic overload is missing the guard.
@@ -3178,7 +3194,7 @@ end;
 
 ---
 
-### `TOmniParallelSimpleLoop.WaitFor` nil dereference when called before Execute — Severity: Medium
+### ~~`TOmniParallelSimpleLoop.WaitFor` nil dereference when called before Execute~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlParallel.pas:4333`
 **Category**: 5.2 Precondition Checking
 **Description**: `WaitFor` dereferences `FCountStopped.Synchro.WaitFor(...)` without checking whether `FCountStopped` is assigned. `FCountStopped` is only set inside `InternalExecute`.
@@ -3194,7 +3210,7 @@ end;
 
 ---
 
-### `TOmniPipelineStage.Execute` uses unsafe `PInteger` cast for nil checks on anonymous methods — Severity: Medium
+### ~~`TOmniPipelineStage.Execute` uses unsafe `PInteger` cast for nil checks on anonymous methods~~ — Severity: Medium — FINISHED
 **File**: `OtlParallel.pas:4630`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: The method casts delegate references to `PInteger` and compares to `NativeInt(nil)`. On 64-bit, `PInteger` reads only the low 32 bits of the 64-bit pointer, making the nil check unreliable.
@@ -3218,7 +3234,7 @@ end;
 
 ---
 
-### `TOmniParallelJoin.InternalWaitFor` exception message lacks class/method name — Severity: Medium
+### ~~`TOmniParallelJoin.InternalWaitFor` exception message lacks class/method name~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlParallel.pas:2264`
 **Category**: 5.2 Precondition Checking
 **Description**: `InternalWaitFor` raises `Exception.Create('Task was not started')` if `FCountStopped` is nil. The exception text violates the project convention of including class and method name.
@@ -3236,7 +3252,8 @@ end;
 
 ---
 
-### RTTI-based constructor uses Assert instead of exceptions for runtime conditions — Severity: Low
+### ~~RTTI-based constructor uses Assert instead of exceptions for runtime conditions~~ — Severity: Low — FALSE REPORT
+**Reason**: Assert is the standard Delphi pattern for programmer error detection. Passing a non-enumerable object is a programming error, not a runtime condition.
 **File**: `OtlParallel.pas:3146`
 **Category**: 5.2 Precondition Checking
 **Description**: The RTTI-based `Create(enumerable: TObject)` constructor uses multiple `Assert` statements to validate the passed object's enumerator compatibility. `Assert` is stripped in release builds, turning checks into no-ops.
@@ -3258,7 +3275,7 @@ begin
 
 ## OtlCollections.pas
 
-### Assert instead of exception for invalid throttle parameters — Severity: High
+### ~~Assert instead of exception for invalid throttle parameters~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlCollections.pas:402`
 **Category**: 5.2 Precondition Checking
 **Description**: `SetThrottling` uses `Assert` for the critical precondition `lowWaterMark <= highWaterMark`. In release builds, a caller can pass inverted values without any error, silently inverting the throttle logic.
@@ -3279,7 +3296,7 @@ end;
 
 ---
 
-### `obcAccessed` flag written without synchronization — Severity: Medium
+### ~~`obcAccessed` flag written without synchronization~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlCollections.pas:579` (write), `400` (read)
 **Category**: 5.2 Precondition Checking
 **Description**: `obcAccessed` is a plain `boolean` field written in `TryAdd` (called from multiple threads) and read in `SetThrottling`. No atomic operation or memory barrier around either access. The flag is write-once (false→true), but under concurrent access `SetThrottling` may not see the write.
@@ -3297,7 +3314,7 @@ if obcAccessed then
 
 ---
 
-### Exception object ownership after `raise value.AsException` — Severity: Medium
+### ~~Exception object ownership after `raise value.AsException`~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlCollections.pas:657`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: When `obcReraiseExceptions` is enabled, `TryTake` writes the exception-carrying `TOmniValue` to the output `value` parameter, decrements `obcApproxCount`, and then raises. The caller receives `Result = true` in the output param but an exception simultaneously. The `value` parameter is in a partially-written, never-returned state.
@@ -3317,7 +3334,8 @@ end;
 
 ---
 
-### `InsertElement<T>` dereferences `ti` without nil check — Severity: Low
+### ~~`InsertElement<T>` dereferences `ti` without nil check~~ — Severity: Low — FALSE REPORT
+**Reason**: System.TypeInfo(T) returns nil only for unmanaged types without RTTI, which always fall through to the else branch via the case statement. The nil case is not practically reachable.
 **File**: `OtlCollections.pas:442`
 **Category**: 5.2 Precondition Checking
 **Description**: `InsertElement<T>` calls `ti.Kind` directly. `GetTypeInformation` handles `ti = nil` gracefully by setting `ds := 0`, but `InsertElement` does not.
@@ -3338,7 +3356,7 @@ begin
 
 ## OtlComm.pas
 
-### `SendWait` redundant local msg — misleading code — Severity: Low
+### ~~`SendWait` redundant local msg — misleading code~~ — Severity: Low — CONFIRMED, DEFERRED
 **File**: `OtlComm.pas:539-543`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: The single-argument `SendWait` overload builds a local `msg` struct and sets `msg.msgID`, but this local is never used — the `msgID` parameter is forwarded to the two-argument overload. The redundant struct construction is misleading.
@@ -3358,7 +3376,7 @@ end;
 
 ---
 
-### `ReceiveWait`/`SendWait` require `taskTerminatedEvent` but contract not documented — Severity: Medium
+### ~~`ReceiveWait`/`SendWait` require `taskTerminatedEvent` but contract not documented~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlComm.pas:437-438`, `502-503`
 **Category**: 5.2 Precondition Checking
 **Description**: Both methods raise when `ceTaskTerminatedEvent_ref = nil` and `timeout_ms > 0`. The event is optional at channel creation (defaults to `nil`). No documentation on the interface warns callers.
@@ -3377,7 +3395,8 @@ if ceTaskTerminatedEvent_ref = nil then
 
 ---
 
-### `TOmniMessageQueue.Destroy` unconditionally detaches possibly-nil observer — Severity: Medium
+### ~~`TOmniMessageQueue.Destroy` unconditionally detaches possibly-nil observer~~ — Severity: Medium — FALSE REPORT
+**Reason**: Detach tolerates nil; the finding itself acknowledges "currently harmless because Detach tolerates nil." Duplicate of earlier finding at line 1755.
 **File**: `OtlComm.pas:304-309`
 **Category**: 5.2 Precondition Checking
 **Description**: When created with `createEventObserver = false`, `mqEventObserver` stays nil. But `Destroy` unconditionally calls `ContainerSubject.Detach(mqEventObserver, ...)`.
@@ -3395,7 +3414,7 @@ end;
 
 ---
 
-### `TOmniMessageQueueTee.Enqueue` calls observer callbacks while lock is held — Severity: Medium
+### ~~`TOmniMessageQueueTee.Enqueue` calls observer callbacks while lock is held~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlComm.pas:671-681`
 **Category**: 5.3 Callback Safety
 **Description**: `Enqueue` acquires `obqtQueueLock` and then calls `TOmniMessageQueue.Enqueue` on every attached queue while the lock is held. `Enqueue` internally notifies `ContainerSubject` observers. If any observer calls back into `Attach`/`Detach`, deadlock occurs.
@@ -3416,7 +3435,7 @@ end;
 
 ---
 
-### `GetNewMessageEvent` creates observer without synchronization — Severity: Low
+### ~~`GetNewMessageEvent` creates observer without synchronization~~ — Severity: Low — CONFIRMED, DEFERRED
 **File**: `OtlComm.pas:348-352`
 **Category**: 5.2 Precondition Checking
 **Description**: `AttachEventObserver` has a `not assigned(mqEventObserver)` check with no lock. Two threads calling `GetNewMessageEvent` concurrently on a lazily-initialized queue can both create an observer, leaking one.
@@ -3438,7 +3457,7 @@ end;
 
 ## OtlThreadPool.pas
 
-### `Cancel` timeout arithmetic bug — ms multiplied by 1000 again — Severity: High
+### ~~`Cancel` timeout arithmetic bug — ms multiplied by 1000 again~~ — Severity: High — FINISHED
 **File**: `OtlThreadPool.pas:1006`
 **Category**: 5.2 Precondition Checking
 **Description**: `TOTPWorker.Cancel` receives `waitForTask_ms` already in milliseconds. Line 1006 multiplies by 1000 again when computing the deadline, giving a wait window 1000x too long. *(Also found in Categories 1, 3, and 4.)*
@@ -3455,7 +3474,7 @@ endWait_ms := Time.Timestamp_ms + waitForTask_ms * 1000;       // BUG: ms * 1000
 
 ---
 
-### `GlobalOmniThreadPool` singleton creation not thread-safe — Severity: Medium
+### ~~`GlobalOmniThreadPool` singleton creation not thread-safe~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlThreadPool.pas:617-622`
 **Category**: 5.2 Precondition Checking
 **Description**: Tests `GOmniThreadPool` for nil and creates the pool without any lock. Two threads calling simultaneously at startup can both create a pool; one leaks.
@@ -3473,7 +3492,7 @@ end;
 
 ---
 
-### `TOTPWorkerScheduler.Next` called without guarding against empty `owsRoundRobin` — Severity: Medium
+### ~~`TOTPWorkerScheduler.Next` called without guarding against empty `owsRoundRobin`~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlThreadPool.pas:2018-2025`
 **Category**: 5.2 Precondition Checking
 **Description**: `Next` indexes `owsRoundRobin[owsNextCluster]` unconditionally. If `ApplyAffinityMask` zeros all cluster affinities, `owsRoundRobin` is empty, causing an out-of-bounds access.
@@ -3493,7 +3512,7 @@ end;
 
 ---
 
-### `Asy_OnUnhandledWorkerException` callback context undocumented — Severity: Medium
+### ~~`Asy_OnUnhandledWorkerException` callback context undocumented~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlThreadPool.pas:801-804`, `975-979`
 **Category**: 5.3 Callback Safety
 **Description**: The callback is invoked at two sites with different thread contexts (worker thread vs. pool management thread). The `Exception` object `E` is the live exception from the `except` block — it will be destroyed when the handler exits. No documentation warns that `E` must not be stored.
@@ -3518,7 +3537,7 @@ end;
 
 ---
 
-### `WorkerObj` cast can AV after `Destroy` begins — Severity: Medium
+### ~~`WorkerObj` cast can AV after `Destroy` begins~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlThreadPool.pas:1877-1880`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `WorkerObj` casts `otpWorker.Implementor` to `TOTPWorker`. After `Destroy` calls `otpWorkerTask.Terminate`, any property getter calling `WorkerObj` on another thread can access a terminating or freed worker.
@@ -3539,7 +3558,7 @@ end;
 
 ---
 
-### `SetMaxQueued` has spurious `overload` directive — Severity: Low
+### ~~`SetMaxQueued` has spurious `overload` directive~~ — Severity: Low — CONFIRMED, DEFERRED
 **File**: `OtlThreadPool.pas:239`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `IOmniThreadPool` declares `SetMaxQueued(value: integer)` with `overload` but no second overload exists.
@@ -3552,7 +3571,7 @@ procedure SetMaxQueued(value: integer); overload;  // no second overload
 
 ---
 
-### `Schedule(task)` has no nil check — counter incremented before validation — Severity: Low
+### ~~`Schedule(task)` has no nil check — counter incremented before validation~~ — Severity: Low — CONFIRMED, DEFERRED
 **File**: `OtlThreadPool.pas:1783-1787`
 **Category**: 5.2 Precondition Checking
 **Description**: `Schedule` increments `CountQueued` before creating `TOTPWorkItem`, which immediately dereferences `task.UniqueID`. If `task` is nil, the counter is permanently too high by 1.
@@ -3571,7 +3590,7 @@ end;
 
 ## OtlCommon.pas
 
-### `TOmniMessageID` implicit operators use Assert instead of exceptions — Severity: High
+### ~~`TOmniMessageID` implicit operators use Assert instead of exceptions~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlCommon.pas:4218-4234`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: The three `Implicit` conversion operators from `TOmniMessageID` to `integer`, `string`, and `pointer` use `Assert` to guard the type check. In release builds, a wrong-kind conversion silently returns the uninitialized field value.
@@ -3594,7 +3613,7 @@ end;
 
 ---
 
-### `TOmniValueContainer.GetItem` uses Assert for bounds check — Severity: High
+### ~~`TOmniValueContainer.GetItem` uses Assert for bounds check~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlCommon.pas:1549-1553`
 **Category**: 5.2 Precondition Checking
 **Description**: `GetItem(paramIdx: integer)` uses `Assert` to verify bounds. In release builds the assertion is stripped, so an out-of-range index reads unallocated memory.
@@ -3611,7 +3630,7 @@ end;
 
 ---
 
-### `TOmniProcessorGroups.FindGroup` assumes index equals group number — Severity: Medium
+### ~~`TOmniProcessorGroups.FindGroup` assumes index equals group number~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlCommon.pas:3902-3905`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `FindGroup(groupNumber)` directly uses `groupNumber` as a list index (`Item[groupNumber]`). If group numbering is non-contiguous, this returns the wrong group. Compare with `TOmniNUMANodes.FindNode` which correctly iterates and compares `NodeNumber`.
@@ -3635,7 +3654,7 @@ end;
 
 ---
 
-### `TOmniIntegerSet.Remove` does not guard against out-of-range index — Severity: Medium
+### ~~`TOmniIntegerSet.Remove` does not guard against out-of-range index~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlCommon.pas:4591-4597`
 **Category**: 5.2 Precondition Checking
 **Description**: `Remove(value)` reads `FBits[value]` unconditionally. Unlike `Contains`, which guards with `(value < FBits.Size)`, `Remove` omits bounds testing.
@@ -3659,7 +3678,7 @@ end;
 
 ---
 
-### `TOmniNUMANodes.Distance` does not validate node indices — Severity: Medium
+### ~~`TOmniNUMANodes.Distance` does not validate node indices~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlCommon.pas:3731-3736`
 **Category**: 5.2 Precondition Checking
 **Description**: `Distance(fromNode, toNode)` directly indexes the 2-D `FProximity` array with caller-supplied values. No bounds validation.
@@ -3677,7 +3696,7 @@ end;
 
 ---
 
-### `TOmniIntegerSet.DoOnChange` fires user callback without guard — Severity: Medium
+### ~~`TOmniIntegerSet.DoOnChange` fires user callback without guard~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlCommon.pas:4497-4502`
 **Category**: 5.3 Callback Safety
 **Description**: `DoOnChange` calls the user-provided `OnChange` callback directly with no exception handling. If the callback raises, the set is in a partially modified state (`FHasValueCopy` invalidated, bits changed). Threading context is undocumented.
@@ -3695,7 +3714,8 @@ end;
 
 ---
 
-### `TOmniWaitableValue.Signal(data)` is not atomic — value/event race — Severity: Medium
+### ~~`TOmniWaitableValue.Signal(data)` is not atomic — value/event race~~ — Severity: Medium — FALSE REPORT
+**Reason**: Safe on x86/x64 (TSO memory model). OTL-NG targets Windows only, where this is not a correctness hazard.
 **File**: `OtlCommon.pas:3275-3279`
 **Category**: 5.2 Precondition Checking / 5.3 Callback Safety
 **Description**: `Signal(data)` assigns `FValue` then sets the event with no memory fence or lock between them. On weakly-ordered architectures, a reader unblocked by `WaitFor` could observe the event signalled before seeing the updated `FValue`.
@@ -3712,7 +3732,8 @@ end;
 
 ---
 
-### Unqualified `GetLastError` in `TOmniAffinity.GetCountPhysical` — Severity: Low
+### ~~Unqualified `GetLastError` in `TOmniAffinity.GetCountPhysical`~~ — Severity: Low — FALSE REPORT
+**Reason**: No local GetLastError override exists in the codebase.
 **File**: `OtlCommon.pas:3424`
 **Category**: 5.2 Precondition Checking
 **Description**: One `GetLastError` call is unqualified; all others in the file use `Winapi.Windows.GetLastError`.
@@ -3726,7 +3747,7 @@ if GetLastError <> ERROR_INSUFFICIENT_BUFFER then   // unqualified
 
 ---
 
-### `TOmniValueContainer.GetName` has no bounds check — Severity: Low
+### ~~`TOmniValueContainer.GetName` has no bounds check~~ — Severity: Low — CONFIRMED, DEFERRED
 **File**: `OtlCommon.pas:1576-1579`
 **Category**: 5.2 Precondition Checking
 **Description**: `GetName(paramIdx)` accesses `ovcNames[paramIdx]` with no bounds check, unlike `GetItem` which has an `Assert`.
@@ -3744,7 +3765,7 @@ end;
 
 ## OtlDataManager.pas
 
-### `AllocateOutputBuffer` precondition enforced only by Assert — Severity: Medium
+### ~~`AllocateOutputBuffer` precondition enforced only by Assert~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlDataManager.pas:995-999`
 **Category**: 5.2 Precondition Checking
 **Description**: `AllocateOutputBuffer` requires `dmOutputIntf` to be assigned (`SetOutput` must have been called first), but this is enforced only by `Assert`. A nil `dmOutputIntf` is passed into `TOmniOutputBufferSet.Create`, causing AV on subsequent `CopyToOutput`.
@@ -3761,7 +3782,8 @@ end;
 
 ---
 
-### `TOmniIntegerRangeProvider.GetPackageSizeLimit` raises unconditionally — Severity: Low
+### ~~`TOmniIntegerRangeProvider.GetPackageSizeLimit` raises unconditionally~~ — Severity: Low — FALSE REPORT
+**Reason**: The method is never reached in normal usage (the spcFast capability bypasses this path). The exception is a correct guard against future misuse.
 **File**: `OtlDataManager.pas:589-592`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: Overrides a virtual method with an unconditional exception. Currently never reached (the `spcFast` capability bypasses this path), but the throwing behavior is undocumented on the base class.
@@ -3779,7 +3801,7 @@ end;
 
 ## OtlContainerObserver.pas
 
-### `NotifyOnce` callbacks fired under read lock — Severity: Medium
+### ~~`NotifyOnce` callbacks fired under read lock~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlContainerObserver.pas:291-310`
 **Category**: 5.3 Callback Safety
 **Description**: `TOmniContainerSubject.NotifyOnce` and `Notify` iterate the observer list under a per-interest read lock and call `observer.Notify` while the lock is held. An observer callback that calls `Attach`/`Detach` on the same subject will deadlock on the write lock.
@@ -3803,7 +3825,8 @@ finally csListLocks[interest].ExitReadLock; end;
 
 ## OtlBackgroundObserver.pas
 
-### Unsafe hard cast in `RegisterBackgroundObserver` (POSIX) — Severity: Medium
+### ~~Unsafe hard cast in `RegisterBackgroundObserver` (POSIX)~~ — Severity: Medium — FALSE REPORT
+**Reason**: POSIX-only code path; OTL-NG targets Windows only. Dead code on the target platform.
 **File**: `OtlBackgroundObserver.pas:351`, `356`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: On non-Windows, `RegisterBackgroundObserver` and `UnregisterBackgroundObserver` use a hard class cast to `TOmniContainerCVObserverImpl` rather than an `as` cast.
@@ -3821,7 +3844,7 @@ end;
 
 ## OtlEventMonitor.pas
 
-### `ProcessTerminated` does not filter internal OTL messages — Severity: Medium
+### ~~`ProcessTerminated` does not filter internal OTL messages~~ — Severity: Medium — CONFIRMED, DEFERRED
 **File**: `OtlEventMonitor.pas:360-363`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `ProcessNewMessage` filters internal OTL messages via `FilterMessage` before calling the user's `OnTaskMessage` handler. `ProcessTerminated` drains Endpoint1 without `FilterMessage`, so internal messages (Invoke, control) leak to the user callback during termination.
@@ -3842,7 +3865,8 @@ while endpoint.Receive(emCurrentMsg) do
 
 ---
 
-### `TOmniEventMonitorPool.Allocate` creates monitor under lock — Severity: Low
+### ~~`TOmniEventMonitorPool.Allocate` creates monitor under lock~~ — Severity: Low — FALSE REPORT
+**Reason**: OOM-only scenario; constructor failure under lock is negligible. The lock is correctly released in the finally block.
 **File**: `OtlEventMonitor.pas:457-466`
 **Category**: 5.2 Precondition Checking
 **Description**: `Allocate` creates `MonitorClass.Create(nil)` while `empListLock` is held. If creation raises, the lock is correctly released but the partially-constructed monitor leaks.
@@ -3853,7 +3877,8 @@ while endpoint.Receive(emCurrentMsg) do
 
 ## OtlPlatform.pas
 
-### Thread affinity get/set silently no-ops on POSIX — Severity: Low
+### ~~Thread affinity get/set silently no-ops on POSIX~~ — Severity: Low — FALSE REPORT
+**Reason**: POSIX-only code path; OTL-NG targets Windows only. Dead code on the target platform.
 **File**: `OtlPlatform.pas:181-205`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `GetThreadAffinity` returns a fake full-affinity string and `SetThreadAffinity` is a complete no-op on non-Windows, with `// TODO` comments. No indication of failure to callers.
@@ -3896,7 +3921,7 @@ class procedure TPlatform.SetThreadAffinity(const value: string);
 
 ## OtlCommon.pas
 
-### `{$IFDEF Defined(...)}` is invalid preprocessor syntax — always evaluates false — Severity: High
+### ~~`{$IFDEF Defined(...)}` is invalid preprocessor syntax — always evaluates false~~ — Severity: High — FINISHED
 **File**: `OtlCommon.pas:4281`, `4300`, `4405`, `4424`
 **Category**: 6.2 Compiler Directives
 **Description**: Four `{$IFDEF}` directives use `Defined(CPU386) or Defined(CPUX64)` as their condition. This is invalid Delphi syntax — `{$IFDEF}` accepts only a plain identifier, not a boolean expression. The `Defined()` function is only valid inside `{$IF}`. The Delphi compiler silently treats the entire string `Defined(CPU386) or Defined(CPUX64)` as a single undefined symbol name, so the condition is **always false**. The `{$ELSE}` branch (using `TInterlocked.CompareExchange` / `TInterlocked.Exchange`) is always compiled instead of the intended fast-path direct read/write.
@@ -3927,7 +3952,8 @@ end;
 
 ---
 
-### `{$IFNDEF NEXTGEN}` dead guards — NextGen compiler retired — Severity: Low
+### ~~`{$IFNDEF NEXTGEN}` dead guards — NextGen compiler retired~~ — Severity: Low — FALSE REPORT
+**Reason**: Dead code is harmless; cleanup is a separate task.
 **File**: `OtlCommon.pas:1919`, `1952`, `1976`
 **Category**: 6.2 Compiler Directives
 **Description**: Three `{$IFNDEF NEXTGEN}` guards protect `vtChar` and `vtString` handling in `TOmniValue.FromArray`. The NextGen (ARC) compiler was retired in Delphi 10.4. Since `OtlOptions.inc` requires Delphi 11+, `NEXTGEN` is never defined and these guards are dead weight. The source already contains a `// TODO : *** Recheck IFDEFs` comment acknowledging this.
@@ -3945,7 +3971,7 @@ end;
 
 ## OtlCommon.Utils.pas
 
-### `OTL_HasTThreadCurrentThread` undefined — `SetThreadDescription` never called — Severity: High
+### ~~`OTL_HasTThreadCurrentThread` undefined — `SetThreadDescription` never called~~ — Severity: High — CONFIRMED, DEFERRED
 **File**: `OtlCommon.Utils.pas:78`, `103`, `113`, `119`, `125`
 **Category**: 6.2 Compiler Directives
 **Description**: Six `{$IFDEF OTL_HasTThreadCurrentThread}` blocks guard the declaration of `GSetThreadDescription`, its loading from `kernel32.dll` in the `initialization` section, and its invocation in `SetThreadName`. The symbol `OTL_HasTThreadCurrentThread` was a transitional define for Delphi XE8+ that was removed in `OtlOptions.inc` v3.01 (2026-04-12) along with all other transitional defines. However, the usage sites in `OtlCommon.Utils.pas` were not updated. Since the symbol is now never defined, all the guarded code is compiled out.
@@ -3977,7 +4003,7 @@ var
 
 ## OtlParallel.pas
 
-### `PInteger` used to dereference pointer-sized anonymous method references on 64-bit — Severity: Medium
+### ~~`PInteger` used to dereference pointer-sized anonymous method references on 64-bit~~ — Severity: Medium — FINISHED
 **File**: `OtlParallel.pas:4634`, `4636`, `4637`, `4641`
 **Category**: 6.1 Platform Portability
 **Description**: `TOmniPipelineStage.Execute` checks whether anonymous method delegates (`opsSimpleStage`, `opsStage`, `opsStageEx`) are nil by dereferencing them through `PInteger` (4 bytes). The code asserts `SizeOf(TProc) = SizeOf(NativeInt)` — which is 8 on x64 — but then reads only the lower 4 bytes via `PInteger^` and compares to `NativeInt(nil)`. The comment "D2009 doesn't like TProc casts" is stale — OTL-NG requires Delphi 11+.
@@ -4001,7 +4027,8 @@ end;
 
 ---
 
-### `{$IFNDEF OTL_HasAPC}` branches are permanently dead on Windows — Severity: Low
+### ~~`{$IFNDEF OTL_HasAPC}` branches are permanently dead on Windows~~ — Severity: Low — FALSE REPORT
+**Reason**: Dead code is harmless; cleanup is a separate task.
 **File**: `OtlParallel.pas:5476–5479`, `5599–5602`
 **Category**: 6.2 Compiler Directives
 **Description**: Two `{$IFNDEF OTL_HasAPC}` / `{$ENDIF}` blocks contain fallback code for platforms without APC support. `OTL_HasAPC` is always defined on Windows (set in `OtlOptions.inc`). Since OTL-NG targets Windows only, these branches are dead code.
@@ -4011,7 +4038,8 @@ end;
 
 ## OtlSync.pas
 
-### `{$IF}` pattern inconsistency between `TryBeginRead` and `TryBeginWrite` — Severity: Low
+### ~~`{$IF}` pattern inconsistency between `TryBeginRead` and `TryBeginWrite`~~ — Severity: Low — FALSE REPORT
+**Reason**: Both patterns compile correctly; purely cosmetic inconsistency with no functional impact.
 **File**: `OtlSync.pas:405–413`, `419–426`, `435–442`, `492–500`
 **Category**: 6.2 Compiler Directives
 **Description**: `TryBeginRead` uses two separate `{$IF}` blocks — one inline for the `overload;` keyword, one wrapping the timeout overload declaration. `TryBeginWrite` uses a single `{$IF}` block spanning both the `overload;` keyword and the timeout overload. Both patterns produce correct code on Windows (single non-overloaded function) and on Linux/Android (overloaded pair), but the asymmetry is confusing for maintainers.
@@ -4032,7 +4060,8 @@ function  TryBeginWrite(timeout: cardinal): boolean; overload;
 
 ---
 
-### Linux/Android `{$IF}` blocks are dead code in Windows-only library — Severity: Low
+### ~~Linux/Android `{$IF}` blocks are dead code in Windows-only library~~ — Severity: Low — FALSE REPORT
+**Reason**: Dead code is harmless; cleanup is a separate task.
 **File**: `OtlSync.pas:406–408`, `411–413`, `419–421`, `424–426`, `435–437`, `440–442`, `493–495`, `498–500`, `1561–1566`, `1583–1598`, `1824–1842`, `2898–2915`
 **Category**: 6.2 Compiler Directives
 **Description**: Multiple `{$IF defined(LINUX) or defined(ANDROID)}` blocks declare timeout-accepting overloads of `TryBeginRead` / `TryBeginWrite` and their implementations. OTL-NG targets Windows only, so these are dead code. Additionally, the idiom `defined(LINUX) or defined(ANDROID)` is inconsistent with the `{$IFDEF POSIX}` used elsewhere in the same file (e.g., line 216).
@@ -4040,7 +4069,8 @@ function  TryBeginWrite(timeout: cardinal): boolean; overload;
 
 ---
 
-### `{$IFDEF CPUX64}` / `{$ELSE}` implicitly assumes x86 in the else branch — Severity: Low
+### ~~`{$IFDEF CPUX64}` / `{$ELSE}` implicitly assumes x86 in the else branch~~ — Severity: Low — FALSE REPORT
+**Reason**: Safe for Windows x86/x64 targets. Runtime asserts catch mismatches on hypothetical other platforms.
 **File**: `OtlSync.pas:971–976`, `980–985`, `2813–2817`, `2822–2826`, `2920–2926`
 **Category**: 6.2 Compiler Directives
 **Description**: Several `{$IFDEF CPUX64}` / `{$ELSE}` blocks cast to `int64` on x64 and `integer` on non-x64. The `{$ELSE}` branch implicitly assumes 32-bit x86 without explicitly checking `{$IFDEF CPU386}`. The `initialization` section has runtime asserts (`Assert(SizeOf(NativeInt) = SizeOf(integer))`) that catch mismatches, so this is safe for the current x86/x64 Windows targets.
@@ -4050,7 +4080,7 @@ function  TryBeginWrite(timeout: cardinal): boolean; overload;
 
 ## OtlContainers.pas
 
-### `PInteger` aliasing over `TOmniTaggedValue` header slot on x64 — Severity: Medium
+### ~~`PInteger` aliasing over `TOmniTaggedValue` header slot on x64~~ — Severity: Medium — FINISHED
 **File**: `OtlContainers.pas:1486`, `1498`, `1616`
 **Category**: 6.1 Platform Portability
 **Description**: The blocking collection uses the first `TOmniTaggedValue` in each buffer as a "header" slot, storing a reference count via `PInteger(memory)^`. On x64, `TOmniTaggedValue` starts with a `TOmniValue` field whose first element is pointer-sized (8 bytes). The `PInteger` cast writes/reads only 4 bytes. This works on little-endian x64 because the count is small (always ≤ 65535, enforced on line 1251–1253), so the upper 4 bytes are zero. However, the aliasing of a 4-byte integer over a field designed to hold a pointer-sized value is fragile.
@@ -4070,7 +4100,8 @@ if assigned(header) and (TInterlocked.Decrement(PInteger(header)^) = 0) then
 
 ---
 
-### Hardcoded `TOmniTaggedValue` stuffing depends on exact `TOmniValue` size — Severity: Low
+### ~~Hardcoded `TOmniTaggedValue` stuffing depends on exact `TOmniValue` size~~ — Severity: Low — FALSE REPORT
+**Reason**: Runtime assertion provides a safety net; the layout is brittle but guarded. No silent corruption is possible.
 **File**: `OtlContainers.pas:297–300`, `1844`
 **Category**: 6.1 Platform Portability
 **Description**: `TOmniTaggedValue` uses a hardcoded `Stuffing: array[1..4] of byte` on x64 to pad the record to `3 * SizeOf(pointer)` = 24 bytes. The runtime assertion `Assert(SizeOf(TOmniTaggedValue) = {$IFDEF CPUX64}3{$ELSE}4{$ENDIF}*SizeOf(pointer))` catches mismatches, but the stuffing size is not computed from `TOmniValue`'s actual size. If `TOmniValue` changes size, the assertion fires at startup rather than silently producing wrong results — this is good, but the fix requires manually adjusting the hardcoded stuffing.
@@ -4078,7 +4109,8 @@ if assigned(header) and (TInterlocked.Decrement(PInteger(header)^) = 0) then
 
 ---
 
-### `USE_MOVEDPTR` re-defined by last line, overriding `DEBUG_OMNI_QUEUE` undefine — Severity: Low
+### ~~`USE_MOVEDPTR` re-defined by last line, overriding `DEBUG_OMNI_QUEUE` undefine~~ — Severity: Low — FALSE REPORT
+**Reason**: On Windows, OTL_HaveCmpx16b is always defined, so the re-define line is a no-op. Only affects a theoretical non-Windows debug build.
 **File**: `OtlContainers.pas:1196–1199`
 **Category**: 6.2 Compiler Directives
 **Description**: The `{$DEFINE}`/`{$UNDEF}` sequence for `USE_MOVEDPTR` has a logic conflict: line 1199 re-defines `USE_MOVEDPTR` when `OTL_HaveCmpx16b` is not defined, regardless of whether `DEBUG_OMNI_QUEUE` previously cleared it. If both `DEBUG_OMNI_QUEUE` and non-Windows (no `OTL_HaveCmpx16b`) apply, the debug undefine is overridden.
@@ -4093,7 +4125,8 @@ if assigned(header) and (TInterlocked.Decrement(PInteger(header)^) = 0) then
 
 ---
 
-### `{$IFDEF MSWindows}` inconsistent casing — Severity: Low
+### ~~`{$IFDEF MSWindows}` inconsistent casing~~ — Severity: Low — FALSE REPORT
+**Reason**: Delphi preprocessor symbols are case-insensitive.
 **File**: `OtlContainers.pas:123`
 **Category**: 6.2 Compiler Directives
 **Description**: Uses `{$IFDEF MSWindows}` (mixed case) while the rest of the codebase consistently uses `{$IFDEF MSWINDOWS}` (all caps). Delphi's preprocessor is case-insensitive, so this is not a functional bug.
@@ -4102,7 +4135,8 @@ if assigned(header) and (TInterlocked.Decrement(PInteger(header)^) = 0) then
 
 ## OtlTaskControl.pas
 
-### `{$IFDEF OTL_Anonymous}` dead code — symbol never defined — Severity: Low
+### ~~`{$IFDEF OTL_Anonymous}` dead code — symbol never defined~~ — Severity: Low — FALSE REPORT
+**Reason**: Dead code is harmless; cleanup is a separate task. Implicit finalization handles cleanup.
 **File**: `OtlTaskControl.pas:1888–1890`
 **Category**: 6.2 Compiler Directives
 **Description**: A `{$IFDEF OTL_Anonymous}` block guards `oteFunc := nil` in `TOmniTaskExecutor.Cleanup`. The symbol `OTL_Anonymous` is not defined anywhere in `OtlOptions.inc` or the codebase — it was a pre-Delphi-XE guard. The guarded nil-assignment is never compiled. The field `oteFunc` (a `TOmniTaskDelegate` = reference type) is cleaned up by the compiler's implicit finalization when the object is destroyed, so no resource leak results.
@@ -4116,14 +4150,16 @@ oteFunc := nil;
 
 ---
 
-### `MSWindows` vs `MSWINDOWS` casing inconsistency — Severity: Low
+### ~~`MSWindows` vs `MSWINDOWS` casing inconsistency~~ — Severity: Low — FALSE REPORT
+**Reason**: Delphi preprocessor symbols are case-insensitive.
 **File**: `OtlTaskControl.pas:2513`, `2518`, `2527`, `2533`
 **Category**: 6.2 Compiler Directives
 **Description**: Four `{$IFDEF MSWindows}` occurrences in `SetNUMANode` and `SetProcessorGroup` use mixed case, while the rest of the file (and codebase) consistently uses `{$IFDEF MSWINDOWS}` (all caps). No functional impact due to case-insensitive preprocessor.
 
 ---
 
-### Unlabeled `{$ENDIF}` blocks mixed with labeled ones in `Asy_Execute` — Severity: Low
+### ~~Unlabeled `{$ENDIF}` blocks mixed with labeled ones in `Asy_Execute`~~ — Severity: Low — FALSE REPORT
+**Reason**: No functional impact; purely cosmetic readability concern.
 **File**: `OtlTaskControl.pas:1696`, `1701`, `1723`
 **Category**: 6.2 Compiler Directives
 **Description**: Three `{$ENDIF}` directives in `Asy_Execute` lack the matching symbol label (e.g., `{$ENDIF}` instead of `{$ENDIF POSIX}` or `{$ENDIF MSWINDOWS}`), while adjacent blocks in the same method use labeled `{$ENDIF MSWINDOWS}`. This makes ifdef matching harder to audit in the most complex method of the file.
@@ -4131,7 +4167,8 @@ oteFunc := nil;
 
 ---
 
-### Dead POSIX thread-priority code — Severity: Low
+### ~~Dead POSIX thread-priority code~~ — Severity: Low — FALSE REPORT
+**Reason**: Dead code is harmless; cleanup is a separate task.
 **File**: `OtlTaskControl.pas:1694–1723`
 **Category**: 6.2 Compiler Directives
 **Description**: Two `{$IFDEF POSIX}` blocks in `Asy_Execute` contain POSIX thread-priority code. Since OTL-NG targets Windows only, these are dead code.
@@ -4141,7 +4178,8 @@ oteFunc := nil;
 
 ## OtlEventMonitor.pas
 
-### `integer()` cast of `TThreadID` in monitor pool — Severity: Low
+### ~~`integer()` cast of `TThreadID` in monitor pool~~ — Severity: Low — FALSE REPORT
+**Reason**: Safe on Windows where TThreadID is 32-bit. OTL-NG targets Windows only.
 **File**: `OtlEventMonitor.pas:439`, `457`, `463`, `475`, `479`
 **Category**: 6.1 Platform Portability
 **Description**: `TOmniEventMonitorPool` uses `TObjectDictionary<integer, TObject>` and casts `TThreadID` to `integer` for dictionary keys. On Windows (both x86 and x64), `TThreadID` is `LongWord` (32-bit unsigned), so the cast to `integer` (32-bit signed) is a reinterpretation without data loss. Thread IDs on Windows fit within 31 bits in practice. However, using `integer` instead of the canonical `TThreadID` type obscures the intent and would break on a platform where `TThreadID` is wider than 32 bits.
@@ -4181,7 +4219,7 @@ No Category 6 findings.
 
 ## OtlContainers.pas
 
-### `PropagateNotifications` loop iterates only first element — `Low to Low` typo — High
+### ~~`PropagateNotifications` loop iterates only first element — `Low to Low` typo~~ — High — FINISHED
 **File**: `OtlContainers.pas:1779`
 **Category**: 7.1 Unreachable / Dead Code
 **Description**: The `for` loop range uses `Low(TOmniContainerObserverInterest) to Low(TOmniContainerObserverInterest)` — both bounds are `Low`, so the loop body executes at most once (for the first enum value only). All other enum values are never checked. This is a copy-paste bug; the upper bound should be `High`.
@@ -4200,7 +4238,7 @@ end;
 **Risk**: Only `coiNotifyOnAllInserts` (the first enum value) is ever propagated. Notifications for `coiNotifyOnAllRemoves`, `coiNotifyOnPartlyEmpty`, and `coiNotifyOnAlmostFull` are silently dropped. Subscribers to `TOmniValueQueue` will never be notified of removals or capacity events.
 **Suggested fix**: Change `Low` to `High` on the upper bound: `for Ev := Low(TOmniContainerObserverInterest) to High(TOmniContainerObserverInterest) do`
 
-### `CollectionNotifyEvent` uses wrong threshold for `coiNotifyOnPartlyEmpty` — High
+### ~~`CollectionNotifyEvent` uses wrong threshold for `coiNotifyOnPartlyEmpty`~~ — High — FINISHED
 **File**: `OtlContainers.pas:1715`
 **Category**: 7.3 Suspicious Constructs
 **Description**: In the `cnRemoved/cnExtracted` branch of `CollectionNotifyEvent`, the code checks `AfterCount = FAlmostFullThreshold` to decide whether to fire `coiNotifyOnPartlyEmpty`. It should check `AfterCount = FPartlyEmptyThreshold` instead. The "almost full" threshold is the wrong threshold for a "partly empty" notification.
@@ -4217,7 +4255,7 @@ end;
 **Risk**: `coiNotifyOnPartlyEmpty` fires at the wrong count. Since `FAlmostFullThreshold > FPartlyEmptyThreshold`, the notification fires too late (at 90% capacity instead of 80%), breaking throttling logic that depends on it. Note: this bug is partially masked by the `Low to Low` bug above.
 **Suggested fix**: Change to `if AfterCount = FPartlyEmptyThreshold then`.
 
-### Double semicolons — Low
+### ~~Double semicolons~~ — Low — CONFIRMED, DEFERRED
 **File**: `OtlContainers.pas:1673`
 **Category**: 7.3 Suspicious Constructs
 **Description**: Double semicolons `;;` in constructor — harmless but indicates sloppy editing.
@@ -4232,7 +4270,7 @@ end;
 
 ## OtlSync.Utils.pas
 
-### `TObjectDictionary` created without ownership — TEvent objects leaked — High
+### ~~`TObjectDictionary` created without ownership — TEvent objects leaked~~ — High — CONFIRMED, DEFERRED
 **File**: `OtlSync.Utils.pas:92`
 **Category**: 7.3 Suspicious Constructs
 **Description**: `TOmniSynchronizer<T>` creates its `FEvents` dictionary as `TObjectDictionary<T, TEvent>.Create` without passing `[doOwnsValues]`. The `Ensure` method creates `TEvent` objects and stores them in the dictionary. When the dictionary is freed in the destructor, the `TEvent` objects are not freed because the dictionary doesn't own them.
@@ -4259,7 +4297,8 @@ end;
 
 ## OtlThreadPool.pas
 
-### Empty except block silently swallows thread data cleanup exceptions — Medium
+### ~~Empty except block silently swallows thread data cleanup exceptions~~ — Medium — FALSE REPORT
+**Reason**: The except block is intentional cleanup code; thread data destruction must not propagate exceptions as it would prevent MSG_THREAD_DESTROYING from being sent.
 **File**: `OtlThreadPool.pas:796-799`
 **Category**: 7.3 Suspicious Constructs
 **Description**: Setting `owtThreadData := nil` is wrapped in a bare `try/except end` that silently swallows all exceptions. If the thread data's destructor (via interface release) raises, the exception is lost with no logging or indication.
@@ -4273,7 +4312,7 @@ end;
 **Risk**: If thread data cleanup raises an exception (e.g., due to a bug in user-provided `IInterface` destructor), the error is completely hidden, making debugging very difficult.
 **Suggested fix**: At minimum, log the exception or route it through the unhandled-exception callback (`owtAsy_OnUnhandledException`) that already exists in the outer handler.
 
-### Thread data factory exception silently swallowed — Medium
+### ~~Thread data factory exception silently swallowed~~ — Medium — CONFIRMED, DEFERRED
 **File**: `OtlThreadPool.pas:780-784`
 **Category**: 7.3 Suspicious Constructs
 **Description**: If the thread data factory raises an exception, the code silently sets `owtThreadData := nil` and continues execution. The thread proceeds without thread data and no indication that the factory failed.
@@ -4294,7 +4333,7 @@ end;
 
 ## OtlCommon.Utils.pas
 
-### `FreeLibrary` called on `GetModuleHandle` result — Medium
+### ~~`FreeLibrary` called on `GetModuleHandle` result~~ — Medium — CONFIRMED, DEFERRED
 **File**: `OtlCommon.Utils.pas:120-128`
 **Category**: 7.3 Suspicious Constructs
 **Description**: `GetModuleHandle` does not increment the DLL reference count, but the finalization section calls `FreeLibrary` on the returned handle. This is an API contract violation — `FreeLibrary` should only be called on handles obtained via `LoadLibrary`/`LoadLibraryEx`.
@@ -4315,7 +4354,7 @@ finalization
 
 ## OtlCommon.pas
 
-### Double semicolon — Low
+### ~~Double semicolon~~ — Low — CONFIRMED, DEFERRED
 **File**: `OtlCommon.pas:1797`
 **Category**: 7.3 Suspicious Constructs
 **Description**: Double semicolons `;;` — harmless but indicates sloppy editing.
@@ -4333,7 +4372,8 @@ end;
 
 ## OtlTaskControl.pas
 
-### Empty except block for priority setting — Low
+### ~~Empty except block for priority setting~~ — Low — FALSE REPORT
+**Reason**: POSIX-only code; OTL-NG targets Windows only. Dead code on the target platform.
 **File**: `OtlTaskControl.pas:1717-1721`
 **Category**: 7.3 Suspicious Constructs
 **Description**: Setting thread priority on POSIX is wrapped in a bare except that silently swallows all exceptions. The comment says "We don't have privilege" but any exception type is caught.
@@ -4352,7 +4392,7 @@ end;
 
 ## OtlLogger.pas
 
-### Unnecessary assignment inside `Clear` loop — Low
+### ~~Unnecessary assignment inside `Clear` loop~~ — Low — CONFIRMED, DEFERRED
 **File**: `OtlLogger.pas:105-108`
 **Category**: 7.3 Suspicious Constructs
 **Description**: In `Clear`, the dequeued value is assigned `tmp := ''` inside the loop, which is unnecessary. The value is a local variable that is immediately overwritten by the next `TryDequeue` call. There's also a stray semicolon on its own line.
@@ -4375,7 +4415,7 @@ end;
 
 ## OtlEventMonitor.pas
 
-### `ProcessTerminated` does not call `FilterMessage` — Medium
+### ~~`ProcessTerminated` does not call `FilterMessage`~~ — Medium — CONFIRMED, DEFERRED
 **File**: `OtlEventMonitor.pas:361-367`
 **Category**: 7.2 Inconsistent Patterns
 **Description**: In `ProcessNewMessage`, the code calls `(task as IOmniTaskControlInternals).FilterMessage(emCurrentMsg)` to filter out internal messages before passing them to the event handler. However, in `ProcessTerminated`, which also drains the comm channels, `FilterMessage` is never called. Internal messages (e.g., Invoke dispatches) are passed directly to `emOnTaskMessage` and `emOnTaskUndeliveredMessage`.
