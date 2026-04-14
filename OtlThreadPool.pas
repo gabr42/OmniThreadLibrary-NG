@@ -44,6 +44,8 @@
 ///         already-millisecond waitForTask_ms.
 ///       - Fixed GlobalOmniThreadPool lazy init race using
 ///         Atomic<IOmniThreadPool>.Initialize.
+///       - Fixed InternalStop: free workItem returned by
+///         Asy_TerminateWorkItem (was leaked during pool shutdown).
 ///     3.03: 2026-04-12
 ///       - Removed SuspendThread/ResumeThread from force-kill and idle-worker paths.
 ///     3.02: 2026-04-12 [OTL-NG]
@@ -1142,7 +1144,8 @@ begin
   end;
   for iWorker := 0 to owStoppingWorkers.Count - 1 do begin
     worker := TOTPWorkerThread(owStoppingWorkers[iWorker]);
-    worker.Asy_TerminateWorkItem(workItem);
+    if worker.Asy_TerminateWorkItem(workItem) then
+      FreeAndNil(workItem);
     FreeAndNil(worker);
   end;
   owStoppingWorkers.Clear;

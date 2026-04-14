@@ -52,6 +52,8 @@
 ///         dispatch (wrong on 64-bit).
 ///       - Fixed Select.Wait missed-wakeup: replaced condvar-based notifier
 ///         with auto-reset event (signal is never lost).
+///       - Fixed FStopOn: wire cancellation token into pipeline stage
+///         task config so BackgroundWorker.StopOn actually works.
 ///     3.01: 2026-04-13
 ///       - Implemented Parallel.Merge<T> — fan-in convenience merging multiple
 ///         channels into a single output channel via background select loop.
@@ -5475,16 +5477,21 @@ begin
   Assert(FNumTasks > 0);
   FDefaultConfig.OnExecute(aTask);
 
+  var stageConfig := FTaskConfig;
+  if assigned(FStopOn) then begin
+    if not assigned(stageConfig) then
+      stageConfig := Parallel.TaskConfig;
+    stageConfig.CancelWith(FStopOn);
+  end;
   FWorker := Parallel.Pipeline
                .NumTasks(FNumTasks)
-               .Stage(BackgroundWorker, FTaskConfig)
+               .Stage(BackgroundWorker, stageConfig)
                .OnStop(
                  procedure (const task: IOmniTask)
                  begin
                    if assigned(FOnStop) then
                      FOnStop(task);
                  end);
-
   FOwnerThreadID := TThread.Current.ThreadID;
   if FOwnerThreadID = MainThreadID then begin
     FObserver := TOmniContainerQueueObserver.Create(DrainOutput);

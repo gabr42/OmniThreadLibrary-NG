@@ -1450,7 +1450,7 @@ Assert(assigned(FMoveNext));                  // if fires → enumerator AND con
 
 ---
 
-### ~~FStopOn stored by StopOn() but never used~~ — Severity: Low — CONFIRMED, DEFERRED (Missing feature, not a memory leak.)
+### ~~FStopOn stored by StopOn() but never used~~ — Severity: Low — FINISHED
 **File**: `OtlParallel.pas:5577`
 **Category**: 2.1 Resource Leaks (functional no-op)
 **Description**: `TOmniBackgroundWorker.FStopOn` is set by `StopOn(token)` but never read or wired into the pipeline. The cancellation token is stored as an interface (so memory is fine) but the API contract is silently broken.
@@ -1672,7 +1672,8 @@ if FThreadHandle = 0 then
 
 ---
 
-### ~~Notify FState := nil not thread-safe with concurrent APCCallback~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~Notify FState := nil not thread-safe with concurrent APCCallback~~ — Severity: Medium — FALSE REPORT
+**Reason**: The interlocked RefCount correctly serializes the free. Only the thread that decrements RefCount to 0 calls FreeMem. FState := nil on that path is safe because no other thread can access FState when RefCount is 0.
 **File**: `OtlBackgroundObserver.pas:226`
 **Category**: 2.2 Use-After-Free
 **Description**: On `QueueUserAPC` failure, `Notify` frees `FState` and sets `FState := nil`. But `APCCallback` can simultaneously decrement `RefCount` and also free `FState`, creating a race on the shared pointer.
@@ -1701,7 +1702,7 @@ otpAffinity := TOmniIntegerSet.Create;
 
 ---
 
-### ~~InternalStop never frees workItem from Asy_TerminateWorkItem~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~InternalStop never frees workItem from Asy_TerminateWorkItem~~ — Severity: Medium — FINISHED
 **File**: `OtlThreadPool.pas:1138`
 **Category**: 2.1 Resource Leaks
 **Description**: `Asy_TerminateWorkItem(workItem)` returns a work item but it is never freed or processed. Compare with `Cancel` (line 1011) which correctly calls `ProcessCompletedWorkItem(workItem)`.
@@ -1748,7 +1749,8 @@ end;
 
 ---
 
-### ~~dmUnusedBuffers default OwnsObjects=true may double-free buffers~~ — Severity: Medium — CONFIRMED, DEFERRED
+### ~~dmUnusedBuffers default OwnsObjects=true may double-free buffers~~ — Severity: Medium — FALSE REPORT
+**Reason**: ReleaseOutputBuffer transfers buffer ownership to dmUnusedBuffers. The buffers are not referenced by other owning collections after release. OwnsObjects=true is correct for cleanup.
 **File**: `OtlDataManager.pas:981`
 **Category**: 2.2 Double-Free
 **Description**: `dmUnusedBuffers := TObjectList.Create` uses default `OwnsObjects = true`. Buffers added via `ReleaseOutputBuffer` are also referenced externally. When the `TObjectList` is destroyed, it frees its owned objects. If any external code also frees the buffer, this is a double-free.
@@ -2950,7 +2952,8 @@ end;
 
 ---
 
-### ~~`TOmniBoundedStack.Create` calls Initialize before setting fields~~ — Severity: Low — CONFIRMED, DEFERRED
+### ~~`TOmniBoundedStack.Create` calls Initialize before setting fields~~ — Severity: Low — FALSE REPORT
+**Reason**: Initialize only sets up the base linked list (obs-prefixed fields). The os-prefixed fields (osContainerSubject, osInStackCount, etc.) are independent and not accessed by Initialize.
 **File**: `OtlContainers.pas:684-696`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `TOmniBoundedStack.Create` calls `Initialize(numElements, elementSize)` before setting `osContainerSubject`, `osInStackCount`, etc. `TOmniBoundedQueue.Create` calls `Initialize` last, after all field assignments. This asymmetry is a maintenance trap.
@@ -2979,7 +2982,8 @@ end;
 
 ## OtlTaskControl.pas
 
-### ~~Unsafe `as` cast: `owExecutor` to `TOmniTaskExecutor` with no type guard~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~Unsafe `as` cast: `owExecutor` to `TOmniTaskExecutor` with no type guard~~ — Severity: High — FALSE REPORT
+**Reason**: SetExecutor is an internal API called only by OTL itself (in TOmniTaskControl.CreateTask). The executor is always a TOmniTaskExecutor. External callers never interact with SetExecutor.
 **File**: `OtlTaskControl.pas:1525`, `1551`
 **Category**: 5.1 Interface Contract Consistency
 **Description**: `TOmniWorker.EventInfo` and `TOmniWorker.ProcessMessages` unconditionally cast `owExecutor` (typed `TObject`) to `TOmniTaskExecutor` using `as`. The interface contract (`IOmniWorker.SetExecutor(executor: TObject)`) gives no indication of this constraint. If any subclass or test harness sets a different executor, the cast raises `EInvalidCast`.
@@ -3114,7 +3118,8 @@ otcOnTerminatedExec.SetOnTerminated(TOmniOnTerminatedFunction(
 
 ## OtlParallel.pas
 
-### ~~`TOmniParallelLoopBase.InternalExecute` calls Initializer/Finalizer without nil check~~ — Severity: High — CONFIRMED, DEFERRED
+### ~~`TOmniParallelLoopBase.InternalExecute` calls Initializer/Finalizer without nil check~~ — Severity: High — FALSE REPORT
+**Reason**: This InternalExecute overload is only reachable via .Initialize(...).Execute(...), which sets FTaskInitializer/FTaskFinalizer before the call. The nil path is unreachable.
 **File**: `OtlParallel.pas:3244`
 **Category**: 5.2 Precondition Checking
 **Description**: The `InternalExecute(loopBody: TOmniIteratorStateTaskDelegate)` overload calls `FTaskInitializer(taskState)` and `FTaskFinalizer(taskState)` unconditionally. These fields are set only if the user calls `Initialize`/`Finalize` before the state-delegate form of `Execute`. This overload is reachable directly via `TOmniParallelLoop.Execute(loopBody: TOmniIteratorStateTaskDelegate)` without going through `IOmniParallelInitializedLoop`.
@@ -3160,6 +3165,7 @@ end;
 ---
 
 ### ~~`TOmniParallelJoin.Destroy` frees `FTasks` while NoWait workers may still reference it~~ — Severity: High — CONFIRMED, DEFERRED
+**Note**: Adding a wait in destructor causes test hangs. Needs a more nuanced approach (e.g., conditional wait only when NoWait was used and tasks are running).
 **File**: `OtlParallel.pas:2061`
 **Category**: 5.2 Precondition Checking
 **Description**: The destructor terminates tasks and frees `FTasks` but does not wait for `FCountStopped`. If `NoWait` is used and the interface reference drops before workers finish, `FTasks` is freed while workers are still reading from it.
