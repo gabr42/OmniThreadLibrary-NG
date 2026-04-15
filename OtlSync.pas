@@ -1,4 +1,4 @@
-///<summary>Synchronisation primitives. Part of the OmniThreadLibrary project.</summary>
+﻿///<summary>Synchronisation primitives. Part of the OmniThreadLibrary project.</summary>
 ///<author>Primoz Gabrijelcic</author>
 ///<license>
 ///This software is distributed under the BSD license.
@@ -1307,7 +1307,11 @@ end; { TOmniMREW.ExitReadLock }
 
 procedure TOmniMREW.ExitWriteLock;
 begin
-  TInterlocked.Exchange(NativeInt(omrewReference), 0);
+{$IFDEF CPUX64}
+  TInterlocked.Exchange(int64(omrewReference), int64(0));
+{$ELSE}
+  TInterlocked.Exchange(integer(omrewReference), integer(0));
+{$ENDIF}
 end; { TOmniMREW.ExitWriteLock }
 
 function TOmniMREW.TryEnterReadLock(timeout_ms: integer): boolean;
@@ -1482,11 +1486,13 @@ begin
 end; { Atomic<T>.Initialize }
 
 class function Atomic<T>.Initialize(var storage: T): T;
+var
+  factory: TFactory;
 begin
   if not assigned(PPointer(@storage)^) then begin
     if PTypeInfo(TypeInfo(T))^.Kind  <> tkClass then
       raise Exception.Create('Atomic<T>.Initialize: Unsupported type');
-    Result := Atomic<T>.Initialize(storage,
+    factory :=
       function: T
       var
         aMethCreate : TRttiMethod;
@@ -1506,7 +1512,8 @@ begin
             break; //for
           end;
         end; //for
-      end);
+      end;
+    Result := Atomic<T>.Initialize(storage, factory);
   end
   else
     Result := storage;
@@ -1515,12 +1522,15 @@ end; { Atomic<T>.Initialize }
 { ATomic<I,T> }
 
 class function Atomic<I,T>.Initialize(var storage: I): I;
+var
+  factory: Atomic<I>.TFactory;
 begin
-  Result := Atomic<I>.Initialize(storage,
+  factory :=
     function: I
     begin
       Result := TValue.From<T>(T.Create).AsType<I>;
-    end);
+    end;
+  Result := Atomic<I>.Initialize(storage, factory);
 end; { Atomic<I,T>.Initialize }
 
 { TLightweightMREWEx }
@@ -1800,11 +1810,13 @@ begin
 end; { Locked<T>.Initialize }
 
 function Locked<T>.Initialize: T;
+var
+  factory: TFactory;
 begin
   if not FInitialized then begin
     if PTypeInfo(TypeInfo(T))^.Kind  <> tkClass then
       raise Exception.Create('Locked<T>.Initialize: Unsupported type');
-    Result := Initialize(
+    factory :=
       function: T
       var
         aMethCreate : TRttiMethod;
@@ -1828,7 +1840,8 @@ begin
             end;
           end;
         end; //for
-      end);
+      end;
+    Result := Initialize(factory);
   end
   else
     Result := FValue;
