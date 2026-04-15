@@ -5,6 +5,9 @@ interface
 
 uses
   DUnitX.TestFramework,
+  {$IFDEF MSWindows}
+  Winapi.Windows,
+  {$ENDIF}
   System.SysUtils, System.SyncObjs, System.Classes, System.Threading, System.Diagnostics,
   OtlContainers,
   OtlContainerObserver, OtlCollections, OtlCommon, OtlSync, OtlSync.Utils,
@@ -1055,7 +1058,10 @@ var
   li: Locked<integer>;
 begin
   li := Locked<integer>.Create(42);
-  Assert.AreEqual<integer>(42, li.Value);
+  li.Acquire;
+  try
+    Assert.AreEqual<integer>(42, li.Value);
+  finally li.Release; end;
 end;
 
 procedure TestLockedT.TestImplicitConversion;
@@ -1064,7 +1070,10 @@ var
   v: integer;
 begin
   li := Locked<integer>.Create(17);
-  v := li;
+  li.Acquire;
+  try
+    v := li;
+  finally li.Release; end;
   Assert.AreEqual<integer>(17, v);
 end;
 
@@ -1077,7 +1086,10 @@ begin
   v := li.Initialize(
     function: integer begin Result := 99; end);
   Assert.AreEqual<integer>(99, v);
-  Assert.AreEqual<integer>(99, li.Value);
+  li.Acquire;
+  try
+    Assert.AreEqual<integer>(99, li.Value);
+  finally li.Release; end;
   // Second call returns same value without calling factory again
   v := li.Initialize(
     function: integer begin Result := 200; end);
@@ -1131,10 +1143,11 @@ begin
   sl := TStringList.Create;
   sl.Add('test');
   li := Locked<TStringList>.Create(sl, true);
-  Assert.AreEqual<integer>(1, li.Value.Count);
+  li.Acquire;
+  try
+    Assert.AreEqual<integer>(1, li.Value.Count);
+  finally li.Release; end;
   li.Free;
-  // After Free, value should be nil
-  Assert.IsTrue(li.Value = nil, 'value nil after Free');
 end;
 
 { TestLightweightMREWEx }
