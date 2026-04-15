@@ -75,3 +75,5 @@ tests/62_Console/Linux64/Debug/
 thmm
 
 *.res
+
+*.o
