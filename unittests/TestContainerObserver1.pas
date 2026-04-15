@@ -1,10 +1,10 @@
-unit TestContainerObserver1;
+﻿unit TestContainerObserver1;
 
 interface
 
 uses
   DUnitX.TestFramework,
-  OtlContainerObserver, OtlSync;
+  OtlContainerObserver, OtlSync, OtlCommon;
 
 type
   [TestFixture]

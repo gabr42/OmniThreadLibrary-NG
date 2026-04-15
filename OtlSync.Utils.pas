@@ -85,7 +85,7 @@ type
 implementation
 
 uses
-  System.SysUtils;
+  System.SysUtils, System.Classes;
 
 { TOmniSynchronizer<T> }
 

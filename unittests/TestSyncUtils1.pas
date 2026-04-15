@@ -19,8 +19,7 @@ type
 implementation
 
 uses
-  System.SysUtils,
-  System.Threading,
+  System.SysUtils, System.Threading, System.Classes,
   OtlSync.Utils;
 
 { TestOmniSynchronizer }
