@@ -75,8 +75,8 @@ begin
         keys.Add(pair.Key);
         values.Add((pair.Value as ITestValue).Value);
       end;
-      Assert.AreEqual(high-low+1, keys.Count);
-      Assert.AreEqual(high-low+1, values.Count);
+      Assert.AreEqual(high-low+1, integer(keys.Count));
+      Assert.AreEqual(high-low+1, integer(values.Count));
       for i := low to high do begin
         Assert.AreEqual(keys[i-low], values[i-low]);
         Assert.IsTrue(keys.Contains(i));

@@ -62,7 +62,7 @@ type
 procedure TestTOmniValueContainer.CheckSimpleType(const ov: TOmniValue; expected: array
   of boolean);
 begin
-  Assert.AreEqual(4, Length(expected));
+  Assert.AreEqual<integer>(4, Length(expected));
   Assert.AreEqual(expected[0], ov.IsBoolean);
   Assert.AreEqual(expected[1], ov.IsInteger);
   Assert.AreEqual(expected[2], ov.IsFloating);
@@ -72,7 +72,7 @@ end;
 procedure TestTOmniValueContainer.CheckWrappedType(const ov: TOmniValue;
   expected: array of boolean);
 begin
-  Assert.AreEqual(4, Length(expected));
+  Assert.AreEqual<integer>(4, Length(expected));
   Assert.AreEqual(expected[0], ov.IsObject);
   Assert.AreEqual(expected[1], ov.IsString);
   {$IFDEF MSWindows}Assert.AreEqual(expected[2], ov.IsWideString);{$ENDIF}
