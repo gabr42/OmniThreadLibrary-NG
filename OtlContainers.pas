@@ -607,11 +607,15 @@ begin { TOmniBaseBoundedStack.MeasureExecutionTimes }
       //Calculate first 4 minimum average for RemoveLink rutine
       obsTaskPopLoops := GetMinAndClear(0, 4) div 4;
       if obsTaskPopLoops < 1 then
-        obsTaskPopLoops := 1;
+        obsTaskPopLoops := 1
+      else if obsTaskPopLoops > 10000 then
+        obsTaskPopLoops := 10000;
       //Calculate first 4 minimum average for InsertLink rutine
       obsTaskPushLoops := GetMinAndClear(1, 4) div 4;
       if obsTaskPushLoops < 1 then
-        obsTaskPushLoops := 1;
+        obsTaskPushLoops := 1
+      else if obsTaskPushLoops > 10000 then
+        obsTaskPushLoops := 10000;
     finally TPlatform.ThreadAffinity := affinity; end;
   end;
 end;  { TOmniBaseBoundedStack.MeasureExecutionTimes }
@@ -1006,10 +1010,14 @@ begin { TOmniBaseBoundedQueue.MeasureExecutionTimes }
       end;
       obqTaskRemoveLoops := GetMinAndClear(0, 4) div 4;
       if obqTaskRemoveLoops < 1 then
-        obqTaskRemoveLoops := 1;
+        obqTaskRemoveLoops := 1
+      else if obqTaskRemoveLoops > 10000 then
+        obqTaskRemoveLoops := 10000;
       obqTaskInsertLoops := GetMinAndClear(1, 4) div 4;
       if obqTaskInsertLoops < 1 then
-        obqTaskInsertLoops := 1;
+        obqTaskInsertLoops := 1
+      else if obqTaskInsertLoops > 10000 then
+        obqTaskInsertLoops := 10000;
     finally TPlatform.ThreadAffinity := affinity; end;
   end;
 end; { TOmniBaseBoundedQueue.MeasureExecutionTimes }
