@@ -36,10 +36,20 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin, Claude AI
 ///   Creation date     : 2009-02-19
-///   Last modification : 2026-04-14
-///   Version           : 2.05
+///   Last modification : 2026-04-17
+///   Version           : 2.06
 ///</para><para>
 ///   History:
+///     2.06: 2026-04-17
+///       - Fixed use-after-free race in Notify/NotifyOnce: observers are now
+///         IInterface-refcounted. Snapshot holds interface refs, keeping
+///         observers alive during dispatch while still releasing the read
+///         lock. Pattern introduced in 2.05 was correct; the missing piece
+///         was observer lifetime management.
+///       - TOmniContainerObserver now descends from TInterfacedObject and
+///         implements IOmniContainerObserver. Callers must use interface
+///         references (IOmniContainerEventObserver etc.) and release with
+///         nil instead of FreeAndNil.
 ///     2.05: 2026-04-14
 ///       - Fixed Notify/NotifyOnce: snapshot observer list under read lock
 ///         then dispatch outside the lock, preventing deadlock if callback
@@ -103,8 +113,28 @@ type
     coiNotifyOnPartlyEmpty, coiNotifyOnAlmostFull
   );
 
-  ///<summary>Container observer. Class based for performance.</summary>
-  TOmniContainerObserver = class
+  IOmniContainerObserver = interface
+    ['{E9FAE8B6-8F6C-47DF-BBD3-E8E13C0D8B8A}']
+    procedure Activate;
+    function  CanNotify: boolean;
+    procedure Deactivate;
+    procedure Notify;
+  end; { IOmniContainerObserver }
+
+  IOmniContainerEventObserver = interface(IOmniContainerObserver)
+    ['{4EB47D7D-F5E5-4CFA-8A7F-57A5C39E1CD5}']
+    function GetEvent: IOmniEvent;
+  end; { IOmniContainerEventObserver }
+
+  IOmniContainerPlatformObserver = interface(IOmniContainerObserver)
+    ['{9DA96A4B-9B3A-43C7-BAE7-36B14B68EBE5}']
+    function GetMonitorNotify: IOmniEventMonitorNotify;
+    property MonitorNotify: IOmniEventMonitorNotify read GetMonitorNotify;
+  end; { IOmniContainerPlatformObserver }
+
+  ///<summary>Container observer. IInterface-refcounted so subject snapshots
+  ///   can keep observers alive during dispatch without holding locks.</summary>
+  TOmniContainerObserver = class(TInterfacedObject, IOmniContainerObserver)
   strict private
     coIsActivated: TOmniAlignedInt32;
   public
@@ -115,14 +145,14 @@ type
     procedure Notify; virtual; abstract;
   end; { TOmniContainerObserver }
 
-  TOmniContainerEventObserver = class(TOmniContainerObserver)
+  TOmniContainerEventObserver = class(TOmniContainerObserver, IOmniContainerEventObserver)
   public
     function GetEvent: IOmniEvent; virtual; abstract;
   end; { TOmniContainerEventObserver }
 
   // Platform-independant observer using TThread.Queue as a communication mechanism.
   // Used in the TOTLEventMonitor component.
-  TOmniContainerPlatformObserver = class(TOmniContainerObserver)
+  TOmniContainerPlatformObserver = class(TOmniContainerObserver, IOmniContainerPlatformObserver)
   strict protected
     function GetMonitorNotify: IOmniEventMonitorNotify; virtual; abstract;
   public
@@ -132,13 +162,13 @@ type
   TOmniContainerSubject = class
   strict private
     csListLocks    : array [TOmniContainerObserverInterest] of TOmniMREW;
-    csObserverLists: array [TOmniContainerObserverInterest] of TList;
+    csObserverLists: array [TOmniContainerObserverInterest] of TList<IOmniContainerObserver>;
   public
     constructor Create;
     destructor  Destroy; override;
-    procedure Attach(const observer: TOmniContainerObserver;
+    procedure Attach(const observer: IOmniContainerObserver;
       interest: TOmniContainerObserverInterest);
-    procedure Detach(const observer: TOmniContainerObserver;
+    procedure Detach(const observer: IOmniContainerObserver;
       interest: TOmniContainerObserverInterest);
     procedure Notify(interest: TOmniContainerObserverInterest);
     procedure NotifyOnce(interest: TOmniContainerObserverInterest);
@@ -146,10 +176,10 @@ type
   end; { TOmniContainerSubject }
 
   function CreateContainerEventObserver(const externalEvent: IOmniEvent = nil):
-    TOmniContainerEventObserver;
+    IOmniContainerEventObserver;
 
   function CreateContainerPlatformObserver(notify: IOmniEventMonitorNotify;
-    objectID: int64): TOmniContainerPlatformObserver;
+    objectID: int64): IOmniContainerPlatformObserver;
 
 implementation
 
@@ -181,13 +211,13 @@ type
 { exports }
 
 function CreateContainerEventObserver(const externalEvent: IOmniEvent = nil):
-  TOmniContainerEventObserver;
+  IOmniContainerEventObserver;
 begin
   Result := TOmniContainerEventObserverImpl.Create(externalEvent);
 end; { CreateContainerWindowsEventObserver }
 
 function CreateContainerPlatformObserver(notify: IOmniEventMonitorNotify;
-  objectID: int64): TOmniContainerPlatformObserver;
+  objectID: int64): IOmniContainerPlatformObserver;
 begin
   Result := TOmniContainerPlatformObserverImpl.Create(notify, objectID);
 end; { CreateContainerPlatformObserver }
@@ -243,7 +273,7 @@ var
 begin
   inherited Create;
   for interest := Low(TOmniContainerObserverInterest) to High(TOmniContainerObserverInterest) do
-    csObserverLists[interest] := TList.Create;
+    csObserverLists[interest] := TList<IOmniContainerObserver>.Create;
 end; { TOmniContainerSubject.Create }
 
 destructor TOmniContainerSubject.Destroy;
@@ -257,7 +287,7 @@ begin
   inherited;
 end; { TOmniContainerSubject.Destroy }
 
-procedure TOmniContainerSubject.Attach(const observer: TOmniContainerObserver;
+procedure TOmniContainerSubject.Attach(const observer: IOmniContainerObserver;
   interest: TOmniContainerObserverInterest);
 begin
   csListLocks[interest].EnterWriteLock;
@@ -267,7 +297,7 @@ begin
   finally csListLocks[interest].ExitWriteLock; end;
 end; { TOmniContainerSubject.Attach }
 
-procedure TOmniContainerSubject.Detach(const observer: TOmniContainerObserver;
+procedure TOmniContainerSubject.Detach(const observer: IOmniContainerObserver;
   interest: TOmniContainerObserverInterest);
 begin
   csListLocks[interest].EnterWriteLock;
@@ -279,8 +309,8 @@ end; { TOmniContainerSubject.Detach }
 procedure TOmniContainerSubject.Notify(interest: TOmniContainerObserverInterest);
 var
   iObserver: integer;
-  list     : TList;
-  snapshot : TArray<pointer>;
+  list     : TList<IOmniContainerObserver>;
+  snapshot : TArray<IOmniContainerObserver>;
 begin
   {$R-}
   csListLocks[interest].EnterReadLock;
@@ -291,16 +321,16 @@ begin
       snapshot[iObserver] := list[iObserver];
   finally csListLocks[interest].ExitReadLock; end;
   for iObserver := 0 to High(snapshot) do
-    TOmniContainerObserver(snapshot[iObserver]).Notify;
+    snapshot[iObserver].Notify;
   {$R+}
 end; { TOmniContainerSubject.Notify }
 
 procedure TOmniContainerSubject.NotifyOnce(interest: TOmniContainerObserverInterest);
 var
   iObserver: integer;
-  list     : TList;
-  observer : TOmniContainerObserver;
-  snapshot : TArray<pointer>;
+  list     : TList<IOmniContainerObserver>;
+  observer : IOmniContainerObserver;
+  snapshot : TArray<IOmniContainerObserver>;
 begin
   {$R-}
   csListLocks[interest].EnterReadLock;
@@ -311,7 +341,7 @@ begin
       snapshot[iObserver] := list[iObserver];
   finally csListLocks[interest].ExitReadLock; end;
   for iObserver := 0 to High(snapshot) do begin
-    observer := TOmniContainerObserver(snapshot[iObserver]);
+    observer := snapshot[iObserver];
     if observer.CanNotify then begin
       observer.Notify;
       observer.Deactivate;
@@ -323,14 +353,14 @@ end; { TOmniContainerSubject.NotifyOnce }
 procedure TOmniContainerSubject.Rearm(interest: TOmniContainerObserverInterest);
 var
   iObserver: integer;
-  list     : TList;
+  list     : TList<IOmniContainerObserver>;
 begin
   {$R-}
   csListLocks[interest].EnterReadLock;
   try
     list := csObserverLists[interest];
     for iObserver := 0 to list.Count - 1 do
-      TOmniContainerObserver(list[iObserver]).Activate;
+      list[iObserver].Activate;
   finally csListLocks[interest].ExitReadLock; end;
   {$R+}
 end; { TOmniContainerSubject.Rearm }

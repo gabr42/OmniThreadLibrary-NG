@@ -458,7 +458,7 @@ type
     owAsy_OnUnhandledWorkerException: TOTPUnhandledWorkerException;
     owDestroying                    : boolean;
     owIdleWorkers                   : TObjectList;
-    owMonitorObserver               : TOmniContainerPlatformObserver;
+    owMonitorObserver               : IOmniContainerPlatformObserver;
     owName                          : string;
     owNUMANodes                     : IOmniIntegerSet;
     owProcessorGroups               : IOmniIntegerSet;
@@ -1393,7 +1393,7 @@ end; { TOTPWorker.PruneWorkingQueue }
 
 procedure TOTPWorker.RemoveMonitor;
 begin
-  FreeAndNil(owMonitorObserver);
+  owMonitorObserver := nil;
 end; { TOTPWorker.RemoveMonitor }
 
 procedure TOTPWorker.RequestCompleted(workItem: TOTPWorkItem;

@@ -36,10 +36,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Claude AI
 ///   Creation date     : 2026-04-12
-///   Last modification : 2026-04-14
-///   Version           : 1.01
+///   Last modification : 2026-04-17
+///   Version           : 1.02
 ///</para><para>
 ///   History:
+///     1.02: 2026-04-17
+///       - Observer lifetime now managed by interface refcount. Added
+///         IOmniContainerBackgroundObserver; factory returns interface;
+///         Register/UnregisterBackgroundObserver take interface.
 ///     1.01: 2026-04-14
 ///       - Fixed FState leak on OpenThread failure in constructor; also
 ///         captured GetLastError before FreeMem to preserve error code.
@@ -73,7 +77,12 @@ uses
   OtlContainerObserver;
 
 type
-  TOmniContainerBackgroundObserver = class(TOmniContainerObserver)
+  IOmniContainerBackgroundObserver = interface(IOmniContainerObserver)
+    ['{7A12E3F5-4C6B-4A28-B1D6-5D9C8F6B3E21}']
+    function GetNotifyEvent: IOmniEvent;
+  end;
+
+  TOmniContainerBackgroundObserver = class(TOmniContainerObserver, IOmniContainerBackgroundObserver)
   public
     function GetNotifyEvent: IOmniEvent; virtual; abstract;
   end;
@@ -86,24 +95,24 @@ type
   @param   aTargetThreadID OS thread ID of the owner thread.
   @param   aOnNotify       Callback invoked on the owner thread.
                             Typically calls ProcessMessages to drain the comm channel.
-  @returns Background observer instance. Caller must free.
+  @returns Background observer interface. Lifetime is reference-counted.
   @since   2026-04-12
 }
 function CreateContainerBackgroundObserver(aTargetThreadID: TThreadID;
-  const aOnNotify: TProc): TOmniContainerBackgroundObserver;
+  const aOnNotify: TProc): IOmniContainerBackgroundObserver;
 
 {$IFNDEF OTL_HasAPC}
 {:Registers a background observer in the current thread's registry.
   Called from CreateInternalMonitor on the owner thread.
   @since   2026-04-12
 }
-procedure RegisterBackgroundObserver(aObserver: TOmniContainerBackgroundObserver);
+procedure RegisterBackgroundObserver(const aObserver: IOmniContainerBackgroundObserver);
 
 {:Unregisters a background observer from the current thread's registry.
   Called from Terminate cleanup on the owner thread.
   @since   2026-04-12
 }
-procedure UnregisterBackgroundObserver(aObserver: TOmniContainerBackgroundObserver);
+procedure UnregisterBackgroundObserver(const aObserver: IOmniContainerBackgroundObserver);
 
 {:Drains all pending background notifications for the current thread.
   Called from WaitForEvent on POSIX — equivalent of alertable wait on Windows.
@@ -249,7 +258,12 @@ end; { TOmniContainerAPCObserverImpl.Notify }
 // === POSIX implementation: IOmniEvent + thread-local registry ===
 
 type
-  TOmniContainerCVObserverImpl = class(TOmniContainerBackgroundObserver)
+  IOmniContainerCVObserver = interface
+    ['{B15F0E97-8E5F-4EB6-B3F4-7A3D2A8D7F12}']
+    procedure DrainPending;
+  end;
+
+  TOmniContainerCVObserverImpl = class(TOmniContainerBackgroundObserver, IOmniContainerCVObserver)
   strict private
     FCVPending  : integer;    // atomic 0/1 coalescing flag
     FIsActive   : integer;    // atomic 0/1; cleared on destroy
@@ -308,12 +322,12 @@ end; { TOmniContainerCVObserverImpl.DrainPending }
 type
   TOmniBackgroundObserverRegistry = class
   strict private
-    FList: TList;
+    FList: TList<IOmniContainerBackgroundObserver>;
   public
     constructor Create;
     destructor  Destroy; override;
-    procedure Add(aObserver: TOmniContainerCVObserverImpl);
-    procedure Remove(aObserver: TOmniContainerCVObserverImpl);
+    procedure Add(const aObserver: IOmniContainerBackgroundObserver);
+    procedure Remove(const aObserver: IOmniContainerBackgroundObserver);
     procedure DrainAll;
   end;
 
@@ -323,7 +337,7 @@ threadvar
 constructor TOmniBackgroundObserverRegistry.Create;
 begin
   inherited Create;
-  FList := TList.Create;
+  FList := TList<IOmniContainerBackgroundObserver>.Create;
 end; { TOmniBackgroundObserverRegistry.Create }
 
 destructor TOmniBackgroundObserverRegistry.Destroy;
@@ -332,13 +346,13 @@ begin
   inherited;
 end; { TOmniBackgroundObserverRegistry.Destroy }
 
-procedure TOmniBackgroundObserverRegistry.Add(aObserver: TOmniContainerCVObserverImpl);
+procedure TOmniBackgroundObserverRegistry.Add(const aObserver: IOmniContainerBackgroundObserver);
 begin
   if FList.IndexOf(aObserver) < 0 then
     FList.Add(aObserver);
 end; { TOmniBackgroundObserverRegistry.Add }
 
-procedure TOmniBackgroundObserverRegistry.Remove(aObserver: TOmniContainerCVObserverImpl);
+procedure TOmniBackgroundObserverRegistry.Remove(const aObserver: IOmniContainerBackgroundObserver);
 begin
   FList.Remove(aObserver);
 end; { TOmniBackgroundObserverRegistry.Remove }
@@ -348,20 +362,20 @@ var
   i: integer;
 begin
   for i := 0 to FList.Count - 1 do
-    TOmniContainerCVObserverImpl(FList[i]).DrainPending;
+    (FList[i] as IOmniContainerCVObserver).DrainPending;
 end; { TOmniBackgroundObserverRegistry.DrainAll }
 
-procedure RegisterBackgroundObserver(aObserver: TOmniContainerBackgroundObserver);
+procedure RegisterBackgroundObserver(const aObserver: IOmniContainerBackgroundObserver);
 begin
   if not assigned(_BackgroundObserverRegistry) then
     _BackgroundObserverRegistry := TOmniBackgroundObserverRegistry.Create;
-  _BackgroundObserverRegistry.Add(TOmniContainerCVObserverImpl(aObserver));
+  _BackgroundObserverRegistry.Add(aObserver);
 end; { RegisterBackgroundObserver }
 
-procedure UnregisterBackgroundObserver(aObserver: TOmniContainerBackgroundObserver);
+procedure UnregisterBackgroundObserver(const aObserver: IOmniContainerBackgroundObserver);
 begin
   if assigned(_BackgroundObserverRegistry) then
-    _BackgroundObserverRegistry.Remove(TOmniContainerCVObserverImpl(aObserver));
+    _BackgroundObserverRegistry.Remove(aObserver);
 end; { UnregisterBackgroundObserver }
 
 procedure DrainBackgroundObservers;
@@ -380,7 +394,7 @@ end; { CleanupBackgroundObserverRegistry }
 { Factory }
 
 function CreateContainerBackgroundObserver(aTargetThreadID: TThreadID;
-  const aOnNotify: TProc): TOmniContainerBackgroundObserver;
+  const aOnNotify: TProc): IOmniContainerBackgroundObserver;
 begin
   {$IFDEF OTL_HasAPC}
   Result := TOmniContainerAPCObserverImpl.Create(aTargetThreadID, aOnNotify);

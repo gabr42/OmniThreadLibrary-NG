@@ -37,7 +37,7 @@ begin
     TThread.Current.ThreadID,
     procedure begin end);
   Assert.IsNotNull(observer);
-  observer.Free;
+  observer := nil;
 end;
 
 procedure TestBackgroundObserver.TestGetNotifyEvent;
@@ -48,7 +48,7 @@ begin
   try
     var evt := observer.GetNotifyEvent;
     Assert.IsNotNull(evt);
-  finally observer.Free; end;
+  finally observer := nil; end;
 end;
 
 procedure TestBackgroundObserver.TestNotifySignalsEvent;
@@ -64,7 +64,7 @@ begin
     observer.Notify;
     // Event should be signaled after Notify
     Assert.IsTrue(evt.WaitFor(0) = wrSignaled, 'Signaled after Notify');
-  finally observer.Free; end;
+  finally observer := nil; end;
 end;
 
 procedure TestBackgroundObserver.TestNotifyCoalescing;
@@ -84,7 +84,7 @@ begin
     Assert.IsTrue(evt.WaitFor(0) = wrSignaled, 'First WaitFor');
     // After consuming, event should not be signaled
     Assert.IsFalse(evt.WaitFor(0) = wrSignaled, 'Second WaitFor');
-  finally observer.Free; end;
+  finally observer := nil; end;
 end;
 
 procedure TestBackgroundObserver.TestNotifyCallbackDelivery;
@@ -104,7 +104,7 @@ begin
     {$ENDIF}
 
     Assert.AreEqual<integer>(1, callbackFired, 'Callback should have fired once');
-  finally observer.Free; end;
+  finally observer := nil; end;
 end;
 
 end.

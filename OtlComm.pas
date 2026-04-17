@@ -163,7 +163,7 @@ type
   }
   TOmniMessageQueue = class(TOmniBoundedQueue)
   strict private
-    mqEventObserver: TOmniContainerEventObserver;
+    mqEventObserver: IOmniContainerEventObserver;
     mqIsInitialized: boolean;
   strict protected
     procedure AttachEventObserver;
@@ -175,7 +175,7 @@ type
     procedure Empty;
     function  GetNewMessageEvent: IOmniEvent;
     function  TryDequeue(var msg: TOmniMessage): boolean; reintroduce;
-    property EventObserver: TOmniContainerEventObserver read mqEventObserver;
+    property EventObserver: IOmniContainerEventObserver read mqEventObserver;
   end; { TOmniMessageQueue }
 
   IOmniMessageQueueTee = interface ['{8A9526BF-71AA-4D78-BAE8-3490C3987327}']
@@ -302,8 +302,10 @@ end; { TOmniMessageQueue.Create }
 
 destructor TOmniMessageQueue.Destroy;
 begin
-  ContainerSubject.Detach(mqEventObserver, coiNotifyOnAllInserts);
-  FreeAndNil(mqEventObserver);
+  if assigned(mqEventObserver) then begin
+    ContainerSubject.Detach(mqEventObserver, coiNotifyOnAllInserts);
+    mqEventObserver := nil;
+  end;
   if mqIsInitialized then // don't try to clear the queue if code crashes in constructor
     Empty;
   inherited;
@@ -422,7 +424,7 @@ end; { TOmniCommunicationEndpoint.Receive }
 
 function TOmniCommunicationEndpoint.ReceiveWait(var msg: TOmniMessage; timeout_ms: cardinal): boolean;
 var
-  insertObserver: TOmniContainerEventObserver;
+  insertObserver: IOmniContainerEventObserver;
   insertEvent   : IOmniEvent;
   insertWaiter  : TWaitFor;
   Signaller     : IOmniSynchro;
@@ -459,7 +461,7 @@ begin
           until Result or (Time.Elapsed_ms(startTime) >= Int64(timeout_ms));
         finally ceReader_ref.ContainerSubject.Detach(insertObserver, coiNotifyOnAllInserts); end;
       finally FreeAndNil(insertWaiter); end;
-    finally FreeAndNil(insertObserver); end;
+    finally insertObserver := nil; end;
   end;
 end; { TOmniCommunicationEndpoint.ReceiveWait }
 
@@ -485,7 +487,7 @@ function TOmniCommunicationEndpoint.SendWait(msgID: word; msgData: TOmniValue;
   timeout_ms: cardinal): boolean;
 var
   msg                : TOmniMessage;
-  partlyEmptyObserver: TOmniContainerEventObserver;
+  partlyEmptyObserver: IOmniContainerEventObserver;
   partlyEvent        : IOmniEvent;
   partlyEmptyWaiter  : TWaitFor;
   Signaller          : IOmniSynchro;
@@ -525,7 +527,7 @@ begin
           until Result or (Time.Elapsed_ms(startTime) >= Int64(timeout_ms));
         finally OtherEndpoint.Reader.ContainerSubject.Detach(partlyEmptyObserver, coiNotifyOnPartlyEmpty); end;
       finally FreeAndNil(partlyEmptyWaiter); end;
-    finally FreeAndNil(partlyEmptyObserver); end;
+    finally partlyEmptyObserver := nil; end;
   end;
   if not Result then
     msg.msgData._ReleaseAndClear;

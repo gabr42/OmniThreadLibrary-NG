@@ -196,7 +196,7 @@ type
     obcHighWaterMark       : integer;
     obcLowWaterMark        : integer;
     obcNotOverflow         : IOmniEvent;
-    obcObserver            : TOmniContainerEventObserver;
+    obcObserver            : IOmniContainerEventObserver;
     obcReraiseExceptions   : boolean;
     obcResourceCount       : IOmniResourceCount;
     obcThrottling          : boolean;
@@ -321,7 +321,7 @@ begin
   obcNotOverflow := nil;
   if assigned(obcCollection) and assigned(obcObserver) then
     obcCollection.ContainerSubject.Detach(obcObserver, coiNotifyOnAllInserts);
-  FreeAndNil(obcObserver);
+  obcObserver := nil;
   obcCompletedSignal := nil;
   FreeAndNil(obcCollection);
   obcResourceCount := nil;

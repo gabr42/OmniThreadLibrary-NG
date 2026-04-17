@@ -203,7 +203,7 @@ begin
       queue.Enqueue(value);
       Assert.IsTrue(observer.GetEvent.WaitFor(0) = wrSignaled,
         'Observer should be notified on enqueue');
-    finally observer.Free; end;
+    finally observer := nil; end;
   finally FreeAndNil(queue); end;
 end;
 
@@ -221,7 +221,7 @@ begin
       stack.Push(value);
       Assert.IsTrue(observer.GetEvent.WaitFor(0) = wrSignaled,
         'Observer should be notified on push');
-    finally observer.Free; end;
+    finally observer := nil; end;
   finally FreeAndNil(stack); end;
 end;
 

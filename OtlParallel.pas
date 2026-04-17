@@ -1903,9 +1903,9 @@ type
     FCancelAllToID    : TOmniAlignedInt64;
     FDefaultConfig    : IOmniWorkItemConfig;
     FDefaultConfigEx  : IOmniWorkItemConfigEx;
-    FBgObserver       : TObject; {TOmniContainerBackgroundObserver — for non-main-thread owners}
+    FBgObserver       : IInterface; {IOmniContainerBackgroundObserver — for non-main-thread owners}
     FNumTasks         : integer;
-    FObserver         : TOmniContainerObserver;
+    FObserver         : IOmniContainerObserver;
     FOnStop           : TOmniTaskStopDelegate;
     FOwnerThreadID    : TThreadID;
     FStopOn           : IOmniCancellationToken;
@@ -5509,12 +5509,11 @@ begin
     FWorker.Output.ContainerSubject.Attach(FObserver, coiNotifyOnAllInserts);
   end
   else begin
-    FBgObserver := CreateContainerBackgroundObserver(FOwnerThreadID, DrainOutput);
-    FWorker.Output.ContainerSubject.Attach(
-      TOmniContainerBackgroundObserver(FBgObserver), coiNotifyOnAllInserts);
+    var bgObs: IOmniContainerBackgroundObserver := CreateContainerBackgroundObserver(FOwnerThreadID, DrainOutput);
+    FBgObserver := bgObs;
+    FWorker.Output.ContainerSubject.Attach(bgObs, coiNotifyOnAllInserts);
     {$IFNDEF OTL_HasAPC}
-    RegisterBackgroundObserver(
-      TOmniContainerBackgroundObserver(FBgObserver));
+    RegisterBackgroundObserver(bgObs);
     {$ENDIF}
   end;
   FWorker.Run;
@@ -5629,16 +5628,16 @@ begin
   Result := WaitFor(timeout_ms);
   if assigned(FObserver) then begin
     FWorker.Output.ContainerSubject.Detach(FObserver, coiNotifyOnAllInserts);
-    FreeAndNil(FObserver);
+    FObserver := nil;
   end;
   if assigned(FBgObserver) then begin
-    FWorker.Output.ContainerSubject.Detach(
-      TOmniContainerBackgroundObserver(FBgObserver), coiNotifyOnAllInserts);
+    var bgObs: IOmniContainerBackgroundObserver := FBgObserver as IOmniContainerBackgroundObserver;
+    FWorker.Output.ContainerSubject.Detach(bgObs, coiNotifyOnAllInserts);
     {$IFNDEF OTL_HasAPC}
-    UnregisterBackgroundObserver(
-      TOmniContainerBackgroundObserver(FBgObserver));
+    UnregisterBackgroundObserver(bgObs);
     {$ENDIF}
-    FreeAndNil(FBgObserver);
+    bgObs := nil;
+    FBgObserver := nil;
   end;
 end; { TOmniBackgroundWorker.Terminate }
 

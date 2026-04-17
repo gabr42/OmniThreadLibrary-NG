@@ -48,7 +48,7 @@ begin
       subject.Notify(coiNotifyOnAllInserts);
       // Observer's event should be signaled
       Assert.IsTrue(observer.GetEvent.WaitFor(0) = wrSignaled);
-    finally observer.Free; end;
+    finally observer := nil; end;
   finally subject.Free; end;
 end;
 
@@ -63,7 +63,7 @@ begin
       subject.Notify(coiNotifyOnAllInserts);
       // Observer's event should NOT be signaled after detach
       Assert.IsFalse(observer.GetEvent.WaitFor(0) = wrSignaled);
-    finally observer.Free; end;
+    finally observer := nil; end;
   finally subject.Free; end;
 end;
 
@@ -83,7 +83,7 @@ begin
       subject.NotifyOnce(coiNotifyOnPartlyEmpty);
       // Event is auto-reset, so WaitFor should timeout
       Assert.IsFalse(observer.GetEvent.WaitFor(0) = wrSignaled);
-    finally observer.Free; end;
+    finally observer := nil; end;
   finally subject.Free; end;
 end;
 
@@ -106,7 +106,7 @@ begin
       // Now NotifyOnce should fire again
       subject.NotifyOnce(coiNotifyOnPartlyEmpty);
       Assert.IsTrue(observer.GetEvent.WaitFor(0) = wrSignaled);
-    finally observer.Free; end;
+    finally observer := nil; end;
   finally subject.Free; end;
 end;
 
@@ -119,7 +119,7 @@ begin
     Assert.IsNotNull(observer);
     var evt := observer.GetEvent;
     Assert.IsNotNull(evt);
-  finally observer.Free; end;
+  finally observer := nil; end;
 end;
 
 procedure TestContainerEventObserver.TestNotifySignalsEvent;
@@ -131,7 +131,7 @@ begin
 
     observer.Notify;
     Assert.IsTrue(observer.GetEvent.WaitFor(0) = wrSignaled);
-  finally observer.Free; end;
+  finally observer := nil; end;
 end;
 
 procedure TestContainerEventObserver.TestDeactivatePreventsNotify;
@@ -146,7 +146,7 @@ begin
       observer.Deactivate;
       subject.NotifyOnce(coiNotifyOnPartlyEmpty);
       Assert.IsFalse(observer.GetEvent.WaitFor(0) = wrSignaled);
-    finally observer.Free; end;
+    finally observer := nil; end;
   finally subject.Free; end;
 end;
 
@@ -174,8 +174,8 @@ begin
         subject.Notify(coiNotifyOnAllRemoves);
         Assert.IsFalse(insertObserver.GetEvent.WaitFor(0) = wrSignaled);
         Assert.IsTrue(removeObserver.GetEvent.WaitFor(0) = wrSignaled);
-      finally removeObserver.Free; end;
-    finally insertObserver.Free; end;
+      finally removeObserver := nil; end;
+    finally insertObserver := nil; end;
   finally subject.Free; end;
 end;
 

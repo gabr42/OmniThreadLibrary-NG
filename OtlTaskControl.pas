@@ -417,7 +417,7 @@ type
     ostiCommChannel       : IOmniTwoWayChannel;
     ostiCounter           : IOmniCounter;
     ostiLock              : TSynchroObject;
-    ostiMonitor           : TOmniContainerPlatformObserver;
+    ostiMonitor           : IOmniContainerPlatformObserver;
     ostiMonitorLock       : TOmniCS;
     ostiNUMANode          : integer;
     ostiProcessorGroup    : integer;
@@ -443,7 +443,7 @@ type
     property CommChannel: IOmniTwoWayChannel read ostiCommChannel write ostiCommChannel;
     property Counter: IOmniCounter read ostiCounter write ostiCounter;
     property Lock: TSynchroObject read ostiLock write ostiLock;
-    property Monitor: TOmniContainerPlatformObserver read ostiMonitor write ostiMonitor;
+    property Monitor: IOmniContainerPlatformObserver read ostiMonitor write ostiMonitor;
     property MonitorLock: TOmniCS read ostiMonitorLock;
     property NUMANode: integer read ostiNUMANode write ostiNUMANode;
     property ProcessorGroup: integer read ostiProcessorGroup write ostiProcessorGroup;
@@ -791,7 +791,7 @@ type
                                               IOmniTaskControlSharedInfo,
                                               IOmniTaskControlInternals)
   strict private
-    otcBackgroundObserver  : TObject; {TOmniContainerBackgroundObserver}
+    otcBackgroundObserver  : IInterface; {IOmniContainerBackgroundObserver}
     otcBgNotifyEvent       : IOmniEvent;  // notification event registered in owner's wait set
     otcDebugFlags          : TOmniTaskControlInternalDebugFlags;
     otcDelayedTerminate    : boolean;
@@ -2837,22 +2837,22 @@ begin
   end
   else begin
     EnsureCommChannel;
-    otcBackgroundObserver := CreateContainerBackgroundObserver(otcOwnerThreadID,
+    var bgObs: IOmniContainerBackgroundObserver := CreateContainerBackgroundObserver(otcOwnerThreadID,
       procedure begin Self.ProcessMessages end);
+    otcBackgroundObserver := bgObs;
     otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Attach(
-      TOmniContainerBackgroundObserver(otcBackgroundObserver), coiNotifyOnAllInserts);
+      bgObs, coiNotifyOnAllInserts);
     // If owner is an OTL worker task, register notification event in its wait set
     // for immediate delivery. Otherwise fall back to APC (Windows) or polling (POSIX).
     if _CurrentOmniTaskExecutor <> nil then begin
-      otcBgNotifyEvent := TOmniContainerBackgroundObserver(otcBackgroundObserver).GetNotifyEvent;
+      otcBgNotifyEvent := bgObs.GetNotifyEvent;
       otcOwnerExecutor_ref := _CurrentOmniTaskExecutor;
       TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_RegisterWaitObject(
         otcBgNotifyEvent, HandleBackgroundNotification);
     end
     {$IFNDEF OTL_HasAPC}
     else
-      RegisterBackgroundObserver(
-        TOmniContainerBackgroundObserver(otcBackgroundObserver))
+      RegisterBackgroundObserver(bgObs)
     {$ENDIF}
     ;
   end;
@@ -3320,7 +3320,6 @@ begin
       otcSharedInfo.Monitor, coiNotifyOnAllInserts);
     otcSharedInfo.MonitorLock.Acquire;
     try
-      otcSharedInfo.Monitor.Free;
       otcSharedInfo.Monitor := nil;
     finally otcSharedInfo.MonitorLock.Release; end;
   end;
@@ -3488,6 +3487,7 @@ begin
     DestroyMonitor;
   end;
   if assigned(otcBackgroundObserver) then begin
+    var bgObs: IOmniContainerBackgroundObserver := otcBackgroundObserver as IOmniContainerBackgroundObserver;
     // Unregister notification event from owner's wait set (if registered)
     if assigned(otcBgNotifyEvent) and assigned(otcOwnerExecutor_ref)
        and (otcOwnerExecutor_ref = _CurrentOmniTaskExecutor)
@@ -3495,14 +3495,14 @@ begin
       TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_UnregisterWaitObject(otcBgNotifyEvent);
     {$IFNDEF OTL_HasAPC}
     if not assigned(otcOwnerExecutor_ref) then // was not registered as wait object
-      UnregisterBackgroundObserver(
-        TOmniContainerBackgroundObserver(otcBackgroundObserver));
+      UnregisterBackgroundObserver(bgObs);
     {$ENDIF}
     otcBgNotifyEvent := nil;
     otcOwnerExecutor_ref := nil;
     otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Detach(
-      TOmniContainerBackgroundObserver(otcBackgroundObserver), coiNotifyOnAllInserts);
-    FreeAndNil(otcBackgroundObserver);
+      bgObs, coiNotifyOnAllInserts);
+    bgObs := nil;
+    otcBackgroundObserver := nil;
   end;
   if not Result then begin
     if assigned(otcThread) then begin
