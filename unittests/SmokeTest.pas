@@ -7,11 +7,12 @@ uses
   {$IFDEF MSWindows}
   Winapi.Windows,
   {$ENDIF}
-  DUnitX.TestFramework;
+  DUnitX.TestFramework,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TSmokeTest = class
+  TSmokeTest = class(TOtlTestBase)
   public
     {$IFDEF MSWindows}
     [Test] procedure TestDSiClassWndProcParamSize;

@@ -3,11 +3,12 @@ unit TestChannel1;
 interface
 
 uses
-  DUnitX.TestFramework;
+  DUnitX.TestFramework,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TestParallelChannel = class
+  TestParallelChannel = class(TOtlTestBase)
   public
     [Test] procedure TestBasicSendReceive;
     [Test] procedure TestTryReceiveEmpty;

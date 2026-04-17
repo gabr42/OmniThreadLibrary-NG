@@ -428,6 +428,7 @@ type
     ostiTerminateEvent    : IOmniEvent;
     [Volatile]
     ostiTerminating       : boolean;
+    ostiUnobservedRef     : IOmniTaskControl;
     ostiUniqueID          : int64;
   strict protected
     function  GetCancellationToken: IOmniCancellationToken;
@@ -435,6 +436,7 @@ type
     procedure SetCancellationToken(const token: IOmniCancellationToken);
   public
     constructor Create;
+    function  ReleaseUnobservedRef: IOmniTaskControl;
     property CancellationToken: IOmniCancellationToken read GetCancellationToken;
     property ChainIgnoreErrors: boolean read ostiChainIgnoreErrors write ostiChainIgnoreErrors;
     property ChainTo: IOmniTaskControl read ostiChainTo write ostiChainTo;
@@ -450,6 +452,7 @@ type
     property TerminatedEvent: IOmniEvent read ostiTerminatedEvent write ostiTerminatedEvent;
     property TerminateEvent: IOmniEvent read ostiTerminateEvent write ostiTerminateEvent;
     property Terminating: boolean read ostiTerminating write ostiTerminating;
+    property UnobservedRef: IOmniTaskControl read ostiUnobservedRef write ostiUnobservedRef;
     property UniqueID: int64 read ostiUniqueID write ostiUniqueID;
   end; { TOmniSharedTaskInfo }
 
@@ -1044,8 +1047,26 @@ type
     procedure Release(monitor: TOmniTaskControlEventMonitor);
   end; { TOmniTaskControlEventMonitorPool }
 
+  {:Singleton thread that releases IOmniTaskControl references queued by
+    Unobserved tasks. Worker threads cannot release these directly because
+    the destructor may call TThread.Destroy (ShutdownThread) on the calling
+    thread, causing a deadlock. This thread safely releases them from a
+    separate context.}
+  TOmniUnobservedCleanupThread = class(TThread)
+  strict private
+    FQueue   : TThreadList<Pointer>;
+    FHasWork : TEvent;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create;
+    destructor  Destroy; override;
+    procedure ScheduleRelease(var ref: IOmniTaskControl);
+  end; { TOmniUnobservedCleanupThread }
+
 var
   GTaskControlEventMonitorPool: TOmniTaskControlEventMonitorPool;
+  GUnobservedCleanup          : TOmniUnobservedCleanupThread;
 
 { exports }
 
@@ -1334,6 +1355,7 @@ var
   eventTerminate: IOmniEvent;
   sync          : TSynchroObject;
   taskException : Exception;
+  unobservedRef : IOmniTaskControl;
 begin
   otCleanupLock.EnterWriteLock;
   try
@@ -1379,6 +1401,7 @@ begin
           sync := otSharedInfo_ref.MonitorLock.SyncObj;
           if assigned(otSharedInfo_ref.Monitor) then
             otSharedInfo_ref.Monitor.MonitorNotify.NotifyTerminated(UniqueID);
+          unobservedRef := otSharedInfo_ref.ReleaseUnobservedRef;
           otSharedInfo_ref := nil;
         finally
           if assigned(sync) then
@@ -1396,6 +1419,11 @@ begin
     if assigned(chainTo) then
       chainTo.Run; // TODO 1 -oPrimoz Gabrijelcic : Should InternalExecute the chained task in the same thread (should work when run in a pool)
   finally otCleanupLock.ExitWriteLock; end;
+  // Queue unobserved ref for deferred release AFTER all events are signaled
+  // and locks released, so the cleanup thread's destructor call doesn't need
+  // to wait for this thread to finish its cleanup.
+  if assigned(unobservedRef) then
+    GUnobservedCleanup.ScheduleRelease(unobservedRef);
 end; { TOmniTask.InternalExecute }
 
 procedure TOmniTask.Invoke(remoteFunc: TOmniTaskInvokeFunction);
@@ -3517,8 +3545,7 @@ end; { TOmniTaskControl.TerminateWhen }
 
 function TOmniTaskControl.Unobserved: IOmniTaskControl;
 begin
-  { TODO 1 -oPrimoz Gabrijelcic : reimplement without the internal monitor }
-  CreateInternalMonitor;
+  otcSharedInfo.UnobservedRef := Self;
   Result := Self;
 end; { TOmniTaskControl.Unobserved }
 
@@ -3910,6 +3937,73 @@ begin
   monitorPool.Release(monitor);
 end; { TOmniTaskControlEventMonitorPool.Release }
 
+{ TOmniUnobservedCleanupThread }
+
+constructor TOmniUnobservedCleanupThread.Create;
+begin
+  FQueue := TThreadList<Pointer>.Create;
+  FHasWork := TEvent.Create(nil, false, false, '');
+  inherited Create(false);
+end; { TOmniUnobservedCleanupThread.Create }
+
+destructor TOmniUnobservedCleanupThread.Destroy;
+var
+  lockedList: TList<Pointer>;
+begin
+  Terminate;
+  FHasWork.SetEvent;
+  inherited Destroy;
+  // Drain remaining refs after thread has stopped
+  lockedList := FQueue.LockList;
+  try
+    for var i := 0 to lockedList.Count - 1 do
+      IOmniTaskControl(lockedList[i])._Release;
+    lockedList.Clear;
+  finally FQueue.UnlockList; end;
+  FreeAndNil(FQueue);
+  FreeAndNil(FHasWork);
+end; { TOmniUnobservedCleanupThread.Destroy }
+
+procedure TOmniUnobservedCleanupThread.Execute;
+var
+  batch     : TList<Pointer>;
+  lockedList: TList<Pointer>;
+begin
+  NameThreadForDebugging('OTL Unobserved Cleanup');
+  batch := TList<Pointer>.Create;
+  try
+    while not Terminated do begin
+      FHasWork.WaitFor(1000);
+      if Terminated then
+        break; //while
+      // Move items to a local list to minimize lock hold time
+      lockedList := FQueue.LockList;
+      try
+        if lockedList.Count > 0 then begin
+          batch.AddRange(lockedList);
+          lockedList.Clear;
+        end;
+      finally FQueue.UnlockList; end;
+      // Release refs outside the lock — destructor runs here on this thread
+      for var i := 0 to batch.Count - 1 do
+        IOmniTaskControl(batch[i])._Release;
+      batch.Clear;
+    end;
+  finally FreeAndNil(batch); end;
+end; { TOmniUnobservedCleanupThread.Execute }
+
+procedure TOmniUnobservedCleanupThread.ScheduleRelease(var ref: IOmniTaskControl);
+var
+  lockedList: TList<Pointer>;
+begin
+  lockedList := FQueue.LockList;
+  try
+    lockedList.Add(Pointer(ref));
+    Pointer(ref) := nil; // transfer ownership without calling _Release
+  finally FQueue.UnlockList; end;
+  FHasWork.SetEvent;
+end; { TOmniUnobservedCleanupThread.ScheduleRelease }
+
 { TOmniSharedTaskInfo }
 
 constructor TOmniSharedTaskInfo.Create;
@@ -3942,6 +4036,12 @@ begin
   // SetCancellationToken can only be called before the task is is created
   ostiCancellationToken := token;
 end; { TOmniSharedTaskInfo.SetCancellationToken }
+
+function TOmniSharedTaskInfo.ReleaseUnobservedRef: IOmniTaskControl;
+begin
+  Result := ostiUnobservedRef;
+  ostiUnobservedRef := nil;
+end; { TOmniSharedTaskInfo.ReleaseUnobservedRef }
 
 { TOmniMessageExec }
 
@@ -4062,7 +4162,9 @@ end; { TOmniMessageExec.SetOnTerminated }
 
 initialization
   GTaskControlEventMonitorPool := TOmniTaskControlEventMonitorPool.Create;
+  GUnobservedCleanup := TOmniUnobservedCleanupThread.Create;
 finalization
+  FreeAndNil(GUnobservedCleanup);
   FreeAndNil(GTaskControlEventMonitorPool);
 end.
 

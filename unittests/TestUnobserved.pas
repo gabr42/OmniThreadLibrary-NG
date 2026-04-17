@@ -1,0 +1,470 @@
+unit TestUnobserved;
+
+// Tests for IOmniTaskControl.Unobserved — verifies task lifecycle management
+// when the caller does not hold a reference to the task control.
+
+interface
+
+uses
+  DUnitX.TestFramework,
+  TestOtlBase;
+
+type
+  [TestFixture]
+  TestUnobservedTask = class(TOtlTestBase)
+  public
+    // Basic completion tests
+    [Test] procedure TestScheduleTaskRuns;
+    [Test] procedure TestRunTaskRuns;
+
+    // OnTerminated callback tests — task finishes before we wait
+    [Test] procedure TestScheduleOnTerminatedFires_TaskFirst;
+    [Test] procedure TestRunOnTerminatedFires_TaskFirst;
+    // OnTerminated callback tests — we wait before task finishes
+    [Test] procedure TestScheduleOnTerminatedFires_WaitFirst;
+    [Test] procedure TestRunOnTerminatedFires_WaitFirst;
+    [Test] procedure TestOnTerminatedReceivesValidTask;
+
+    // Task control lifetime tests (ensures reference cycle is broken)
+    [Test] procedure TestScheduleControlReleased;
+    [Test] procedure TestRunControlReleased;
+
+    // Stress tests (key regression for pool+Unobserved hang)
+    [Test] procedure TestRepeatedSchedule;
+    [Test] procedure TestRepeatedRun;
+    [Test] procedure TestRepeatedScheduleWithOnTerminated;
+    [Test] procedure TestRepeatedRunWithOnTerminated;
+
+    // Edge cases
+    [Test] procedure TestScheduleWithException;
+    [Test] procedure TestRunWithException;
+    [Test] procedure TestUnobservedCalledMultipleTimes;
+  end;
+
+implementation
+
+uses
+  System.Classes,
+  System.SysUtils,
+  System.Diagnostics,
+  System.SyncObjs,
+  OtlCommon,
+  OtlSync,
+  OtlTask,
+  OtlTaskControl;
+
+const
+  CTimeout_ms  = 5000;
+  CRepeatCount = 50;
+
+{ Sentinel for tracking task control lifetime.
+  Increments a shared counter on creation, decrements on destruction.
+  Pass as a task parameter — the task control's parameter container holds
+  a strong reference. When the task control is freed, the sentinel is
+  released and the counter drops. }
+
+type
+  ISentinel = interface
+    ['{3A7B2C1D-4E5F-6789-ABCD-EF0123456789}']
+  end;
+
+  TSentinel = class(TInterfacedObject, ISentinel)
+  strict private
+    FCount: PInteger;
+  public
+    constructor Create(count: PInteger);
+    destructor  Destroy; override;
+  end;
+
+constructor TSentinel.Create(count: PInteger);
+begin
+  inherited Create;
+  FCount := count;
+  TInterlocked.Increment(FCount^);
+end;
+
+destructor TSentinel.Destroy;
+begin
+  TInterlocked.Decrement(FCount^);
+  inherited;
+end;
+
+{ Helper: wait for a boolean flag to become true, pumping CheckSynchronize.
+  Returns true if the flag was set within the timeout. }
+
+function WaitForFlag(var flag: boolean; timeout_ms: cardinal): boolean;
+var
+  sw: TStopwatch;
+begin
+  sw := TStopwatch.StartNew;
+  while (not flag) and (sw.ElapsedMilliseconds < timeout_ms) do
+    CheckSynchronize(10);
+  Result := flag;
+end;
+
+{ Helper: wait for an integer to reach a target value, pumping CheckSynchronize. }
+
+function WaitForCount(var counter: integer; target: integer; timeout_ms: cardinal): boolean;
+var
+  sw: TStopwatch;
+begin
+  sw := TStopwatch.StartNew;
+  while (counter <> target) and (sw.ElapsedMilliseconds < timeout_ms) do begin
+    CheckSynchronize(0);
+    Sleep(1);
+  end;
+  Result := counter = target;
+end;
+
+{ TestUnobservedTask }
+
+procedure TestUnobservedTask.TestScheduleTaskRuns;
+var
+  event: IOmniEvent;
+begin
+  event := CreateOmniEvent(false, false);
+  CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      event.SetEvent;
+    end, 'TestScheduleTaskRuns')
+  .Unobserved
+  .Schedule;
+  Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
+    'Task did not run within timeout');
+end;
+
+procedure TestUnobservedTask.TestRunTaskRuns;
+var
+  event: IOmniEvent;
+begin
+  event := CreateOmniEvent(false, false);
+  CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      event.SetEvent;
+    end, 'TestRunTaskRuns')
+  .Unobserved
+  .Run;
+  Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
+    'Task did not run within timeout');
+end;
+
+procedure TestUnobservedTask.TestScheduleOnTerminatedFires_TaskFirst;
+var
+  terminated: boolean;
+begin
+  // Task finishes before we start waiting — ForceQueue already queued
+  terminated := false;
+  CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      // minimal work — exits immediately
+    end, 'TestScheduleOT_TaskFirst')
+  .Unobserved
+  .OnTerminated(
+    procedure (const task: IOmniTaskControl)
+    begin
+      terminated := true;
+    end)
+  .Schedule;
+  Sleep(500); // let task finish and ForceQueue fire before we pump
+  Assert.IsTrue(WaitForFlag(terminated, CTimeout_ms),
+    'OnTerminated was not called within timeout');
+end;
+
+procedure TestUnobservedTask.TestRunOnTerminatedFires_TaskFirst;
+var
+  terminated: boolean;
+begin
+  terminated := false;
+  CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      // minimal work — exits immediately
+    end, 'TestRunOT_TaskFirst')
+  .Unobserved
+  .OnTerminated(
+    procedure (const task: IOmniTaskControl)
+    begin
+      terminated := true;
+    end)
+  .Run;
+  Sleep(500);
+  Assert.IsTrue(WaitForFlag(terminated, CTimeout_ms),
+    'OnTerminated was not called within timeout');
+end;
+
+procedure TestUnobservedTask.TestScheduleOnTerminatedFires_WaitFirst;
+var
+  terminated: boolean;
+begin
+  // We start pumping CheckSynchronize before the task finishes
+  terminated := false;
+  CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      Sleep(500); // hold the task alive while test pumps
+    end, 'TestScheduleOT_WaitFirst')
+  .Unobserved
+  .OnTerminated(
+    procedure (const task: IOmniTaskControl)
+    begin
+      terminated := true;
+    end)
+  .Schedule;
+  Assert.IsTrue(WaitForFlag(terminated, CTimeout_ms),
+    'OnTerminated was not called within timeout');
+end;
+
+procedure TestUnobservedTask.TestRunOnTerminatedFires_WaitFirst;
+var
+  terminated: boolean;
+begin
+  terminated := false;
+  CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      Sleep(500);
+    end, 'TestRunOT_WaitFirst')
+  .Unobserved
+  .OnTerminated(
+    procedure (const task: IOmniTaskControl)
+    begin
+      terminated := true;
+    end)
+  .Run;
+  Assert.IsTrue(WaitForFlag(terminated, CTimeout_ms),
+    'OnTerminated was not called within timeout');
+end;
+
+procedure TestUnobservedTask.TestOnTerminatedReceivesValidTask;
+var
+  receivedTaskName: string;
+  terminated      : boolean;
+begin
+  receivedTaskName := '';
+  terminated := false;
+  CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      // minimal work
+    end, 'NamedTestTask')
+  .Unobserved
+  .OnTerminated(
+    procedure (const task: IOmniTaskControl)
+    begin
+      receivedTaskName := task.Name;
+      terminated := true;
+    end)
+  .Schedule;
+  Assert.IsTrue(WaitForFlag(terminated, CTimeout_ms),
+    'OnTerminated was not called');
+  Assert.AreEqual('NamedTestTask', receivedTaskName,
+    'OnTerminated received wrong task');
+end;
+
+procedure ScheduleUnobservedWithSentinel(sentinel: IInterface; event: IOmniEvent);
+begin
+  CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      event.SetEvent;
+    end, 'TestScheduleControlReleased')
+  .Unobserved
+  .SetParameter('sentinel', sentinel)
+  .Schedule;
+end;
+
+procedure TestUnobservedTask.TestScheduleControlReleased;
+var
+  sentinelCount: integer;
+  sentinel     : IInterface;
+  event        : IOmniEvent;
+begin
+  sentinelCount := 0;
+  sentinel := TSentinel.Create(@sentinelCount);
+  event := CreateOmniEvent(false, false);
+  ScheduleUnobservedWithSentinel(sentinel, event);
+  sentinel := nil; // release our ref; task control holds it via parameters
+  Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
+    'Task did not run');
+  // Wait for the task control to be released (sentinel count drops to 0)
+  Assert.IsTrue(WaitForCount(sentinelCount, 0, CTimeout_ms),
+    'Task control was not released (reference leaked)');
+end;
+
+procedure RunUnobservedWithSentinel(sentinel: IInterface; event: IOmniEvent);
+begin
+  CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      event.SetEvent;
+    end, 'TestRunControlReleased')
+  .Unobserved
+  .SetParameter('sentinel', sentinel)
+  .Run;
+end;
+
+procedure TestUnobservedTask.TestRunControlReleased;
+var
+  sentinelCount: integer;
+  sentinel     : IInterface;
+  event        : IOmniEvent;
+begin
+  sentinelCount := 0;
+  sentinel := TSentinel.Create(@sentinelCount);
+  event := CreateOmniEvent(false, false);
+  RunUnobservedWithSentinel(sentinel, event);
+  sentinel := nil;
+  Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
+    'Task did not run');
+  Assert.IsTrue(WaitForCount(sentinelCount, 0, CTimeout_ms),
+    'Task control was not released (reference leaked)');
+end;
+
+procedure TestUnobservedTask.TestRepeatedSchedule;
+var
+  event: IOmniEvent;
+  n    : integer;
+begin
+  // Key regression test: rapid-fire Unobserved+Schedule tasks must not
+  // accumulate stale references and cause pool hangs.
+  for n := 1 to CRepeatCount do begin
+    event := CreateOmniEvent(false, false);
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        event.SetEvent;
+      end, 'TestRepeatedSchedule')
+    .Unobserved
+    .Schedule;
+    Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
+      Format('Task %d did not run within timeout', [n]));
+    CheckSynchronize(0);
+  end;
+end;
+
+procedure TestUnobservedTask.TestRepeatedRun;
+var
+  event: IOmniEvent;
+  n    : integer;
+begin
+  for n := 1 to CRepeatCount do begin
+    event := CreateOmniEvent(false, false);
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        event.SetEvent;
+      end, 'TestRepeatedRun')
+    .Unobserved
+    .Run;
+    Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
+      Format('Task %d did not run within timeout', [n]));
+    CheckSynchronize(0);
+  end;
+end;
+
+procedure TestUnobservedTask.TestRepeatedScheduleWithOnTerminated;
+var
+  terminatedCount: integer;
+  n              : integer;
+begin
+  terminatedCount := 0;
+  for n := 1 to CRepeatCount do begin
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        // minimal work
+      end, 'TestRepeatedScheduleOT')
+    .Unobserved
+    .OnTerminated(
+      procedure (const task: IOmniTaskControl)
+      begin
+        TInterlocked.Increment(terminatedCount);
+      end)
+    .Schedule;
+  end;
+  Assert.IsTrue(WaitForCount(terminatedCount, CRepeatCount, CTimeout_ms * 2),
+    Format('Expected %d OnTerminated calls, got %d', [CRepeatCount, terminatedCount]));
+end;
+
+procedure TestUnobservedTask.TestRepeatedRunWithOnTerminated;
+var
+  terminatedCount: integer;
+  n              : integer;
+begin
+  terminatedCount := 0;
+  for n := 1 to CRepeatCount do begin
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        // minimal work
+      end, 'TestRepeatedRunOT')
+    .Unobserved
+    .OnTerminated(
+      procedure (const task: IOmniTaskControl)
+      begin
+        TInterlocked.Increment(terminatedCount);
+      end)
+    .Run;
+  end;
+  Assert.IsTrue(WaitForCount(terminatedCount, CRepeatCount, CTimeout_ms * 2),
+    Format('Expected %d OnTerminated calls, got %d', [CRepeatCount, terminatedCount]));
+end;
+
+procedure TestUnobservedTask.TestScheduleWithException;
+var
+  event: IOmniEvent;
+begin
+  // Task raises an exception — must not hang or crash the runner.
+  event := CreateOmniEvent(false, false);
+  CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      event.SetEvent;
+      raise Exception.Create('intentional test exception');
+    end, 'TestScheduleWithException')
+  .Unobserved
+  .Schedule;
+  Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
+    'Task did not run within timeout');
+end;
+
+procedure TestUnobservedTask.TestRunWithException;
+var
+  event: IOmniEvent;
+begin
+  event := CreateOmniEvent(false, false);
+  CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      event.SetEvent;
+      raise Exception.Create('intentional test exception');
+    end, 'TestRunWithException')
+  .Unobserved
+  .Run;
+  Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
+    'Task did not run within timeout');
+end;
+
+procedure TestUnobservedTask.TestUnobservedCalledMultipleTimes;
+var
+  event: IOmniEvent;
+begin
+  // Calling Unobserved multiple times must be idempotent.
+  event := CreateOmniEvent(false, false);
+  CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      event.SetEvent;
+    end, 'TestUnobservedIdempotent')
+  .Unobserved
+  .Unobserved
+  .Unobserved
+  .Schedule;
+  Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
+    'Task did not run within timeout');
+end;
+
+end.

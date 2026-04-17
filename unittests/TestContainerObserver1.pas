@@ -4,11 +4,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  OtlContainerObserver, OtlSync, OtlCommon;
+  OtlContainerObserver, OtlSync, OtlCommon,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TestContainerSubject = class
+  TestContainerSubject = class(TOtlTestBase)
   public
     [Test] procedure TestAttachAndNotify;
     [Test] procedure TestDetachStopsNotification;
@@ -17,7 +18,7 @@ type
   end;
 
   [TestFixture]
-  TestContainerEventObserver = class
+  TestContainerEventObserver = class(TOtlTestBase)
   public
     [Test] procedure TestCreateAndGetEvent;
     [Test] procedure TestNotifySignalsEvent;
@@ -25,7 +26,7 @@ type
   end;
 
   [TestFixture]
-  TestObserverInterests = class
+  TestObserverInterests = class(TOtlTestBase)
   public
     [Test] procedure TestInsertVsRemoveInterest;
   end;

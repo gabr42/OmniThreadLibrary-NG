@@ -4,11 +4,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  OtlSync.Utils;
+  OtlSync.Utils,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TestITaskControl = class
+  TestITaskControl = class(TOtlTestBase)
   strict private
     Synchronizer: IOmniSynchronizer<string>;
   public

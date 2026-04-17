@@ -3,12 +3,13 @@ unit TestPlatform;
 interface
 
 uses
-  DUnitX.TestFramework;
+  DUnitX.TestFramework,
+  TestOtlBase;
 
 type
   // Tests for the OtlPlatform unit and other platform-dependant stuff
   [TestFixture]
-  TPlatformTest = class
+  TPlatformTest = class(TOtlTestBase)
   public
     [Test]
     procedure TestTimestamp;

@@ -5,12 +5,13 @@ interface
 uses
   DUnitX.TestFramework,
   OtlSync,
-  OtlCommon;
+  OtlCommon,
+  TestOtlBase;
 
 type
   // Tests for interlocked and aligned operations (single-threaded only)
   [TestFixture]
-  TInterlockedSTTest = class
+  TInterlockedSTTest = class(TOtlTestBase)
   public
     [Test]
     procedure TestAligned32;

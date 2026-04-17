@@ -4,11 +4,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  OtlCommon;
+  OtlCommon,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TestOmniCounter = class
+  TestOmniCounter = class(TOtlTestBase)
   public
     [Test] procedure TestInitialValue;
     [Test] procedure TestIncrement;
@@ -20,7 +21,7 @@ type
   end;
 
   [TestFixture]
-  TestOmniWaitableValue = class
+  TestOmniWaitableValue = class(TOtlTestBase)
   public
     [Test] procedure TestCreateDefault;
     [Test] procedure TestSignalWithValue;
@@ -31,7 +32,7 @@ type
   end;
 
   [TestFixture]
-  TestOmniIntegerSet = class
+  TestOmniIntegerSet = class(TOtlTestBase)
   private
     FChangeFired: boolean;
     procedure HandleChange(const intSet: IOmniIntegerSet);
@@ -45,7 +46,7 @@ type
   end;
 
   [TestFixture]
-  TestOmniValueWrap = class
+  TestOmniValueWrap = class(TOtlTestBase)
   public
     [Test] procedure TestWrapUnwrapRecord;
     [Test] procedure TestFromRecordToRecord;
@@ -57,7 +58,7 @@ type
   end;
 
   [TestFixture]
-  TestOmniValueOwned = class
+  TestOmniValueOwned = class(TOtlTestBase)
   public
     [Test] procedure TestAsOwnedObject;
     [Test] procedure TestOwnsObjectProperty;
@@ -65,7 +66,7 @@ type
   end;
 
   [TestFixture]
-  TestOmniValueContainer = class
+  TestOmniValueContainer = class(TOtlTestBase)
   public
     [Test] procedure TestCountAndAdd;
     [Test] procedure TestAccessByIndex;

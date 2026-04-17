@@ -4,12 +4,13 @@ interface
 
 uses
   DUnitX.TestFramework, OtlContainers, System.SysUtils,
-  OtlContainerObserver, OtlCollections, OtlCommon, OtlSync;
+  OtlContainerObserver, OtlCollections, OtlCommon, OtlSync,
+  TestOtlBase;
 
 type
   // Test methods for class IOmniBlockingCollection
   [TestFixture]
-  TestIOmniBlockingCollection = class
+  TestIOmniBlockingCollection = class(TOtlTestBase)
   private
     procedure FillOmniValueWithOwnedObject(VAR lValue:TOmniValue);
   public

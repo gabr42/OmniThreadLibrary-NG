@@ -3,11 +3,12 @@ unit TestRegressions;
 interface
 
 uses
-  DUnitX.TestFramework;
+  DUnitX.TestFramework,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TestBugfixes = class
+  TestBugfixes = class(TOtlTestBase)
   public
     [Test]
     procedure TestTOmniValueArrayInt64Cast;

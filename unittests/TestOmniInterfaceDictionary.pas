@@ -13,13 +13,14 @@ interface
 
 uses
   DUnitX.TestFramework, System.Classes, System.SysUtils, System.Variants,
-  OtlCommon;
+  OtlCommon,
+  TestOtlBase;
 
 type
   // Test methods for class IOmniInterfaceDictionary
 
   [TestFixture]
-  TestIOmniInterfaceDictionary = class
+  TestIOmniInterfaceDictionary = class(TOtlTestBase)
   strict private
     FIOmniInterfaceDictionary: IOmniInterfaceDictionary;
   strict protected

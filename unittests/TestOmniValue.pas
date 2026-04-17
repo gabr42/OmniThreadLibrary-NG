@@ -13,14 +13,15 @@ interface
 
 uses
   DUnitX.TestFramework, System.Classes, System.SysUtils, System.Variants,
-  OtlCommon;
+  OtlCommon,
+  TestOtlBase;
 
 
 type
   // Test methods for class TOmniValueContainer
 
   [TestFixture]
-  TestTOmniValueContainer = class
+  TestTOmniValueContainer = class(TOtlTestBase)
   strict protected
     procedure CheckSimpleType(const ov: TOmniValue; expected: array of boolean);
     procedure CheckWrappedType(const ov: TOmniValue; expected: array of boolean);

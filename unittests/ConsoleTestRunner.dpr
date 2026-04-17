@@ -16,6 +16,7 @@ uses
   DUnitX.AutoDetect.Console,
   {$ENDIF }
   DUnitX.TestFramework
+  , TestOtlBase in 'TestOtlBase.pas'
   {$IFDEF MSWindows}, SmokeTest in 'SmokeTest.pas'{$ENDIF }
   , TestRegressions in 'TestRegressions.pas'
   , TestBlockingCollection1 in 'TestBlockingCollection1.pas'
@@ -38,6 +39,7 @@ uses
   , TestHooks1 in 'TestHooks1.pas'
   {$IFDEF MSWindows}, TestTask in 'TestTask.pas'{$ENDIF }
   {$IFDEF MSWindows}, TestOtlParallel in 'TestOtlParallel.pas'{$ENDIF }
+  , TestUnobserved in 'TestUnobserved.pas'
   ;
 
 {$IFNDEF TESTINSIGHT}

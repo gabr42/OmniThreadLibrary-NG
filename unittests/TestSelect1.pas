@@ -3,11 +3,12 @@ unit TestSelect1;
 interface
 
 uses
-  DUnitX.TestFramework;
+  DUnitX.TestFramework,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TestParallelSelect = class
+  TestParallelSelect = class(TOtlTestBase)
   public
     [Test] procedure TestBasicReceive;
     [Test] procedure TestDefaultWhenEmpty;

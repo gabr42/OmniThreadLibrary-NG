@@ -3,11 +3,12 @@ unit TestMergeRace1;
 interface
 
 uses
-  DUnitX.TestFramework;
+  DUnitX.TestFramework,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TestParallelMerge = class
+  TestParallelMerge = class(TOtlTestBase)
   public
     [Test] procedure TestMergeTwoChannels;
     [Test] procedure TestMergePreservesAllValues;
@@ -17,7 +18,7 @@ type
   end;
 
   [TestFixture]
-  TestParallelRace = class
+  TestParallelRace = class(TOtlTestBase)
   public
     [Test] procedure TestRaceReturnsFirst;
     [Test] procedure TestRaceWithTimeout;

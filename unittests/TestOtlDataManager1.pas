@@ -3,10 +3,11 @@ unit TestOtlDataManager1;
 interface
 
 uses
-  DUnitX.TestFramework, OtlCommon, OtlDataManager, OtlCollections;
+  DUnitX.TestFramework, OtlCommon, OtlDataManager, OtlCollections,
+  TestOtlBase;
 
 type
-  TestTOmniDataManager = class
+  TestTOmniDataManager = class(TOtlTestBase)
   public
     FOmniDataPackage   : TOmniDataPackage;
     FOmniSourceProvider: TOmniSourceProvider;

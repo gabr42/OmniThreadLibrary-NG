@@ -3,11 +3,12 @@ unit TestHooks1;
 interface
 
 uses
-  DUnitX.TestFramework;
+  DUnitX.TestFramework,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TestThreadNotifications = class
+  TestThreadNotifications = class(TOtlTestBase)
   public
     [Setup] procedure SetUp;
     [TearDown] procedure TearDown;
@@ -18,7 +19,7 @@ type
   end;
 
   [TestFixture]
-  TestPoolNotifications = class
+  TestPoolNotifications = class(TOtlTestBase)
   public
     [Setup] procedure SetUp;
     [TearDown] procedure TearDown;
@@ -28,7 +29,7 @@ type
   end;
 
   [TestFixture]
-  TestExceptionFilters = class
+  TestExceptionFilters = class(TOtlTestBase)
   public
     [Setup] procedure SetUp;
     [TearDown] procedure TearDown;

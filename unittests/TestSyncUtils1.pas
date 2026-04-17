@@ -3,11 +3,12 @@ unit TestSyncUtils1;
 interface
 
 uses
-  DUnitX.TestFramework;
+  DUnitX.TestFramework,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TestOmniSynchronizer = class
+  TestOmniSynchronizer = class(TOtlTestBase)
   public
     [Test] procedure TestSignalAndWaitFor;
     [Test] procedure TestWaitForTimeout;

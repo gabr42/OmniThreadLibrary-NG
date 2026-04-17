@@ -3,11 +3,12 @@ unit TestOtlComm;
 interface
 
 uses
-  DUnitX.TestFramework;
+  DUnitX.TestFramework,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TestOmniMessageQueue = class
+  TestOmniMessageQueue = class(TOtlTestBase)
   public
     [Test]
     procedure TestBasics;
@@ -16,14 +17,14 @@ type
   end;
 
   [TestFixture]
-  TestOmniMessageQueueSize1 = class
+  TestOmniMessageQueueSize1 = class(TOtlTestBase)
   public
     [Test]
     procedure TestSize1Queue;
   end;
 
   [TestFixture]
-  TestIOmniTwoWayChannel = class
+  TestIOmniTwoWayChannel = class(TOtlTestBase)
   public
     [Test]
     procedure TestSendReceive;
@@ -36,7 +37,7 @@ type
   end;
 
   [TestFixture]
-  TestIOmniMessageQueueTee = class
+  TestIOmniMessageQueueTee = class(TOtlTestBase)
   public
     [Test]
     procedure TestBasicTee;

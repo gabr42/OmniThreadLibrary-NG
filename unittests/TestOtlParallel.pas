@@ -3,11 +3,12 @@ unit TestOtlParallel;
 interface
 
 uses
-  DUnitX.TestFramework, OtlContainers, System.SysUtils;
+  DUnitX.TestFramework, OtlContainers, System.SysUtils,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TestParallelFor = class
+  TestParallelFor = class(TOtlTestBase)
   strict protected
     FTestData: array of integer;
     procedure TestRange(iFrom, iTo, iStep: integer);
@@ -28,7 +29,7 @@ type
   end;
 
   [TestFixture]
-  TestJoin = class
+  TestJoin = class(TOtlTestBase)
   public
     [Test] procedure TestTerminationAllStuck;
     [Test] procedure TestTerminationPartialStuck;

@@ -3,11 +3,12 @@ unit TestBackgroundObserver1;
 interface
 
 uses
-  DUnitX.TestFramework;
+  DUnitX.TestFramework,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TestBackgroundObserver = class
+  TestBackgroundObserver = class(TOtlTestBase)
   public
     [Test] procedure TestCreateAndFree;
     [Test] procedure TestGetNotifyEvent;

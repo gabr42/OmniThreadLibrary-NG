@@ -10,6 +10,7 @@ uses
   {$ENDIF}
   System.SysUtils, System.SyncObjs, System.Classes, System.Threading, System.Diagnostics,
   OtlContainers,
+  TestOtlBase,
   OtlContainerObserver, OtlCollections, OtlCommon, OtlSync, OtlSync.Utils,
   OtlPlatform;
 
@@ -28,7 +29,7 @@ type
   end;
 
   [TestFixture]
-  TestIEvent = class
+  TestIEvent = class(TOtlTestBase)
   public
     [Test]
     procedure TestManualReset;
@@ -41,7 +42,7 @@ type
   end;
 
   [TestFixture]
-  TestWaitFor = class
+  TestWaitFor = class(TOtlTestBase)
   public
     [Test]
     procedure TestWaitAll;
@@ -51,7 +52,7 @@ type
 
   // Test methods for basic synchronisation stuff
   [TestFixture]
-  TestOtlSync = class
+  TestOtlSync = class(TOtlTestBase)
   strict private
     FUnalignedLock: packed record
       FFiller1   : byte;
@@ -111,7 +112,7 @@ type
   end;
 
   [TestFixture]
-  TestCancellationToken = class
+  TestCancellationToken = class(TOtlTestBase)
   public
     [Test]
     procedure TestCreateAndSignal;
@@ -122,7 +123,7 @@ type
   end;
 
   [TestFixture]
-  TestCountdownEvent = class
+  TestCountdownEvent = class(TOtlTestBase)
   public
     [Test]
     procedure TestCountdown;
@@ -131,7 +132,7 @@ type
   end;
 
   [TestFixture]
-  TestLockedT = class
+  TestLockedT = class(TOtlTestBase)
   public
     [Test]
     procedure TestCreateAndValue;
@@ -150,7 +151,7 @@ type
   end;
 
   [TestFixture]
-  TestLightweightMREWEx = class
+  TestLightweightMREWEx = class(TOtlTestBase)
   public
     [Test]
     procedure TestNestedWrite;
@@ -159,7 +160,7 @@ type
   end;
 
   [TestFixture]
-  TestLockManager = class
+  TestLockManager = class(TOtlTestBase)
   public
     [Test]
     procedure TestLockUnlockByKey;
@@ -172,7 +173,7 @@ type
   end;
 
   [TestFixture]
-  TestSingleThreadUseChecker = class
+  TestSingleThreadUseChecker = class(TOtlTestBase)
   public
     [Test]
     procedure TestSameThreadOK;

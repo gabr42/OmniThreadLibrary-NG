@@ -6,11 +6,12 @@ unit TestContainers;
 interface
 
 uses
-  DUnitX.TestFramework;
+  DUnitX.TestFramework,
+  TestOtlBase;
 
 type
   [TestFixture]
-  TTestContainers = class
+  TTestContainers = class(TOtlTestBase)
   public
     [Test]
     procedure TestBasicQueue;
