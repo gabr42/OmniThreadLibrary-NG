@@ -3194,8 +3194,9 @@ end; { TOmniParallelLoopBase.Create }
 
 destructor TOmniParallelLoopBase.Destroy;
 begin
-  if assigned(FCountStopped) then
+  if assigned(FCountStopped) then begin
     FCountStopped.Synchro.WaitFor(INFINITE);
+  end;
   if FManagedProvider then
     FreeAndNil(FSourceProvider);
   FreeAndNil(FDelegateEnum);
@@ -4050,8 +4051,9 @@ end; { TOmniParallelSimpleLoop.Create }
 destructor TOmniParallelSimpleLoop.Destroy;
 begin
   FreeAndNil(FOnMessageList);
-  if assigned(FCountStopped) then
+  if assigned(FCountStopped) then begin
     FCountStopped.Synchro.WaitFor(INFINITE);
+  end;
   inherited;
 end; { TOmniParallelSimpleLoop.Destroy }
 
@@ -4263,11 +4265,11 @@ end; { TOmniParallelSimpleLoop.Initialize }
 
 procedure TOmniParallelSimpleLoop.InternalExecute(const taskDelegate: TTaskDelegate);
 var
-  dmOptions    : TOmniDataManagerOptions;
-  iTask        : integer;
-  lockAggregate: IOmniCriticalSection;
-  task         : IOmniTaskControl;
-  taskCount    : integer;
+  dmOptions     : TOmniDataManagerOptions;
+  iTask         : integer;
+  lockAggregate : IOmniCriticalSection;
+  task          : IOmniTaskControl;
+  taskCount     : integer;
 begin
   dmOptions := [];
   taskCount := FNumTasks;
@@ -4287,8 +4289,9 @@ begin
   if not FNoWait then begin
     if taskCount = 0 then
       FCountStopped.Allocate //all done
-    else
+    else begin
       FCountStopped.Synchro.WaitFor(INFINITE);
+    end;
     if assigned(FOnStop) then
       FOnStop(nil);
   end;
@@ -5142,8 +5145,9 @@ begin
         aTask(joinState.Task);
       end);
   optJoin.Execute;
-  if not optNoWait then
+  if not optNoWait then begin
     WaitFor(INFINITE);
+  end;
   Result := Self;
 end; { TOmniParallelTask.Execute }
 

@@ -80,25 +80,22 @@ OTL-NG sometimes sends information from worker threads to the main thread (e.g.,
 
 ### Summary
 
-Unit tests (Win32 and Win64) hang intermittently (~10-30% of full suite runs). The hang occurs in `TestOtlParallel` tests that use `Parallel.For` with the thread pool.
+Unit tests (Win32 and Win64) hang intermittently (~4% of full suite runs). The hang occurs in tests that use the thread pool.
 
-### Symptoms
+### What has been fixed
 
-The pool's manager task stops processing `Schedule` messages. Tasks are never assigned to workers, causing `FCountStopped.Synchro.WaitFor(INFINITE)` to hang.
+1. **Unobserved redesign** (commit 153001d): Eliminated `CreateInternalMonitor`/`ForceQueue` dependency.
+2. **Gate-leak race in TWaitFor** (OtlSync.pas v3.02): Fixed race where `PerformObservableAction` acquired a gate via `EnterGate`, but `TWaitFor.Destroy` ran concurrently and nilled `FController` via `Deref`, causing `GetGate` to return nil and the finally block to skip releasing the lock. Fix: `EnterGate` now saves the gate reference to `FAcquiredGate` before acquiring, so `GetGate` returns it regardless of `FController` state.
 
-### What has been ruled out
-
-The `Unobserved` mechanism was redesigned (commit 153001d) to eliminate the `CreateInternalMonitor`/`ForceQueue` dependency. Pure `Unobserved` tasks no longer create event monitors or accumulate refs in `emMonitoredTasks`. Despite this, the hang persists at similar rates, indicating the root cause is in the thread pool itself, not in `Unobserved`.
-
-### Current hang rates (post-Unobserved fix)
+### Current hang rates (post gate-leak fix)
 
 | Configuration | Hang rate |
 |---|---|
-| `TestUnobserved` only | 0/20 |
-| `TestOtlParallel` only | ~1/10 |
-| Full test suite (242 tests) | ~3/10 |
+| `TestTask.TestStartTask` only | 0/30 |
+| Full test suite (242 tests) | ~2/50 |
 
 ### Files involved
 
+- `OtlSync.pas`: `TSynchroClient.EnterGate`, `GetGate`, `LeaveGate`, `PerformObservableAction`
 - `OtlThreadPool.pas`: `TOTPWorker` (pool manager task), `TOTPWorkerThread.ExecuteWorkItem`
 - `OtlParallel.pas`: `TOmniParallelSimpleLoop.InternalExecute`, `Parallel.Start`

@@ -61,6 +61,11 @@
 ///         TInterlocked.CompareExchange; added MFence for ARM barrier.
 ///       - Fixed TOmniLockManager.Lock: negative wait_ms no longer wraps to
 ///         cardinal max — breaks out of loop instead.
+///     3.02: 2026-04-17
+///       - Fixed gate-leak race in TSynchroClient: EnterGate now saves the gate
+///         reference before acquiring, so GetGate returns it even after Deref
+///         nils FController. Prevents leaked lock when PerformObservableAction
+///         runs concurrently with TWaitFor.Destroy.
 ///     3.01: 2026-04-14
 ///       - Fixed TCondition.Wait spurious wakeup bug — condvar wait now loops
 ///         instead of returning wrIOCompletion on spurious wakeup.
@@ -600,7 +605,8 @@ type
     end; { ISynchroClientEx }
     TSynchroClient = class(TInterfacedObject, IOmniSynchroObserver, ISynchroClientEx)
     strict private
-      FController: TWaitFor;
+      FController  : TWaitFor;
+      FAcquiredGate: IOmniCriticalSection;
       procedure EnterGate;
       procedure LeaveGate;
       procedure GetGate(out gate: IOmniCriticalSection);
@@ -2075,22 +2081,23 @@ end; { TWaitFor.TSynchroClient.Create }
 
 procedure TWaitFor.TSynchroClient.EnterGate;
 begin
-  if assigned(FController) then
-    FController.FGate.Acquire;
+  if assigned(FController) then begin
+    FAcquiredGate := FController.FGate;
+    FAcquiredGate.Acquire;
+  end;
 end; { TWaitFor.TSynchroClient.EnterGate }
 
 procedure TWaitFor.TSynchroClient.LeaveGate;
 begin
-  if assigned(FController) then
-    FController.FGate.Release;
+  if assigned(FAcquiredGate) then begin
+    FAcquiredGate.Release;
+    FAcquiredGate := nil;
+  end;
 end; { TWaitFor.TSynchroClient.LeaveGate }
 
 procedure TWaitFor.TSynchroClient.GetGate(out gate: IOmniCriticalSection);
 begin
-  if assigned(FController) then
-    gate := FController.FGate
-  else
-    gate := nil;
+  gate := FAcquiredGate;
 end; { TWaitFor.TSynchroClient.GetGate }
 
 procedure TWaitFor.TSynchroClient.Deref;
