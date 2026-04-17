@@ -76,73 +76,29 @@ Replace `ConsoleTestRunner` with `CompileAllUnits` in the commands above. This p
 
 OTL-NG sometimes sends information from worker threads to the main thread (e.g., task termination notifications via `TThread.Queue`/`TThread.ForceQueue`). This is a fundamental design fact that will not change. The thread owner must occasionally allow this information to be processed. For main threads, this means processing the queue used by `TThread.Queue`. Console applications must call `CheckSynchronize` at appropriate points to drain this queue.
 
-## Known bug: Unit test hangs with thread pool + Unobserved
+## Known bug: Unit test hangs with thread pool
 
 ### Summary
 
-Unit tests (Win32 and Win64) hang intermittently (~5-30% of runs). The bug is in the interaction between the thread pool and the `Unobserved` mechanism.
+Unit tests (Win32 and Win64) hang intermittently (~10-30% of full suite runs). The hang occurs in `TestOtlParallel` tests that use `Parallel.For` with the thread pool.
 
-### Root cause
+### Symptoms
 
-`Unobserved` calls `CreateInternalMonitor` which calls `TOmniEventMonitor.Monitor(Self)`. This stores a strong `IOmniTaskControl` reference in the monitor's `emMonitoredTasks` dictionary. This reference creates a cycle:
+The pool's manager task stops processing `Schedule` messages. Tasks are never assigned to workers, causing `FCountStopped.Synchro.WaitFor(INFINITE)` to hang.
 
-- `emMonitoredTasks[id]` → `IOmniTaskControl` (strong ref, prevents destruction)
-- `TOmniTaskControl.Destroy` → `DestroyMonitor` → would release the monitor, but `Destroy` never runs because the reference keeps the object alive
+### What has been ruled out
 
-The cycle is designed to be broken by `ForceQueue(ProcessTerminated)` → `Detach` → `emMonitoredTasks.Remove`. But `ForceQueue` requires `CheckSynchronize` to be called on the main thread. In console apps (like the DUnitX test runner), `CheckSynchronize` is never called, so:
+The `Unobserved` mechanism was redesigned (commit 153001d) to eliminate the `CreateInternalMonitor`/`ForceQueue` dependency. Pure `Unobserved` tasks no longer create event monitors or accumulate refs in `emMonitoredTasks`. Despite this, the hang persists at similar rates, indicating the root cause is in the thread pool itself, not in `Unobserved`.
 
-1. Stale `IOmniTaskControl` references accumulate (500+ over 50 `Parallel.For` iterations)
-2. Each stale task control holds a comm channel with container observers and event objects
-3. These accumulated observers interfere with the pool's manager task's event signaling
-4. The pool's manager task stops processing `Schedule` messages → tasks are never assigned to workers → `FCountStopped.Synchro.WaitFor(INFINITE)` hangs
+### Current hang rates (post-Unobserved fix)
 
-### Key evidence from investigation
-
-| Configuration | Hang rate | Conclusion |
-|---|---|---|
-| `task.Run` (no pool) | 0/50 | Pool is the cause |
-| Pool + NO `Unobserved` | 0/50 (2/200) | `Unobserved` is the trigger |
-| Pool + `Unobserved` (baseline) | 5/100 | Current state |
-| `Parallel.For` + `NoThreadPool` | 0/100 | Pool + Unobserved together |
-| Full test suite (226 tests) | ~30% | More tasks = higher probability |
-
-### This is a leftover from the old OTL architecture
-
-The old OTL used Windows message-based event dispatching. Console apps were required to call `ProcessThreadMessages`. The NG version moved to condvar-based synchronization (`TWaitFor`), but `Unobserved` still uses `TThread.ForceQueue` which requires message processing.
-
-The TODO in `Unobserved` confirms this was known:
-```pascal
-{ TODO 1 -oPrimoz Gabrijelcic : reimplement without the internal monitor }
-```
-
-### Short-term fix (to make unit tests pass)
-
-Add `CheckSynchronize(0)` calls at strategic points so `ForceQueue` items get processed in console apps. Candidate locations:
-- After `FCountStopped.Synchro.WaitFor(INFINITE)` in `TOmniParallelSimpleLoop.InternalExecute`
-- After `FCountStopped.Synchro.WaitFor(INFINITE)` in `TOmniParallelLoopBase.InternalExecuteTask`
-- In the DUnitX test runner between test iterations
-
-**Important**: `CheckSynchronize` must be called AFTER all tasks have completed their `InternalExecute` (including the MonitorLock release). There's a brief race window between `FCountStopped` signaling and the worker thread releasing MonitorLock. A small `Sleep(0)` or checking that all workers have sent `MSG_COMPLETED` may be needed.
-
-### Long-term fix
-
-Reimplement `Unobserved` without the internal event monitor, as the TODO suggests. Options:
-- Use `[weak]` attribute (Delphi 11+) for the `emMonitoredTasks` reference to break the cycle
-- Remove `emMonitoredTasks` entirely for internal monitors (since callbacks are no-ops)
-- Replace the ForceQueue mechanism with direct reference management
-- Make `Unobserved` a simple flag with lifecycle managed by reference counting
+| Configuration | Hang rate |
+|---|---|
+| `TestUnobserved` only | 0/20 |
+| `TestOtlParallel` only | ~1/10 |
+| Full test suite (242 tests) | ~3/10 |
 
 ### Files involved
 
-- `OtlTaskControl.pas`: `CreateInternalMonitor`, `Unobserved`, `TOmniTask.InternalExecute`, `TOmniTaskControl.Destroy`/`DestroyMonitor`
-- `OtlEventMonitor.pas`: `TOmniEventMonitor.Monitor`, `emMonitoredTasks`, `NotifyTerminated`/`ProcessTerminated`/`Detach`
-- `OtlParallel.pas`: `TOmniParallelSimpleLoop.InternalExecute` (the `Parallel.For` simple loop path — NOT `TOmniParallelLoopBase.InternalExecuteTask`)
 - `OtlThreadPool.pas`: `TOTPWorker` (pool manager task), `TOTPWorkerThread.ExecuteWorkItem`
-
-### Test infrastructure in unittests/
-
-Several test scripts and helper files were created during the investigation. These can be cleaned up:
-- `run_*.sh` — bash scripts for automated test runs
-- `hang_*.log` — captured logs from hanging runs  
-- `MinimalRepro*.dpr`, `MinimalPool*.dpr` — minimal reproduction programs
-- `TestInstrumented.pas`, `InitLogger.pas`, `InstrumentedRunner.dpr` — instrumented test helpers
+- `OtlParallel.pas`: `TOmniParallelSimpleLoop.InternalExecute`, `Parallel.Start`
