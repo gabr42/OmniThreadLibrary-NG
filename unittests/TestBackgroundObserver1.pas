@@ -23,9 +23,6 @@ uses
   System.SysUtils,
   System.SyncObjs,
   System.Classes,
-  {$IFDEF MSWINDOWS}
-  Winapi.Windows,
-  {$ENDIF}
   OtlSync,
   OtlBackgroundObserver;
 
@@ -101,15 +98,7 @@ begin
     try
     {$ENDIF}
       observer.Notify;
-
-      // Windows: alertable wait drains the queued APC.
-      // POSIX: DrainBackgroundObservers processes the thread-local registry.
-      {$IFDEF MSWINDOWS}
-      SleepEx(0, True);
-      {$ELSE}
       DrainBackgroundObservers;
-      {$ENDIF}
-
       Assert.AreEqual<integer>(1, callbackFired, 'Callback should have fired once');
     {$IFNDEF MSWINDOWS}
     finally UnregisterBackgroundObserver(observer); end;

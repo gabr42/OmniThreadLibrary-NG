@@ -2695,12 +2695,7 @@ begin
   if assigned(WorkerIntf) then
     WorkerIntf.BeforeWait(timeout_ms);
   Result := msgInfo.Waiter.WaitAny(timeout_ms);
-  {$IFDEF MSWINDOWS}
-  WaitForMultipleObjectsEx(0, nil, false, 0, true); // drain pending APCs without yielding time slice
-  {$ENDIF MSWINDOWS}
-  {$IFNDEF OTL_HasAPC}
-  DrainBackgroundObservers; // POSIX: drain pending child notifications
-  {$ENDIF}
+  DrainBackgroundObservers; // Windows: drain pending APCs; POSIX: drain thread-local registry
   {$IF Defined(Debug) and Defined(MSWINDOWS)}
   if Result = waFailed then
     OutputDebugString(PChar(Format('*** TOmniTaskExecutor.WaitForEvent failed with error [%d] %s',

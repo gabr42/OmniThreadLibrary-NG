@@ -36,10 +36,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Claude AI
 ///   Creation date     : 2026-04-12
-///   Last modification : 2026-04-17
-///   Version           : 1.02
+///   Last modification : 2026-04-18
+///   Version           : 1.03
 ///</para><para>
 ///   History:
+///     1.03: 2026-04-18
+///       - DrainBackgroundObservers is now cross-platform. On Windows it runs a
+///         zero-timeout alertable wait to drain queued APCs; on POSIX it drains
+///         the thread-local observer registry. Callers no longer need IFDEFs.
 ///     1.02: 2026-04-17
 ///       - Observer lifetime now managed by interface refcount. Added
 ///         IOmniContainerBackgroundObserver; factory returns interface;
@@ -101,6 +105,14 @@ type
 function CreateContainerBackgroundObserver(aTargetThreadID: TThreadID;
   const aOnNotify: TProc): IOmniContainerBackgroundObserver;
 
+{:Drains all pending background notifications for the current thread.
+  Cross-platform: on Windows performs a zero-timeout alertable wait to run
+  queued APCs; on POSIX drains the thread-local observer registry.
+  No-op if nothing is pending.
+  @since   2026-04-12
+}
+procedure DrainBackgroundObservers;
+
 {$IFNDEF OTL_HasAPC}
 {:Registers a background observer in the current thread's registry.
   Called from CreateInternalMonitor on the owner thread.
@@ -113,13 +125,6 @@ procedure RegisterBackgroundObserver(const aObserver: IOmniContainerBackgroundOb
   @since   2026-04-12
 }
 procedure UnregisterBackgroundObserver(const aObserver: IOmniContainerBackgroundObserver);
-
-{:Drains all pending background notifications for the current thread.
-  Called from WaitForEvent on POSIX — equivalent of alertable wait on Windows.
-  No-op if no observers are registered.
-  @since   2026-04-12
-}
-procedure DrainBackgroundObservers;
 
 {:Frees the current thread's background observer registry.
   Called from TOmniTaskExecutor.Cleanup to prevent threadvar leaks.
@@ -379,18 +384,31 @@ begin
     _BackgroundObserverRegistry.Remove(aObserver);
 end; { UnregisterBackgroundObserver }
 
-procedure DrainBackgroundObservers;
-begin
-  if assigned(_BackgroundObserverRegistry) then
-    _BackgroundObserverRegistry.DrainAll;
-end; { DrainBackgroundObservers }
-
 procedure CleanupBackgroundObserverRegistry;
 begin
   FreeAndNil(_BackgroundObserverRegistry);
 end; { CleanupBackgroundObserverRegistry }
 
 {$ENDIF OTL_HasAPC}
+
+{ Cross-platform drain }
+
+procedure DrainBackgroundObservers;
+{$IFDEF OTL_HasAPC}
+var
+  dummyHandle: THandle;
+{$ENDIF}
+begin
+  {$IFDEF OTL_HasAPC}
+  // MWMO_ALERTABLE + zero timeout + empty wait set: runs any queued APCs on
+  // the current thread without yielding the time slice. The handle parameter
+  // is declared `var` but not read when nCount=0, so a stack dummy suffices.
+  MsgWaitForMultipleObjectsEx(0, dummyHandle, 0, 0, MWMO_ALERTABLE);
+  {$ELSE}
+  if assigned(_BackgroundObserverRegistry) then
+    _BackgroundObserverRegistry.DrainAll;
+  {$ENDIF}
+end; { DrainBackgroundObservers }
 
 { Factory }
 
