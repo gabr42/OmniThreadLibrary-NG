@@ -1700,11 +1700,11 @@ begin
   if not assigned(ocCounter) then
   begin
     countIntf := CreateCounter;
-    {$IFDEF CPUX64}
+    {$IFDEF CPU64BITS}
     if TInterlocked.CompareExchange(PInt64(@ocCounter)^, int64(countIntf), 0) = 0 then
     {$ELSE}
     if TInterlocked.CompareExchange(PInteger(@ocCounter)^, integer(countIntf), 0) = 0 then
-    {$ENDIF ~CPUX64}
+    {$ENDIF ~CPU64BITS}
       pointer(countIntf) := nil;
   end;
 end; { TOmniCounter.Initialize }

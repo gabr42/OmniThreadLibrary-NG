@@ -68,7 +68,8 @@ bag of stuff/numa/Win64/Debug/procinfo.dat
 
 *.dlens
 
-unittests/Linux64/Debug/
+unittests/Linux64/
+unittests/WinArm64EC/
 
 tests/62_Console/Linux64/Debug/
 
@@ -77,3 +78,5 @@ thmm
 *.res
 
 *.o
+
+.claude/

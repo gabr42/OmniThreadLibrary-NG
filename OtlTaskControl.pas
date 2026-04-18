@@ -2701,11 +2701,11 @@ begin
   {$IFNDEF OTL_HasAPC}
   DrainBackgroundObservers; // POSIX: drain pending child notifications
   {$ENDIF}
-  {$IFDEF Debug}
+  {$IF Defined(Debug) and Defined(MSWINDOWS)}
   if Result = waFailed then
     OutputDebugString(PChar(Format('*** TOmniTaskExecutor.WaitForEvent failed with error [%d] %s',
       [GetLastError, SysErrorMessage(GetLastError)])));
-  {$ENDIF Debug}
+  {$IFEND}
   if assigned(WorkerIntf) then
     WorkerIntf.AfterWait(msgInfo.Waiter, Result);
 end; { TOmniTaskExecutor.WaitForEvent }
@@ -3228,11 +3228,11 @@ begin
 
   if not assigned(otcOnTerminatedExec) then
     otcOnTerminatedExec := TOmniMessageExec.Create;
-  otcOnTerminatedExec.SetOnTerminated(TOmniOnTerminatedFunction(
+  otcOnTerminatedExec.SetOnTerminated(
     procedure (const task: IOmniTaskControl)
     begin
       otcOnTerminatedSimple();
-    end));
+    end);
   CreateInternalMonitor;
   Result := Self;
 end; { TOmniTaskControl.OnTerminated }

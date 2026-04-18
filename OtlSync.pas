@@ -35,10 +35,30 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
-///   Last modification : 2026-04-14
-///   Version           : 3.02
+///   Last modification : 2026-04-17
+///   Version           : 3.03
 ///</para><para>
 ///   History:
+///     3.03: 2026-04-17
+///       - Cross-platform build: compiles for Linux64 (dcclinux64) and Windows
+///         ARM64EC (dccarm64ec) in addition to Win32/Win64.
+///       - Guarded TOmniWrappedEvent (Windows-only: uses CloseHandle) with
+///         {$IFDEF MSWINDOWS}.
+///       - Moved TWaitFor.SetSynchObjects implementation out of the Windows
+///         block; its declaration is unconditional and its body does not touch
+///         Windows APIs.
+///       - Removed illegal 'overload' directive from implementation-site
+///         method headers (Locked<T>.TryBeginWrite,
+///         TLightweightMREWExImpl.TryBeginWrite) and added a missing ';' on
+///         TLightweightMREWExImpl.TryBeginRead — all inside the Linux/Android
+///         conditional block, so prior Windows builds never exercised them.
+///       - Switched {$IFDEF CPUX64} to {$IFDEF CPU64BITS} in TOmniMREW.ExitWriteLock
+///         and TInterlockedEx.CompareExchange/Add so Windows ARM64 (64-bit
+///         NativeInt) takes the 64-bit path instead of mis-casting to integer.
+///       - Added non-Windows x86_64 InterlockedCompareExchange128 fallback —
+///         dcclinux64 does not support inline ASM, so the Linux fallback uses a
+///         coarse global spinlock. TODO: replace with a proper cross-platform
+///         design before ARM64/Android targets are enabled.
 ///     3.02: 2026-04-14
 ///       - Fixed CAS16 offset mask: added alignment assert to prevent
 ///         straddling 4-byte boundary at byte offset 3.
@@ -549,8 +569,8 @@ type
     end;
     TLockValue = record
       LockCount: integer;
-      ThreadID : cardinal;
-      constructor Create(aThreadID: cardinal; aLockCount: integer);
+      ThreadID : TThreadID;
+      constructor Create(aThreadID: TThreadID; aLockCount: integer);
     end;
   strict private
     FComparer  : IEqualityComparer<K>;
@@ -670,7 +690,7 @@ type
   TOmniSingleThreadUseChecker = record
   private
     FLock    : TOmniCS;
-    FThreadID: cardinal;
+    FThreadID: TThreadID;
   public
     procedure AttachToCurrentThread; inline;
     procedure Check; inline;
@@ -839,6 +859,7 @@ type
     function  BaseCountdown: TCountdownEvent;
   end; { TOmniCountdownEvent }
 
+  {$IFDEF MSWINDOWS}
   TOmniWrappedEvent = class(TEvent)
   strict private
     FHandle : THandle;
@@ -847,6 +868,7 @@ type
     constructor Create(AExternalEvent: THandle; ATakeOwnership: boolean = false);
     destructor Destroy; override;
   end; { TOmniWrappedEvent }
+  {$ENDIF MSWINDOWS}
 
   TOmniEvent = class(TOmniSynchroObject, IOmniEvent)
   strict protected
@@ -887,6 +909,41 @@ type
 
 var
   GOmniCSInitializer: TOmniCriticalSection;
+
+{$IF (not Defined(MSWINDOWS)) and Defined(CPUX64)}
+// Temporary non-Windows x86_64 fallback for the Windows API InterlockedCompareExchange128.
+// dcclinux64 does not support inline ASM, so we cannot emit CMPXCHG16B directly. This
+// coarse global-spinlock implementation is *not* lock-free — it defeats the point of
+// the OTL lock-free containers — but it preserves correctness and unblocks compilation
+// and smoke-testing under WSL2.
+// TODO: replace the TInt128-based atomics with a cross-platform design; CMPXCHG16B does
+// not exist on ARM64/Android either, so the callers need redesign before those targets
+// can work.
+var
+  GInterlockedCompareExchange128Lock: integer = 0;
+
+function InterlockedCompareExchange128(Destination: Pointer;
+  ExchangeHigh, ExchangeLow: int64; Comparand: Pointer): Boolean;
+var
+  dst: ^TInt128 absolute Destination;
+  cmp: ^TInt128 absolute Comparand;
+begin
+  while TInterlocked.CompareExchange(GInterlockedCompareExchange128Lock, 1, 0) <> 0 do
+    TThread.Yield;
+  try
+    if (dst^.Lo = cmp^.Lo) and (dst^.Hi = cmp^.Hi) then begin
+      dst^.Lo := ExchangeLow;
+      dst^.Hi := ExchangeHigh;
+      Result := true;
+    end
+    else begin
+      cmp^.Lo := dst^.Lo;
+      cmp^.Hi := dst^.Hi;
+      Result := false;
+    end;
+  finally TInterlocked.Exchange(GInterlockedCompareExchange128Lock, 0); end;
+end; { InterlockedCompareExchange128 }
+{$IFEND}
 
 { transitional }
 
@@ -1313,7 +1370,7 @@ end; { TOmniMREW.ExitReadLock }
 
 procedure TOmniMREW.ExitWriteLock;
 begin
-{$IFDEF CPUX64}
+{$IFDEF CPU64BITS}
   TInterlocked.Exchange(int64(omrewReference), int64(0));
 {$ELSE}
   TInterlocked.Exchange(integer(omrewReference), integer(0));
@@ -1543,10 +1600,10 @@ end; { Atomic<I,T>.Initialize }
 
 function TLightweightMREWEx.GetLockOwner: TThreadID; //inline
 begin
+  {$IFDEF MSWINDOWS}
   {$IFDEF DEBUG}
   Assert(SizeOf(FLockOwner) = SizeOf(integer), 'TThreadID is no longer an integer');
   {$ENDIF DEBUG}
-  {$IFDEF MSWINDOWS}
   Result := InterlockedCompareExchange(integer(FLockOwner), 0, 0);
   {$ELSE}
   Result := TInterlocked.Read(FLockOwner);
@@ -1555,10 +1612,10 @@ end; { TLightweightMREWEx.GetLockOwner }
 
 procedure TLightweightMREWEx.SetLockOwner(value: TThreadID); //inline
 begin
+  {$IFDEF MSWINDOWS}
   {$IFDEF DEBUG}
   Assert(SizeOf(FLockOwner) = SizeOf(integer), 'TThreadID is no longer an integer');
   {$ENDIF DEBUG}
-  {$IFDEF MSWINDOWS}
   InterlockedExchange(integer(FLockOwner), integer(value));
   {$ELSE}
   TInterlocked.Exchange(FLockOwner, value);
@@ -1897,7 +1954,7 @@ begin
   {$ENDIF DEBUG}
 end; { Locked<T>.TryBeginRead }
 
-function Locked<T>.TryBeginWrite(timeout: cardinal): boolean; overload; inline;
+function Locked<T>.TryBeginWrite(timeout: cardinal): boolean;
 begin
   Result := FLock.TryBeginWrite(timeout);
   {$IFDEF DEBUG}
@@ -1939,7 +1996,7 @@ end; { TOmniLockManager<K>.TAutoUnlock.Unlock }
 
 { TOmniLockManager<K>.TLockValue }
 
-constructor TOmniLockManager<K>.TLockValue.Create(aThreadID: cardinal; aLockCount: integer);
+constructor TOmniLockManager<K>.TLockValue.Create(aThreadID: TThreadID; aLockCount: integer);
 begin
   ThreadID := aThreadID;
   LockCount := aLockCount;
@@ -2341,15 +2398,6 @@ begin
   end;
 end; { TWaitFor.MsgWaitAny }
 
-procedure TWaitFor.SetSynchObjects(const synchObjects: array of IOmniSynchro);
-var
-  member: IOmniSynchro;
-begin
-  FSynchObjects.Clear;
-  for member in synchObjects do
-    FSynchObjects.Add(member);
-end; { TWaitFor.SetSynchObjects }
-
 procedure TWaitFor.SetHandles(const handles: array of THandle);
 var
   i: integer;
@@ -2359,6 +2407,15 @@ begin
     FSynchObjects.Add(CreateOmniEvent(handles[i], false));
 end; { TWaitFor.SetHandles }
 {$ENDIF MSWINDOWS}
+
+procedure TWaitFor.SetSynchObjects(const synchObjects: array of IOmniSynchro);
+var
+  member: IOmniSynchro;
+begin
+  FSynchObjects.Clear;
+  for member in synchObjects do
+    FSynchObjects.Add(member);
+end; { TWaitFor.SetSynchObjects }
 
 function TWaitFor.MapResult(waitResult: TWaitResult): TWaitForResult;
 begin
@@ -2483,17 +2540,17 @@ procedure TOmniSingleThreadUseChecker.AttachToCurrentThread;
 begin
   FLock.Acquire;
   try
-    FThreadID := cardinal(GetCurrentThreadID);
+    FThreadID := GetCurrentThreadID;
   finally FLock.Release; end;
 end; { TOmniSingleThreadUseChecker.AttachToCurrentThread }
 
 procedure TOmniSingleThreadUseChecker.Check;
 var
-  thID: cardinal;
+  thID: TThreadID;
 begin
   FLock.Acquire;
   try
-    thID := cardinal(GetCurrentThreadID);
+    thID := GetCurrentThreadID;
     if (FThreadID <> 0) and (FThreadID <> thID) then
       raise Exception.CreateFmt(
         'Unsafe use: Current thread ID: %d, previous thread ID: %d',
@@ -2505,13 +2562,13 @@ end; { TOmniSingleThreadUseChecker.Check }
 procedure TOmniSingleThreadUseChecker.DebugCheck;
 {$IFDEF OTL_CheckThreadSafety}
 var
-  thID: cardinal;
+  thID: TThreadID;
 {$ENDIF OTL_CheckThreadSafety}
 begin
   {$IFDEF OTL_CheckThreadSafety}
   FLock.Acquire;
   try
-    thID := cardinal(GetCurrentThreadID);
+    thID := GetCurrentThreadID;
     if (FThreadID <> 0) and (FThreadID <> thID) then
       raise Exception.CreateFmt(
         'Unsafe use: Current thread ID: %d, previous thread ID: %d',
@@ -2772,6 +2829,7 @@ procedure TOmniCountdownEvent.ConsumeSignalFromObserver(const Observer: IOmniSyn
 begin
 end; { TOmniCountdownEvent.ConsumeSignalFromObserver }
 
+{$IFDEF MSWINDOWS}
 { TOmniWrappedEvent }
 
 constructor TOmniWrappedEvent.Create(AExternalEvent: THandle; ATakeOwnership: boolean);
@@ -2790,6 +2848,7 @@ begin
   FHandle := 0;
   inherited;
 end; { TOmniWrappedEvent.Destroy }
+{$ENDIF MSWINDOWS}
 
 { TOmniEvent }
 
@@ -2882,7 +2941,7 @@ end; { TPreSignalData.Create }
 
 class function TInterlockedEx.CompareExchange(var Target: NativeInt; Value: NativeInt; Comparand: NativeInt): NativeInt; //inline
 begin
-  {$IFDEF CPUX64}
+  {$IFDEF CPU64BITS}
   Result := TInterlocked.CompareExchange(Int64(Target), Int64(Value), Int64(Comparand));
   {$ELSE}
   Result := TInterlocked.CompareExchange(Integer(Target), Integer(Value), Integer(Comparand));
@@ -2891,7 +2950,7 @@ end; { TInterlockedEx.CompareExchange }
 
 class function TInterlockedEx.Add(var Target: NativeInt; Increment: NativeInt): NativeInt;
 begin
-  {$IFDEF CPUX64}
+  {$IFDEF CPU64BITS}
   Result := TInterlocked.Add(Int64(Target), Int64(Increment));
   {$ELSE}
   Result := TInterlocked.Add(Integer(Target), Integer(Increment));
@@ -2971,7 +3030,7 @@ end; { TLightweightMREWExImpl.TryBeginRead }
 function TLightweightMREWExImpl.TryBeginRead(timeout: cardinal): boolean;
 begin
   Result := FLock.TryBeginRead(timeout);
-end { TLightweightMREWExImpl.TryBeginRead }
+end; { TLightweightMREWExImpl.TryBeginRead }
 {$IFEND LINUX or ANDROID}
 
 function TLightweightMREWExImpl.TryBeginWrite: boolean;
@@ -2980,7 +3039,7 @@ begin
 end; { TLightweightMREWExImpl.TryBeginWrite }
 
 {$IF defined(LINUX) or defined(ANDROID)}
-function TLightweightMREWExImpl.TryBeginWrite(timeout: cardinal): boolean; overload;
+function TLightweightMREWExImpl.TryBeginWrite(timeout: cardinal): boolean;
 begin
   Result := FLock.TryBeginWrite(timeout);
 end; { TLightweightMREWExImpl.TryBeginWrite }

@@ -149,7 +149,7 @@ type
     emOnTaskMessage           : TOmniMonitorTaskMessageEvent;
     emOnTaskUndeliveredMessage: TOmniMonitorTaskMessageEvent;
     emOnTaskTerminated        : TOmniMonitorTaskEvent;
-    emThreadID                : cardinal;
+    emThreadID                : TThreadID;
   strict protected
     procedure ProcessNewMessage(taskControlID: int64);
     procedure ProcessTerminated(taskControlID: int64);
@@ -167,7 +167,7 @@ type
     procedure NotifyThreadPool(threadPoolInfo: TOmniThreadPoolMonitorInfo);
     procedure ProcessMessages;
   published
-    property ThreadID: cardinal read emThreadID;
+    property ThreadID: TThreadID read emThreadID;
     property OnPoolThreadCreated: TOmniMonitorPoolThreadEvent read emOnPoolThreadCreated
       write emOnPoolThreadCreated;
     property OnPoolThreadDestroying: TOmniMonitorPoolThreadEvent read emOnPoolThreadDestroying
@@ -192,7 +192,7 @@ type
   strict private
     empListLock    : TOmniCS;
     empMonitorClass: TOmniEventMonitorClass;
-    empMonitorList : TObjectDictionary<integer, TObject>;
+    empMonitorList : TObjectDictionary<TThreadID, TObject>;
   public
     constructor Create;
     destructor  Destroy; override;
@@ -441,7 +441,7 @@ end; { TOmniCountedEventMonitor.Release }
 constructor TOmniEventMonitorPool.Create;
 begin
   inherited Create;
-  empMonitorList := TObjectDictionary<integer, TObject>.Create([doOwnsValues]);
+  empMonitorList := TObjectDictionary<TThreadID, TObject>.Create([doOwnsValues]);
 end; { TOmniEventMonitorPool.Create }
 
 destructor TOmniEventMonitorPool.Destroy;
@@ -459,13 +459,13 @@ begin
   empListLock.Acquire;
   try
     var obj: TObject;
-    if empMonitorList.TryGetValue(integer(TPlatform.ThreadID), obj) then begin
+    if empMonitorList.TryGetValue(TPlatform.ThreadID, obj) then begin
       monitorInfo := TOmniCountedEventMonitor(obj);
       monitorInfo.Allocate;
     end
     else begin
       monitorInfo := TOmniCountedEventMonitor.Create(MonitorClass.Create(nil));
-      empMonitorList.Add(integer(monitorInfo.Monitor.ThreadID), monitorInfo);
+      empMonitorList.Add(monitorInfo.Monitor.ThreadID, monitorInfo);
     end;
     Result := monitorInfo.Monitor;
   finally empListLock.Release; end;
@@ -477,11 +477,11 @@ end; { TOmniEventMonitorPool.Allocate }
 procedure TOmniEventMonitorPool.Release(monitor: TOmniEventMonitor);
 var
   monitorInfo: TOmniCountedEventMonitor;
-  threadID   : integer;
+  threadID   : TThreadID;
 begin
   empListLock.Acquire;
   try
-    threadID := integer(monitor.ThreadID);
+    threadID := monitor.ThreadID;
     var obj: TObject;
     if not empMonitorList.TryGetValue(threadID, obj) then
       raise Exception.CreateFmt(

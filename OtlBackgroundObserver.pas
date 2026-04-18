@@ -134,6 +134,7 @@ uses
   {$IFDEF OTL_HasAPC}
   Winapi.Windows,
   {$ENDIF OTL_HasAPC}
+  System.Generics.Collections,
   OtlCommon; // needed for inline expansion of TOmniContainerObserver methods
 
 {$IFDEF OTL_HasAPC}
