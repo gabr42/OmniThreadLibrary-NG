@@ -96,14 +96,24 @@ begin
     TThread.Current.ThreadID,
     procedure begin TInterlocked.Increment(callbackFired); end);
   try
-    observer.Notify;
-
-    // On Windows, drain via SleepEx (alertable wait) to process queued APC
-    {$IFDEF MSWINDOWS}
-    SleepEx(0, True);
+    {$IFNDEF MSWINDOWS}
+    RegisterBackgroundObserver(observer);
+    try
     {$ENDIF}
+      observer.Notify;
 
-    Assert.AreEqual<integer>(1, callbackFired, 'Callback should have fired once');
+      // Windows: alertable wait drains the queued APC.
+      // POSIX: DrainBackgroundObservers processes the thread-local registry.
+      {$IFDEF MSWINDOWS}
+      SleepEx(0, True);
+      {$ELSE}
+      DrainBackgroundObservers;
+      {$ENDIF}
+
+      Assert.AreEqual<integer>(1, callbackFired, 'Callback should have fired once');
+    {$IFNDEF MSWINDOWS}
+    finally UnregisterBackgroundObserver(observer); end;
+    {$ENDIF}
   finally observer := nil; end;
 end;
 
