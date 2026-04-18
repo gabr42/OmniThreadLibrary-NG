@@ -667,8 +667,8 @@ type
     property SynchObjects: TSynchroList read FSynchObjects;
   public
     constructor Create(const synchObjects: array of IOmniSynchro; const AShareLock: IOmniCriticalSection = nil); overload;
-    {$IFDEF MSWINDOWS}
     constructor Create; overload;
+    {$IFDEF MSWINDOWS}
     constructor Create(const handles: array of THandle); overload;
     {$ENDIF MSWINDOWS}
     destructor  Destroy; override;
@@ -2305,7 +2305,6 @@ begin
     FSynchObjects.Add(member);
 end; { TWaitFor.Create }
 
-{$IFDEF MSWINDOWS}
 constructor TWaitFor.Create;
 var
   emptySynchros: array of IOmniSynchro;
@@ -2313,6 +2312,7 @@ begin
   Create(emptySynchros);
 end; { TWaitFor.Create }
 
+{$IFDEF MSWINDOWS}
 constructor TWaitFor.Create(const handles: array of THandle);
 var
   synchros: array of IOmniSynchro;
