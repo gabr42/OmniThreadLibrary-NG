@@ -1600,26 +1600,15 @@ end; { Atomic<I,T>.Initialize }
 
 function TLightweightMREWEx.GetLockOwner: TThreadID; //inline
 begin
-  {$IFDEF MSWINDOWS}
-  {$IFDEF DEBUG}
-  Assert(SizeOf(FLockOwner) = SizeOf(integer), 'TThreadID is no longer an integer');
-  {$ENDIF DEBUG}
-  Result := InterlockedCompareExchange(integer(FLockOwner), 0, 0);
-  {$ELSE}
-  Result := TInterlocked.Read(FLockOwner);
-  {$ENDIF ~MSWINDOWS}
+  // No-op CompareExchange is portable: overloads exist for both Cardinal
+  // (Windows TThreadID) and UInt64 (POSIX pthread_t). TInterlocked.Read
+  // has neither Cardinal nor generic overload.
+  Result := TInterlocked.CompareExchange(FLockOwner, TThreadID(0), TThreadID(0));
 end; { TLightweightMREWEx.GetLockOwner }
 
 procedure TLightweightMREWEx.SetLockOwner(value: TThreadID); //inline
 begin
-  {$IFDEF MSWINDOWS}
-  {$IFDEF DEBUG}
-  Assert(SizeOf(FLockOwner) = SizeOf(integer), 'TThreadID is no longer an integer');
-  {$ENDIF DEBUG}
-  InterlockedExchange(integer(FLockOwner), integer(value));
-  {$ELSE}
   TInterlocked.Exchange(FLockOwner, value);
-  {$ENDIF}
 end; { TLightweightMREWEx.SetLockOwner }
 
 class operator TLightweightMREWEx.Initialize(out dest: TLightweightMREWEx);
