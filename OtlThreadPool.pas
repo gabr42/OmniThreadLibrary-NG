@@ -505,9 +505,9 @@ type
       GetAsy_OnUnhandledWorkerException write SetAsy_OnUnhandledWorkerException;
   // invoked from TOTPWorkerThreads
     procedure CheckIdleQueue;
-    procedure MsgCompleted(var msg: TOmniMessage); {$IFDEF MSWINDOWS}message MSG_COMPLETED;{$ENDIF}
-    procedure MsgThreadCreated(var msg: TOmniMessage); {$IFDEF MSWINDOWS}message MSG_THREAD_CREATED;{$ENDIF}
-    procedure MsgThreadDestroying(var msg: TOmniMessage); {$IFDEF MSWINDOWS}message MSG_THREAD_DESTROYING;{$ENDIF}
+    procedure MsgCompleted(var msg: TOmniMessage); message MSG_COMPLETED;
+    procedure MsgThreadCreated(var msg: TOmniMessage); message MSG_THREAD_CREATED;
+    procedure MsgThreadDestroying(var msg: TOmniMessage); message MSG_THREAD_DESTROYING;
     procedure PruneWorkingQueue;
     procedure RemoveMonitor;
     procedure Schedule(var workItem: TOTPWorkItem);
