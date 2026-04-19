@@ -449,15 +449,15 @@ type
   public
     class operator Initialize(out dest: TLightweightMREWEx);
     procedure BeginRead; inline;
-    function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;{$IFEND} inline;
+    function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;{$ENDIF} inline;
     {$IF defined(LINUX) or defined(ANDROID)}
     function  TryBeginRead(timeout: cardinal): boolean; overload; inline;
-    {$IFEND LINUX or ANDROID}
+    {$ENDIF LINUX or ANDROID}
     procedure EndRead; inline;
     procedure BeginWrite;
     function  TryBeginWrite: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;
     function  TryBeginWrite(timeout: cardinal): boolean; overload;
-    {$IFEND LINUX or ANDROID}
+    {$ENDIF LINUX or ANDROID}
     procedure EndWrite;
   end; { TLightweightMREWEx }
 
@@ -465,12 +465,12 @@ type
     procedure BeginRead;
     function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;
     function  TryBeginRead(timeout: cardinal): boolean; overload;
-    {$IFEND LINUX or ANDROID}
+    {$ENDIF LINUX or ANDROID}
     procedure EndRead;
     procedure BeginWrite;
     function  TryBeginWrite: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;
     function  TryBeginWrite(timeout: cardinal): boolean; overload;
-    {$IFEND LINUX or ANDROID}
+    {$ENDIF LINUX or ANDROID}
     procedure EndWrite;
   end; { ILightweightMREWEx }
 
@@ -481,12 +481,12 @@ type
     procedure BeginRead;
     function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;
     function  TryBeginRead(timeout: cardinal): boolean; overload;
-    {$IFEND LINUX or ANDROID}
+    {$ENDIF LINUX or ANDROID}
     procedure EndRead;
     procedure BeginWrite;
     function  TryBeginWrite: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;
     function  TryBeginWrite(timeout: cardinal): boolean; overload;
-    {$IFEND LINUX or ANDROID}
+    {$ENDIF LINUX or ANDROID}
     procedure EndWrite;
   end; { TLightweightMREWEx }
 
@@ -536,15 +536,15 @@ type
 
     function  BeginRead: T; inline;
     procedure EndRead; inline;
-    function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;{$IFEND} inline;
+    function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;{$ENDIF} inline;
     {$IF defined(LINUX) or defined(ANDROID)}
     function  TryBeginRead(Timeout: Cardinal): Boolean; overload; inline;
-    {$IFEND LINUX or ANDROID}
+    {$ENDIF LINUX or ANDROID}
     function  BeginWrite: T; inline;
     procedure EndWrite; inline;
     function  TryBeginWrite: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;
     function  TryBeginWrite(timeout: cardinal): boolean; overload; inline;
-    {$IFEND LINUX or ANDROID}
+    {$ENDIF LINUX or ANDROID}
     procedure Free; //inline;
     property IsInitialized: boolean read FInitialized;
     property Value: T read GetValue write SetValue;
@@ -943,7 +943,7 @@ begin
     end;
   finally TInterlocked.Exchange(GInterlockedCompareExchange128Lock, 0); end;
 end; { InterlockedCompareExchange128 }
-{$IFEND}
+{$ENDIF}
 
 { transitional }
 
@@ -1664,7 +1664,7 @@ function TLightweightMREWEx.TryBeginRead(timeout: cardinal): boolean;
 begin
   Result := FRWLock.TryBeginRead(timeout);
 end; { TLightweightMREWEx.TryBeginRead }
-{$IFEND LINUX or ANDROID}
+{$ENDIF LINUX or ANDROID}
 
 function TLightweightMREWEx.TryBeginWrite: boolean;
 begin
@@ -1696,7 +1696,7 @@ begin
     end;
   end;
 end; { TLightweightMREWEx.TryBeginWrite }
-{$IFEND LINUX or ANDROID}
+{$ENDIF LINUX or ANDROID}
 
 { Locked<T> }
 
@@ -1951,7 +1951,7 @@ begin
     FLockCount.Increment;
   {$ENDIF DEBUG}
 end; { Locked<T>.TryBeginWrite }
-{$IFEND LINUX or ANDROID}
+{$ENDIF LINUX or ANDROID}
 
 { TOmniLockManager<K>.TNotifyPair<K> }
 
@@ -2210,7 +2210,6 @@ var
   timer     : TStopWatch;
   waitTime  : cardinal;
 begin
-  Result := wrError;
   waitTime := timeout_ms;
   if waitTime > 0 then
     timer := TStopWatch.StartNew;
@@ -3020,7 +3019,7 @@ function TLightweightMREWExImpl.TryBeginRead(timeout: cardinal): boolean;
 begin
   Result := FLock.TryBeginRead(timeout);
 end; { TLightweightMREWExImpl.TryBeginRead }
-{$IFEND LINUX or ANDROID}
+{$ENDIF LINUX or ANDROID}
 
 function TLightweightMREWExImpl.TryBeginWrite: boolean;
 begin
@@ -3032,7 +3031,7 @@ function TLightweightMREWExImpl.TryBeginWrite(timeout: cardinal): boolean;
 begin
   Result := FLock.TryBeginWrite(timeout);
 end; { TLightweightMREWExImpl.TryBeginWrite }
-{$IFEND LINUX or ANDROID}
+{$ENDIF LINUX or ANDROID}
 
 initialization
   GOmniCancellationToken := CreateOmniCancellationToken;

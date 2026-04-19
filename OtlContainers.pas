@@ -638,6 +638,7 @@ end; { TOmniBaseBoundedStack.Pop }
 class function TOmniBaseBoundedStack.PopLink(var chain: TReferencedPtr): POmniLinkedData;
 //nil << Link.Next << Link.Next << ... << Link.Next
 //                                            ^------ < chainHead
+{$IFDEF OTL_HaveCmpx16b}
 var
   AtStartReference: NativeInt;
   CurrentReference: NativeInt;
@@ -645,6 +646,7 @@ var
   ThreadReference : NativeInt;
 label
   TryAgain;
+{$ENDIF OTL_HaveCmpx16b}
 begin
   {$IFDEF OTL_HaveCmpx16b}
   ThreadReference := TThread.CurrentThread.ThreadID + 1;        //Reference.bit0 := 1
@@ -692,9 +694,11 @@ begin
 end; { TOmniBaseBoundedStack.Push }
 
 class procedure TOmniBaseBoundedStack.PushLink(const link: POmniLinkedData; var chain: TReferencedPtr);
+{$IFDEF OTL_HaveCmpx16b}
 var
   PMemData   : pointer;
   TaskCounter: NativeInt;
+{$ENDIF OTL_HaveCmpx16b}
 begin
   {$IFDEF OTL_HaveCmpx16b}
   with chain do begin
@@ -889,14 +893,18 @@ class procedure TOmniBaseBoundedQueue.InsertLink(const data: pointer; const ring
 //FIFO buffer logic
 //Insert link to queue model with idle/busy status bit
 var
-  AtStartReference: NativeInt;
   CurrentLastIn   : PReferencedPtr;
-  CurrentReference: NativeInt;
   NewLastIn       : PReferencedPtr;
+  {$IFDEF OTL_HaveCmpx16b}
+  AtStartReference: NativeInt;
+  CurrentReference: NativeInt;
   TaskCounter     : NativeInt;
   ThreadReference : NativeInt;
+  {$ENDIF OTL_HaveCmpx16b}
+{$IFDEF OTL_HaveCmpx16b}
 label
   TryAgain;
+{$ENDIF OTL_HaveCmpx16b}
 begin
   {$IFDEF OTL_HaveCmpx16b}
   ThreadReference := TThread.CurrentThread.ThreadID + 1;        //Reference.bit0 := 1
@@ -1024,14 +1032,18 @@ end; { TOmniBaseBoundedQueue.MeasureExecutionTimes }
 
 class function TOmniBaseBoundedQueue.RemoveLink(const ringBuffer: POmniRingBuffer): pointer;
 var
-  AtStartReference      : NativeInt;
   CurrentFirstIn        : pointer;
-  CurrentReference      : NativeInt;
   NewFirstIn            : pointer;
+  {$IFDEF OTL_HaveCmpx16b}
+  AtStartReference      : NativeInt;
+  CurrentReference      : NativeInt;
   Reference             : NativeInt;
   TaskCounter           : NativeInt;
+  {$ENDIF OTL_HaveCmpx16b}
+{$IFDEF OTL_HaveCmpx16b}
 label
   TryAgain;
+{$ENDIF OTL_HaveCmpx16b}
 begin
   {$IFDEF OTL_HaveCmpx16b}
   Reference := TThread.CurrentThread.ThreadID + 1;              //Reference.bit0 := 1
