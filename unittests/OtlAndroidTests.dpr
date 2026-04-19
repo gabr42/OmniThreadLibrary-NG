@@ -3,6 +3,9 @@ program OtlAndroidTests;
 uses
   System.StartUpCopy,
   FMX.Forms
+  , FMX.Types
+  , System.SysUtils
+  , Androidapi.Log
   , DUnitX.TestFramework
   , TestOtlBase in 'TestOtlBase.pas'
   , SmokeTest in 'SmokeTest.pas'
