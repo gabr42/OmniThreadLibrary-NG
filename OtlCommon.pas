@@ -4739,7 +4739,7 @@ begin
 end; { TOmniGroupAffinity.GetAffinity }
 
 initialization
-  Assert(SizeOf(TObject) = {$IFDEF CPUX64}SizeOf(NativeUInt){$ELSE}SizeOf(cardinal){$ENDIF}); //in VarToObj
+  Assert(SizeOf(TObject) = SizeOf(pointer)); //in VarToObj
   OtlUID.Value := 0;
   GEnvironment := TOmniEnvironment.Create;
   FillChar(TOmniValue_DataSize, SizeOf(TOmniValue_DataSize), 0);

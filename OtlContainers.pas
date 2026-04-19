@@ -312,9 +312,9 @@ type
     Value   : TOmniValue;    //aligned for faster data access; overlaps with header's unreleased slot count, which must be pointer-aligned
     Tag     : TOmniQueueTag;
     Offset  : word;
-    {$IFDEF CPUX64}
+    {$IFDEF CPU64BITS}
     Stuffing: array[1..4] of byte; // make TOmniTaggedValue 3 pointers big
-    {$ENDIF CPUX64}
+    {$ENDIF CPU64BITS}
     function CASTag(oldTag, newTag: TOmniQueueTag): boolean; inline;            // atomic on Windows, composite on other platforms
   end; { TOmniTaggedValue }
   POmniTaggedValue = ^TOmniTaggedValue;
@@ -322,11 +322,11 @@ type
   TOmniTaggedPointer = packed record
     Slot    : POmniTaggedValue;
     Tag     : TOmniQueueTag;
-    {$IFNDEF CPUX64}
+    {$IFNDEF CPU64BITS}
     Stuffing: array [1..3] of byte; // record size must be congruent to 0 (mod 4)
-    {$ELSE CPUX64}
+    {$ELSE CPU64BITS}
     Stuffing: array [1..7] of byte; // record size must be congruent to 0 (mod 8)
-    {$ENDIF CPUX64}
+    {$ENDIF CPU64BITS}
     function  CAS(
       oldSlot: POmniTaggedValue; oldTag: TOmniQueueTag;
       newSlot: POmniTaggedValue; newTag: TOmniQueueTag): boolean; inline;       // atomic on Windows, composite on other platforms
@@ -1896,7 +1896,7 @@ end; { TOmniValueQueueCS.LeaveCriticalSection }
 
 initialization
   Assert(SizeOf(pointer) = SizeOf(NativeInt));
-  Assert(SizeOf(TOmniTaggedValue) = {$IFDEF CPUX64}3{$ELSE}4{$ENDIF}*SizeOf(pointer));
+  Assert(SizeOf(TOmniTaggedValue) = {$IFDEF CPU64BITS}3{$ELSE}4{$ENDIF}*SizeOf(pointer));
   Assert(SizeOf(TOmniTaggedPointer) = 2*SizeOf(pointer));
   {$IFDEF OTL_HaveCmpx16b}
   InitializeTimingInfo;

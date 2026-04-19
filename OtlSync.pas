@@ -3037,12 +3037,15 @@ initialization
   GOmniCancellationToken := CreateOmniCancellationToken;
   GOmniCSInitializer := TOmniCriticalSection.Create;
   {$IFDEF CPUX64}
-  CASAlignment := 16;
-  Assert(SizeOf(NativeInt) = SizeOf(int64)); //assumption in TInterlockedEx.Add
+  CASAlignment := 16; // cmpxchg16b requires 16-byte alignment
   {$ELSE}
   CASAlignment := 8;
-  Assert(SizeOf(NativeInt) = SizeOf(integer)); //assumption in TInterlockedEx.Add
   {$ENDIF CPUX64}
+  {$IFDEF CPU64BITS}
+  Assert(SizeOf(NativeInt) = SizeOf(int64)); //assumption in TInterlockedEx.Add
+  {$ELSE}
+  Assert(SizeOf(NativeInt) = SizeOf(integer)); //assumption in TInterlockedEx.Add
+  {$ENDIF CPU64BITS}
 finalization
   FreeAndNil(GOmniCSInitializer);
 end.
