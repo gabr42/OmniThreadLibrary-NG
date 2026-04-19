@@ -9,7 +9,7 @@ differences between OmniThreadLibrary v3.07.x (Windows-only) and OTL NG
 | Aspect | OTL v3 | OTL NG |
 |--------|--------|--------|
 | Minimum Delphi | 2007 | **Delphi 11 Alexandria** |
-| Platforms | Win32, Win64 | Win32, Win64, Linux64, macOS, iOS, Android |
+| Platforms | Win32, Win64 | Win32, Win64 (full), Linux64 (near-full, 3 POSIX-specific skips); WinARM64/macOS/iOS/Android targeted but unverified |
 | Test framework | DUnit | DUnitX |
 | External dependencies | GpLists, GpStringHash, DSiWin32 | **None** (all inlined or replaced with RTL) |
 
@@ -27,6 +27,9 @@ differences between OmniThreadLibrary v3.07.x (Windows-only) and OTL NG
 6. Update package references to Delphi 11+ runtime package only
 7. If owning OTL tasks from a plain `TThread`, add explicit `ProcessMessages` or
    `WaitForMessage` calls (see [Plain TThread Owners](#plain-tthread-owners))
+8. On POSIX, stop relying on `Terminate(timeout)` to hard-kill stuck tasks —
+   the timeout is advisory there (see
+   [POSIX Has No Safe Force-Kill](#posix-has-no-safe-force-kill))
 
 ---
 
@@ -244,6 +247,17 @@ The task loop no longer processes Windows messages. If your `TOmniWorker` relied
 on receiving `WM_*` messages inside the task thread, that no longer works. Use
 OTL's own messaging (`task.Comm.Send`) instead.
 
+### Unobserved Task Lifetime
+
+The `Unobserved` pattern (a task whose owner doesn't monitor its
+termination) was reimplemented in OTL NG. In v3, `Unobserved` used
+`CreateInternalMonitor` + `ForceQueue` to keep the task alive and dispatch its
+termination callback. In NG it holds a self-reference in the shared info and
+uses a dedicated cleanup thread — the external API is unchanged, but the
+previous deadlock where a main-thread owner dropped the task reference during
+shutdown is gone. No code changes required; existing `Unobserved` call sites
+work as-is and are now safer.
+
 ### Plain TThread Owners
 
 In OTL v3, if you created and owned an OTL task from a background thread, Windows
@@ -288,6 +302,37 @@ to the main thread's message loop.
 The pool now relies on `owtWorkItemLock` for safe work item stealing.
 `TerminateThread` is still used on Windows as a last resort for stuck threads.
 On POSIX, only cooperative termination (flag-based) is available.
+
+### POSIX Has No Safe Force-Kill
+
+On Windows, `IOmniParallelJoin.Terminate(timeout_ms)` and
+`IOmniTaskControl.Terminate(maxWait_ms)` hard-kill stuck tasks via
+`TerminateThread` once the timeout elapses. **On POSIX, this hard-kill path is a
+no-op** — `FreeAndNil` simply `pthread_join`s until the thread exits on its own.
+
+`pthread_cancel` is not a viable substitute: glibc's forced-unwind pseudo-
+exception is absorbed by OTL's outer `except on E: Exception` handler in
+`TOTPWorkerThread.Execute` without being re-raised, which leaves cancellation
+incomplete and makes `pthread_join` block forever.
+
+**User impact on POSIX:**
+- `Terminate(timeout)` on a task that refuses to cooperate will wait until the
+  task finishes (or forever). The timeout is advisory.
+- Design tasks to check `task.CancellationToken` / `task.Stopped` at regular
+  intervals and never rely on force-termination as a functional mechanism.
+
+The three `TestJoin.TestTermination*` tests that exercise force-kill behavior
+are `[Ignore]`d on non-Windows for this reason.
+
+### Lock-Free Containers on Non-x86/Non-Windows
+
+`OtlContainers.pas` lock-free queue/stack rely on 128-bit compare-and-swap. On
+Windows x64, this uses `InterlockedCompareExchange128` (CMPXCHG16B). On POSIX
+and non-x86 targets, the implementation falls back to a global spinlock-
+protected critical section. **Semantics are preserved** (the container is still
+thread-safe and presents the same API), but throughput under contention is
+lower than on Windows x64. If your design assumed wait-free progress, re-profile
+on the new target.
 
 ---
 

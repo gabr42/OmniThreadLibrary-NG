@@ -31,9 +31,15 @@ type
   [TestFixture]
   TestJoin = class(TOtlTestBase)
   public
-    [Test] procedure TestTerminationAllStuck;
-    [Test] procedure TestTerminationPartialStuck;
-    [Test] procedure TestTerminationAllTerminated;
+    [Test]
+    {$IFNDEF MSWINDOWS}[Ignore('POSIX has no safe force-kill: pthread_cancel forced-unwind is absorbed by OTL outer except-handlers, so pthread_join deadlocks')]{$ENDIF}
+    procedure TestTerminationAllStuck;
+    [Test]
+    {$IFNDEF MSWINDOWS}[Ignore('POSIX has no safe force-kill: pthread_cancel forced-unwind is absorbed by OTL outer except-handlers, so pthread_join deadlocks')]{$ENDIF}
+    procedure TestTerminationPartialStuck;
+    [Test]
+    {$IFNDEF MSWINDOWS}[Ignore('POSIX has no safe force-kill: pthread_cancel forced-unwind is absorbed by OTL outer except-handlers, so pthread_join deadlocks')]{$ENDIF}
+    procedure TestTerminationAllTerminated;
     [Test] procedure TestNoWaitWithoutWaitForRaises;
   end;
 

@@ -196,7 +196,7 @@ interface
 uses
   {$IFDEF MSWINDOWS}
   Winapi.Windows,
-  {$ENDIF ~MSWINDOWS}
+  {$ENDIF MSWINDOWS}
   System.Contnrs,
   System.Classes,
   System.SysUtils,
@@ -1026,7 +1026,11 @@ begin
         {$IFDEF MSWINDOWS}
         TerminateThread(worker.Handle, cardinal(-1));
         {$ELSE}
-        worker.Terminate;
+        // No POSIX equivalent. pthread_cancel deadlocks because the worker's
+        // outer `except on E: Exception` absorbs the forced-unwind pseudo-
+        // exception without re-raising, so cancellation never completes and
+        // pthread_join blocks forever. Fall through to FreeAndNil, which will
+        // pthread_join until the thread exits on its own (or forever).
         {$ENDIF ~MSWINDOWS}
         ForwardThreadDestroying(worker.threadID, tpoKillThread, worker);
         FreeAndNil(worker);

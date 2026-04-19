@@ -3504,8 +3504,9 @@ begin
       {$IFDEF MSWINDOWS}
       TerminateThread(otcThread.Handle, cardinal(-1));
       {$ELSE}
-      otcThread.Terminate;
-      // TODO 1 -oPrimoz Gabrijelcic : Kill thread Posix way?
+      // No POSIX equivalent. pthread_cancel deadlocks because OTL's outer
+      // except-handlers absorb the forced-unwind without re-raising, so
+      // pthread_join blocks forever. Fall through to FreeAndNil instead.
       {$ENDIF MSWINDOWS}
       FreeAndNil(otcThread);
     end

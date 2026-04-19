@@ -7,7 +7,6 @@
 - DUnitX test runner: `unittests/ConsoleTestRunner.dpr`
 - Compilation smoke test (all units): `unittests/CompileAllUnits.dpr`
 - FastMM4 is a git submodule in `FastMM4/`
-- GpDelphiUnits is a git submodule in `GpDelphiUnits/`
 - Platform-specific options are in `OtlOptions.inc`
 
 ## Compiling and running unit tests
@@ -18,7 +17,7 @@ All commands run from the `unittests/` directory. Replace `dcc32` with `dcc64` f
 
 ```bash
 cd unittests
-"C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\dcc32.exe" ConsoleTestRunner.dpr -B "-U..;../FastMM4;../GpDelphiUnits/src" "-NSSystem;System.Win;Winapi;Vcl" -DDEBUG -E"./Win32/Debug" -NU"./Win32/Debug"
+"C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\dcc32.exe" ConsoleTestRunner.dpr -B "-U..;../FastMM4" "-NSSystem;System.Win;Winapi;Vcl" -DDEBUG -E"./Win32/Debug" -NU"./Win32/Debug"
 ./Win32/Debug/ConsoleTestRunner.exe
 ```
 
@@ -42,7 +41,7 @@ cd unittests
 
 ```bash
 cd unittests
-"C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\dcclinux64.exe" ConsoleTestRunner.dpr -B "-U..;../FastMM4;../GpDelphiUnits/src" "-NSSystem;Data;Xml" -DDEBUG -CC -E"./Linux64/Debug" -NU"./Linux64/Debug"
+"C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\dcclinux64.exe" ConsoleTestRunner.dpr -B "-U..;../FastMM4" "-NSSystem;Data;Xml" -DDEBUG -CC -E"./Linux64/Debug" -NU"./Linux64/Debug"
 ```
 
 **Status: does not compile yet.** `OtlSync.pas` has several issues:
@@ -63,7 +62,7 @@ Replace `ConsoleTestRunner` with `CompileAllUnits` in the commands above. This p
 - The `-NS` and `-U` arguments must be quoted in bash because they contain semicolons.
 - Delphi 13 outputs to `unittests/Win32/Debug/` or `unittests/Win64/Debug/`. Delphi 11/12 output to `unittests/` (current directory).
 - Delphi 11/12 use custom installations on `E:\Delphi\` and reference FastMM4 at `../../fastmm4` and TestInsight at `x:/common/testinsight`.
-- Delphi 13 uses the standard Program Files installation and references `../GpDelphiUnits/src` (git submodule).
+- Delphi 13 uses the standard Program Files installation.
 - Linux64 cross-compilation: drop `System.Win`, `Winapi`, `Vcl.*` from `-NS`; keep `System;Data;Xml`. Add `-CC` for console target.
 - Linux64 cross-compilation is only available with Delphi 13.1. Delphi 11/12 custom installations at `E:\Delphi\` are missing the Linux RTL libraries.
 

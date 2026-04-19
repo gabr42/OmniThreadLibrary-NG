@@ -70,6 +70,7 @@ bag of stuff/numa/Win64/Debug/procinfo.dat
 
 unittests/Linux64/
 unittests/WinArm64EC/
+unittests/Android64/
 
 tests/62_Console/Linux64/Debug/
 

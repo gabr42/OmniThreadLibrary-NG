@@ -28,13 +28,13 @@ uses
   OtlCommon,
   OtlSync;
 
+{ TSmokeTest }
+
+{$IFDEF MSWindows}
 type
   TDSiWParam = WPARAM;
   TDSiLParam = LPARAM;
 
-{ TSmokeTest }
-
-{$IFDEF MSWindows}
 procedure TSmokeTest.TestDSiClassWndProcParamSize;
 begin
   {$IFDEF CPUX64}

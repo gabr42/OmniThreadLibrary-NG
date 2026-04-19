@@ -1,21 +1,9 @@
-program ConsoleTestRunner;
-
-{$IFNDEF TESTINSIGHT}
-{$APPTYPE CONSOLE}
-{$ENDIF}
-{$STRONGLINKTYPES ON}
-
-{$DEFINE CONSOLE_TESTRUNNER}
+program OtlAndroidTests;
 
 uses
-  System.SysUtils,
-  {$IFDEF TESTINSIGHT}
-  TestInsight.DUnitX,
-  {$ELSE}
-  DUnitX.Loggers.Console,
-  DUnitX.AutoDetect.Console,
-  {$ENDIF }
-  DUnitX.TestFramework
+  System.StartUpCopy,
+  FMX.Forms
+  , DUnitX.TestFramework
   , TestOtlBase in 'TestOtlBase.pas'
   , SmokeTest in 'SmokeTest.pas'
   , TestRegressions in 'TestRegressions.pas'
@@ -40,36 +28,12 @@ uses
   , TestTask in 'TestTask.pas'
   , TestOtlParallel in 'TestOtlParallel.pas'
   , TestUnobserved in 'TestUnobserved.pas'
-  ;
+  , DUNitX.Loggers.MobileGUI in 'DUNitX.Loggers.MobileGUI.pas' {MobileGUITestRunner};
 
-{$IFNDEF TESTINSIGHT}
-var
-  runner : ITestRunner;
-  results: IRunResults;
-  logger : ITestLogger;
-{$ENDIF}
+{$R *.res}
+
 begin
-{$IFDEF TESTINSIGHT}
-  TestInsight.DUnitX.RunRegisteredTests;
-{$ELSE}
-  try
-    TDUnitX.CheckCommandLine;
-    runner := TDUnitX.CreateRunner;
-    runner.UseRTTI := True;
-    logger := TDUnitXConsoleLogger.Create(false);
-    runner.AddLogger(logger);
-    results := runner.Execute;
-    if not results.AllPassed then
-      System.ExitCode := EXIT_ERRORS;
-    {$WARN SYMBOL_PLATFORM OFF}
-    if DebugHook <> 0 then begin
-      Write('> ');
-      Readln;
-    end;
-    {$WARN SYMBOL_PLATFORM ON}
-  except
-    on E: Exception do
-      System.Writeln(E.ClassName, ': ', E.Message);
-  end;
-{$ENDIF}
+  Application.Initialize;
+  Application.CreateForm(TMobileGUITestRunner, MobileGUITestRunner);
+  Application.Run;
 end.
