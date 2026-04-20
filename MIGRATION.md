@@ -30,6 +30,10 @@ differences between OmniThreadLibrary v3.07.x (Windows-only) and OTL NG
 8. On POSIX, stop relying on `Terminate(timeout)` to hard-kill stuck tasks —
    the timeout is advisory there (see
    [POSIX Has No Safe Force-Kill](#posix-has-no-safe-force-kill))
+9. If you attach `TOmniEventMonitor` to an `IOmniThreadPool` with
+   `pool.MonitorWith(monitor)`, note that pool-level events
+   (`OnPoolThreadCreated`, `OnPoolWorkItemCompleted`, …) are Windows-only
+   (see [Thread Pool Monitor is Windows-only](#thread-pool-monitor-is-windows-only))
 
 ---
 
@@ -324,6 +328,32 @@ incomplete and makes `pthread_join` block forever.
 The three `TestJoin.TestTermination*` tests that exercise force-kill behavior
 are `[Ignore]`d on non-Windows for this reason.
 
+### Thread Pool Monitor is Windows-only
+
+`TOmniThreadPool.MonitorWith(monitor)` is a no-op on Linux64 and Android64.
+The call site in `OtlThreadPool.pas` is guarded by `{$IFDEF MSWINDOWS}`, so
+the pool manager never installs its monitor observer on non-Windows targets
+and **no pool-level events fire**:
+
+- `OnPoolThreadCreated`
+- `OnPoolThreadDestroying`
+- `OnPoolThreadKilled`
+- `OnPoolWorkItemCompleted`
+
+Task-level events on the same `TOmniEventMonitor` (`OnTaskMessage`,
+`OnTaskTerminated`, `OnTaskUndeliveredMessage`) *do* work cross-platform —
+only the pool-observation hook is Windows-only.
+
+**User impact on POSIX:**
+- Code that passively observes pool lifecycle via `OnPoolWorkItemCompleted`
+  will appear to work (no error, no warning) but never receive callbacks.
+  If you use that signal to trigger follow-up work, replace it with an
+  explicit `OnTaskTerminated` on each scheduled task, or check task
+  completion via `task.WaitFor` / `task.Stopped`.
+
+`TestOtlEventMonitor1.TestMonitorPoolWorkItemCompleted` is runtime-skipped
+(`Assert.Pass`) on non-Windows for this reason.
+
 ### Lock-Free Containers on Non-x86/Non-Windows
 
 `OtlContainers.pas` lock-free queue/stack rely on 128-bit compare-and-swap. On
@@ -504,4 +534,4 @@ begin
 | `OtlDataManager.pas` | Unified waiting with `TWaitFor` |
 | `OtlBackgroundObserver.pas` | **New** — cross-platform APC/CV observer |
 | `OtlOptions.inc` | Removed pre-Delphi 11 conditionals |
-| `OtlEventMonitor.pas` | Removed unused DSiWin32 |
+| `OtlEventMonitor.pas` | Removed unused DSiWin32; pool-level callbacks remain Windows-only (task-level callbacks are cross-platform) |

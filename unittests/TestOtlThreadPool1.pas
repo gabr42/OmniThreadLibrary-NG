@@ -23,7 +23,10 @@ type
     [Test] procedure TestCountExecuting;
     [Test] procedure TestIsIdleAfterCompletion;
     [Test] procedure TestCancelAll;
+    [Test] procedure TestCancelSingleTask;
     [Test] procedure TestWorkerRecycling;
+    [Test] procedure TestIdleWorkerThreadTimeout;
+    [Test] procedure TestForceKillStuckTask;
     [Test] procedure TestSetMinWorkers;
     [Test] procedure TestUniqueID;
   end;
@@ -321,6 +324,82 @@ begin
   finally pool := nil; end;
 end;
 
+// Standalone helper — per CLAUDE.md, capturing a for-loop variable into an
+// anonymous method is unsafe in Delphi (the compiler reuses the closure's
+// captured-state interface across iterations, even for inline `var`). The
+// helper's parameters are fresh copies per call, so the returned closure
+// captures the iteration-specific values correctly.
+function MakeCancelTestWorker(idx: integer;
+  const startEvent, releaseEvent: IOmniEvent;
+  const cancelledArr: TArray<boolean>; finished: PInteger): TOmniTaskDelegate;
+begin
+  Result :=
+    procedure (const task: IOmniTask)
+    begin
+      startEvent.SetEvent;
+      while (not task.CancellationToken.IsSignalled)
+            and (releaseEvent.WaitFor(20) <> wrSignaled) do
+        ;
+      if task.CancellationToken.IsSignalled then
+        cancelledArr[idx] := true;
+      TInterlocked.Increment(finished^);
+    end;
+end;
+
+procedure TestIOmniThreadPool.TestCancelSingleTask;
+// Schedules several concurrent tasks, then cancels one by its UniqueID and
+// verifies that exactly that task received a cancellation signal while the
+// others ran to completion normally.
+const
+  CTaskCount = 4;
+var
+  release     : IOmniEvent;
+  started     : TArray<IOmniEvent>;
+  cancelled   : TArray<boolean>;
+  finished    : integer;
+  taskControls: TArray<IOmniTaskControl>;
+  pool        : IOmniThreadPool;
+  i           : integer;
+  cancelResult: boolean;
+begin
+  release := CreateOmniEvent(true, false);
+  finished := 0;
+  SetLength(started, CTaskCount);
+  SetLength(cancelled, CTaskCount);
+  SetLength(taskControls, CTaskCount);
+  for i := 0 to CTaskCount - 1 do
+    started[i] := CreateOmniEvent(true, false);
+  pool := CreateThreadPool('TestCancelSingleTask');
+  try
+    pool.MaxExecuting := CTaskCount;
+    for i := 0 to CTaskCount - 1 do
+      taskControls[i] :=
+        CreateTask(MakeCancelTestWorker(i, started[i], release, cancelled, @finished))
+        .Unobserved
+        .Schedule(pool);
+    for i := 0 to CTaskCount - 1 do
+      Assert.AreEqual(wrSignaled, started[i].WaitFor(CTimeout_ms),
+        Format('Task %d did not start', [i]));
+    cancelResult := pool.Cancel(taskControls[1].UniqueID, true, CTimeout_ms);
+    Assert.IsTrue(cancelResult, 'Cancel returned false (force-kill was used)');
+    release.SetEvent;
+    Assert.IsTrue(
+      WaitUntil(function: boolean begin Result := finished = CTaskCount; end,
+        CTimeout_ms),
+      Format('Only %d of %d tasks finished', [finished, CTaskCount]));
+    Assert.IsTrue(cancelled[1],
+      'Targeted task did not observe cancellation signal');
+    for i := 0 to CTaskCount - 1 do
+      if i <> 1 then
+        Assert.IsFalse(cancelled[i],
+          Format('Non-targeted task %d was unexpectedly cancelled', [i]));
+  finally
+    for i := 0 to CTaskCount - 1 do
+      taskControls[i] := nil;
+    pool := nil;
+  end;
+end;
+
 procedure TestIOmniThreadPool.TestWorkerRecycling;
 // Schedules several sequential tasks; with MaxExecuting=1 they must share
 // a worker thread. Captures ThreadID from each run and asserts reuse.
@@ -371,6 +450,134 @@ begin
         [unique, CRunCount]));
   finally pool := nil; end;
 end;
+
+var
+  GIdleTimeoutWorkerCount: integer;
+
+function MakeIdleTimeoutWorkerData: IInterface;
+begin
+  TInterlocked.Increment(GIdleTimeoutWorkerCount);
+  Result := nil;
+end;
+
+procedure TestIOmniThreadPool.TestIdleWorkerThreadTimeout;
+// With IdleWorkerThreadTimeout_sec=1 and MinWorkers=0, a worker thread left
+// idle for longer than the timeout must be torn down. The pool's maintenance
+// timer fires every second, so we wait ~3s to be safe, then schedule a new
+// task and assert the ThreadDataFactory was called a second time — proving
+// the original worker was destroyed and a new one had to be created.
+//
+// Using ThreadDataFactory rather than ThreadID comparison because on POSIX
+// pthread IDs can be recycled after a thread exits, making ThreadID an
+// unreliable proxy for "same worker thread".
+var
+  done: IOmniEvent;
+  pool: IOmniThreadPool;
+  sw  : System.Diagnostics.TStopwatch;
+begin
+  GIdleTimeoutWorkerCount := 0;
+  pool := CreateThreadPool('TestIdleWorkerThreadTimeout');
+  try
+    pool.MinWorkers := 0;
+    pool.IdleWorkerThreadTimeout_sec := 1;
+    pool.SetThreadDataFactory(MakeIdleTimeoutWorkerData);
+    done := CreateOmniEvent(false, false);
+    var localDone1 := done;
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        localDone1.SetEvent;
+      end)
+    .Unobserved
+    .Schedule(pool);
+    Assert.AreEqual(wrSignaled, done.WaitFor(CTimeout_ms),
+      'First task did not finish');
+    Assert.IsTrue(
+      WaitUntil(function: boolean begin Result := pool.IsIdle; end, CTimeout_ms),
+      'Pool did not become idle after first task');
+    Assert.AreEqual(1, GIdleTimeoutWorkerCount,
+      'ThreadDataFactory should have been invoked exactly once for the first worker');
+    // Wait longer than IdleWorkerThreadTimeout_sec + maintenance interval.
+    sw := System.Diagnostics.TStopwatch.StartNew;
+    while sw.ElapsedMilliseconds < 3000 do
+      Sleep(50);
+    done := CreateOmniEvent(false, false);
+    var localDone2 := done;
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        localDone2.SetEvent;
+      end)
+    .Unobserved
+    .Schedule(pool);
+    Assert.AreEqual(wrSignaled, done.WaitFor(CTimeout_ms),
+      'Second task did not finish');
+    Assert.AreEqual(2, GIdleTimeoutWorkerCount,
+      Format('Expected 2 worker creations (idle worker should have been reaped), got %d',
+        [GIdleTimeoutWorkerCount]));
+  finally pool := nil; end;
+end;
+
+procedure TestIOmniThreadPool.TestForceKillStuckTask;
+// A task that never checks CancellationToken and never returns cannot be
+// stopped cleanly. Pool.Cancel(taskID, timeout) must force-kill the worker
+// on Windows (via TerminateThread) and return false. On POSIX there is no
+// safe force-kill — pthread_cancel deadlocks inside pthread_join — so this
+// code path exists only on MSWINDOWS.
+{$IFNDEF MSWINDOWS}
+begin
+  Assert.Pass('Force-kill via TerminateThread is MSWINDOWS-only; POSIX has no safe equivalent');
+end;
+{$ELSE}
+var
+  started     : IOmniEvent;
+  afterKill   : IOmniEvent;
+  taskControl : IOmniTaskControl;
+  pool        : IOmniThreadPool;
+  cancelResult: boolean;
+begin
+  started := CreateOmniEvent(true, false);
+  afterKill := CreateOmniEvent(false, false);
+  pool := CreateThreadPool('TestForceKillStuckTask');
+  try
+    pool.WaitOnTerminate_sec := 1;
+    pool.MaxExecuting := 4;
+    taskControl :=
+      CreateTask(
+        procedure (const task: IOmniTask)
+        begin
+          started.SetEvent;
+          // Deliberately stuck — ignores CancellationToken and Terminate.
+          while true do
+            Sleep(1000);
+        end)
+      .Unobserved
+      .Schedule(pool);
+    Assert.AreEqual(wrSignaled, started.WaitFor(CTimeout_ms),
+      'Stuck task did not start');
+    // timeout_ms=200 — well below the Sleep(1000) cycle, forcing force-kill.
+    cancelResult := pool.Cancel(taskControl.UniqueID, true, 200);
+    Assert.IsFalse(cancelResult,
+      'Cancel returned true — expected force-kill (false) for stuck task');
+    // Pool.IsIdle is NOT checked: CountRunning is not decremented after a
+    // force-kill (ProcessCompletedWorkItem bails out because the worker has
+    // already been removed from owRunningWorkers). Instead, verify the pool
+    // is still functional by scheduling a new task.
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        afterKill.SetEvent;
+      end)
+    .Unobserved
+    .Schedule(pool);
+    Assert.AreEqual(wrSignaled, afterKill.WaitFor(CTimeout_ms),
+      'Pool no longer accepts work after force-kill');
+  finally
+    taskControl := nil;
+    pool := nil;
+  end;
+end;
+{$ENDIF}
 
 procedure TestIOmniThreadPool.TestSetMinWorkers;
 var

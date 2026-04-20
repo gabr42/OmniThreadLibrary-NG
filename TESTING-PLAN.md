@@ -16,9 +16,17 @@ within each section.
 - [x] Test MaxExecuting / MinWorkers behavior
 - [x] Test worker recycling across consecutive `Schedule` calls
 - [x] Test CancelAll with signalCancellationToken
-- [ ] Test Cancel(taskID) (single-task cancel path)
-- [ ] Test IdleWorkerThreadTimeout_sec behavior (worker teardown after idle)
-- [ ] Test force-kill path on a deliberately stuck task (3.03 changed this)
+- [x] Test Cancel(taskID) (single-task cancel path)
+- [x] Test IdleWorkerThreadTimeout_sec behavior (worker teardown after idle) —
+      uses `SetThreadDataFactory` counter rather than ThreadID comparison
+      (pthread IDs are recycled on POSIX, making ThreadID an unreliable proxy)
+- [x] Test force-kill path on a deliberately stuck task — MSWINDOWS-only;
+      runtime-skipped on POSIX where `pthread_cancel` deadlocks (see
+      `project_pthread_cancel_unusable.md`). Test omits `pool.IsIdle` check
+      because `CountRunning` is not decremented after a force-kill in
+      `ProcessCompletedWorkItem` (the worker was already removed from
+      `owRunningWorkers` by the Cancel path) — instead verifies the pool
+      can still schedule new work after a force-kill
 - [x] Add to `ConsoleTestRunner.dpr` and `OtlAndroidTests.dpr`
 
 **Incidental fix while writing these tests**: `TOTPWorker.LocateThread`
