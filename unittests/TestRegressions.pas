@@ -16,6 +16,8 @@ type
     procedure TestWaitForGateLeakRace;
     [Test]
     procedure TestTOmniValueUInt64HighBitRoundTrip;
+    [Test]
+    procedure TestPipelineClosureCapturePerStage;
   end;
 
 implementation
@@ -23,7 +25,7 @@ implementation
 uses
   System.Classes, System.SysUtils, System.SyncObjs,
   System.Generics.Collections,
-  OtlCommon, OtlSync;
+  OtlCommon, OtlSync, OtlParallel, OtlCollections;
 
 procedure TestBugfixes.TestTOmniValueArrayInt64Cast;
 var
@@ -132,5 +134,123 @@ begin
 end;
 {$IFNDEF OTL_RANGECHECK_WAS_ON}{$R-}{$ENDIF}
 {$UNDEF OTL_RANGECHECK_WAS_ON}
+
+procedure TestBugfixes.TestPipelineClosureCapturePerStage;
+// Regression for commit 579be5f (OtlParallel.pas v3.02).
+//
+// TOmniPipeline.Run had two closure-capture-in-loop bugs:
+//
+//   1. `outQueue` was a Run()-scope variable that the worker closure
+//      captured by reference. The stage loop reassigned outQueue on
+//      every iteration (to the current stage's output queue, or to
+//      opOutput on the final iteration). By the time a worker
+//      actually executed its except-block, outQueue held its final
+//      value — always opOutput. A raising stage therefore routed its
+//      exception directly to opOutput, bypassing all intermediate
+//      stages' input queues.
+//
+//   2. `exc` was declared in Run()'s var block, above the closure, so
+//      all worker closures shared the same variable. Two stages
+//      raising concurrently would race on AcquireExceptionObject and
+//      clobber each other's Exception pointer.
+//
+// Fix: moved `exc` inside the worker closure, and passed the
+// per-stage outQueue through Task.Param['OutQueue'].
+//
+// Test design. The bug is observable only on stages that raise
+// uncaught — simple-stage delegates catch internally, so this test
+// uses TPipelineStageDelegate (input+output collections). Stage 1
+// raises on input=5. Stage 2 is decorated with HandleExceptions so
+// its input queue delivers exceptions as TOmniValue with
+// IsException=true, and it converts them to a marker. Pipeline-level
+// HandleExceptions prevents opOutput from re-raising so we can
+// inspect any stray Exception values directly.
+//
+// Stage 1's delegate has no internal try/except, so the raise aborts
+// its for-in loop after 4 successful outputs (x=1..4 → 2,4,6,8). The
+// worker's except-block then adds the caught Exception to its output.
+//
+// Post-fix: Exception lands in stage 1's output (=stage 2's input);
+// stage 2 sees it, frees it, emits one marker. Final opOutput: 4
+// transformed values + 1 marker, no raw exceptions.
+//
+// Pre-fix: Exception lands in opOutput directly, bypassing stage 2.
+// Stage 2 processes only 4 non-exception inputs. Final opOutput: 4
+// transformed integers + 1 raw Exception value — detectable via
+// IsException on TryTake results, with zero markers seen.
+const
+  CTimeout_ms   = 30000;
+  CExceptMarker: int64 = -1;
+var
+  pipeline         : IOmniPipeline;
+  i                : integer;
+  markerSeen       : integer;
+  exceptionsInOutput: integer;
+  nonMarkerSum     : int64;
+  valuesCount      : integer;
+  ov               : TOmniValue;
+begin
+  pipeline := Parallel.Pipeline
+    .HandleExceptions
+    .Stage(
+      procedure (const input, output: IOmniBlockingCollection)
+      var
+        value: TOmniValue;
+      begin
+        for value in input do begin
+          if value.AsInt64 = 5 then
+            raise Exception.Create('stage1-boom');
+          output.Add(value.AsInt64 * 2);
+        end;
+      end)
+    .Stage(
+      procedure (const input, output: IOmniBlockingCollection)
+      var
+        value: TOmniValue;
+      begin
+        for value in input do begin
+          if value.IsException then begin
+            value.AsException.Free;
+            output.Add(CExceptMarker);
+          end
+          else
+            output.Add(value.AsInt64 * 3);
+        end;
+      end)
+    .HandleExceptions
+    .Run;
+
+  for i := 1 to 10 do
+    pipeline.Input.Add(int64(i));
+  pipeline.Input.CompleteAdding;
+
+  Assert.IsTrue(pipeline.WaitFor(CTimeout_ms),
+    'Pipeline did not complete within timeout');
+
+  markerSeen := 0;
+  exceptionsInOutput := 0;
+  nonMarkerSum := 0;
+  valuesCount := 0;
+  while pipeline.Output.TryTake(ov) do begin
+    Inc(valuesCount);
+    if ov.IsException then begin
+      ov.AsException.Free;
+      Inc(exceptionsInOutput);
+    end
+    else if ov.AsInt64 = CExceptMarker then
+      Inc(markerSeen)
+    else
+      Inc(nonMarkerSum, ov.AsInt64);
+  end;
+
+  Assert.AreEqual(0, exceptionsInOutput,
+    'Raw Exception reached opOutput — stage 1 bypassed stage 2 (outQueue closure-capture regression)');
+  Assert.AreEqual(1, markerSeen,
+    'Stage 2 did not observe stage 1''s exception via its input queue');
+  Assert.AreEqual(5, valuesCount,
+    'Pipeline output count wrong (expected 4 transformed values + 1 marker)');
+  Assert.AreEqual(int64(6+12+18+24), nonMarkerSum,
+    'Pipeline non-exception values did not transform through both stages');
+end;
 
 end.

@@ -101,9 +101,21 @@ while the limitation is documented.
         TestOtlParallel, TestBackgroundObserver1, TestUnobserved, etc.)
         is an end-to-end regression of the actual buggy code path on
         ARM64. Android64 currently at 268 passed + 3 ignored
-- [ ] **Pipeline closure capture** (3.02) — multi-stage pipeline that
-      propagates stage exceptions and asserts each stage's captured
-      state is independent
+- [x] **Pipeline closure capture** (3.02, commit 579be5f) —
+      `TestRegressions.TestBugfixes.TestPipelineClosureCapturePerStage`.
+      Two-stage pipeline where stage 1 raises on a specific input.
+      Pre-fix, the worker's except-block captured the function-scope
+      `outQueue` by reference, which the stage loop reassigned every
+      iteration — so exceptions were routed to opOutput (the last
+      assigned value), bypassing all intermediate stages. The fix
+      passes the per-stage outQueue via `Task.Param['OutQueue']`.
+      Test uses `TPipelineStageDelegate` (not simple-stage, whose
+      internal try/except would mask the bug) and decorates stage 2
+      with `HandleExceptions` so stage 2 sees exceptions as
+      `TOmniValue` with `IsException=true`. Asserts: (a) no raw
+      Exception reaches opOutput, (b) stage 2 observes exactly one
+      exception marker, (c) non-exception values transform through
+      both stages
 - [ ] **OtlParallel.Select missed-wakeup** (3.02) — high-contention
       send/receive loop, assert no deadlock after 1M iterations
 - [ ] **TOmniValue container leak on exception** (3.01) — force
