@@ -83,10 +83,8 @@ type
     procedure TestCSParallel;
     [Test]
     procedure TestCSLock;
-    {$IFDEF MSWindows}
     [Test]
     procedure TestResourceCountBasic;
-    {$ENDIF}
     [Test]
     procedure TestOptimisticInitialization;
     [Test]
@@ -786,7 +784,6 @@ begin
   FreeAndNil(FSync);
 end;
 
-{$IFDEF MSWindows}
 procedure TestOtlSync.TestResourceCountBasic;
 var
   i   : integer;
@@ -805,7 +802,6 @@ begin
 
   Assert.AreEqual<cardinal>(3, FResourceCount.Allocate);
 end;
-{$ENDIF}
 
 { TSingleton }
 
