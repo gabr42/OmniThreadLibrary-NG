@@ -169,7 +169,25 @@ while the limitation is documented.
       from `Initialize` and an `Invoke`-callable method. Counter
       updates use `TInterlocked`; poll helper `WaitForCountAtLeast`
       avoids CheckSynchronize dependence
-- [ ] Exception-in-worker propagation via `FatalException`
+- [x] Exception-in-worker propagation via `FatalException` — four
+      tests in `TestTask.TestITaskControl`:
+      `TestFatalExceptionFromAnonymousTask` (etProcedure raises →
+      `task.FatalException` exposes the same class + message),
+      `TestFatalExceptionFromWorker` (etWorker message handler raises
+      → exception propagates out of DispatchMessages, caught by
+      `TOmniTask.Execute`),
+      `TestDetachExceptionTransfersOwnership` (DetachException returns
+      the Exception and nils the executor's store; caller frees it;
+      FatalException is nil afterwards — relies on FastMM4 per-run
+      leak tracking), and
+      `TestNoExceptionMeansNilFatalException` (normal termination
+      leaves FatalException nil). Uses a local `EWorkerTestException`
+      class so assertion can match on exact type.
+      Note: TRaisingWorker needs an explicit `constructor Create`
+      (delegating to `inherited`) — calling
+      `TRaisingWorker.Create` directly on a TOmniWorker subclass
+      with no declared constructor triggers `E2250` on the
+      `CreateTask(const worker: IOmniWorker; ...)` overload
 - [ ] `Invoke` with varying argument counts / types
 - [ ] Group affinity / `SetProcessorGroupAffinity` paths
 

@@ -25,6 +25,10 @@ type
     [Test] procedure TestRegisterCommDispatchesMessages;
     [Test] procedure TestUnregisterCommStopsDispatch;
     [Test] procedure TestMultipleAdditionalComms;
+    [Test] procedure TestFatalExceptionFromAnonymousTask;
+    [Test] procedure TestFatalExceptionFromWorker;
+    [Test] procedure TestDetachExceptionTransfersOwnership;
+    [Test] procedure TestNoExceptionMeansNilFatalException;
   end;
 
 implementation
@@ -524,6 +528,121 @@ begin
       task := nil;
     end;
   finally FreeAndNil(counter); end;
+end;
+
+{ FatalException / DetachException coverage }
+
+const
+  MSG_RAISE = 3001;
+
+type
+  EWorkerTestException = class(Exception);
+
+  TRaisingWorker = class(TOmniWorker)
+  public
+    constructor Create;
+    procedure HandleRaise(var msg: TOmniMessage); message MSG_RAISE;
+  end;
+
+constructor TRaisingWorker.Create;
+begin
+  inherited Create;
+end;
+
+procedure TRaisingWorker.HandleRaise(var msg: TOmniMessage);
+begin
+  raise EWorkerTestException.Create('boom from worker message handler');
+end;
+
+procedure TestITaskControl.TestFatalExceptionFromAnonymousTask;
+const
+  CExceptionMsg = 'boom from anonymous task body';
+var
+  task: IOmniTaskControl;
+begin
+  task := CreateTask(
+    procedure (const tsk: IOmniTask)
+    begin
+      raise EWorkerTestException.Create(CExceptionMsg);
+    end, 'FatalException-anon').Run;
+  try
+    Assert.IsTrue(task.WaitFor(5000), 'Task did not terminate');
+    Assert.IsNotNull(task.FatalException,
+      'FatalException must be set after task raises');
+    Assert.IsTrue(task.FatalException is EWorkerTestException,
+      Format('FatalException class mismatch — got %s',
+        [task.FatalException.ClassName]));
+    Assert.AreEqual(CExceptionMsg, task.FatalException.Message,
+      'FatalException message mismatch');
+  finally task := nil; end;
+end;
+
+procedure TestITaskControl.TestFatalExceptionFromWorker;
+// TOmniWorker message handler raises — the exception must propagate
+// out of DispatchMessages, be caught by TOmniTask.Execute, and
+// surface as task.FatalException. Covers the etWorker executor path
+// (the anonymous-proc test above exercises etProcedure).
+var
+  task: IOmniTaskControl;
+begin
+  task := CreateTask(TRaisingWorker.Create, 'FatalException-worker').Run;
+  try
+    task.Comm.Send(MSG_RAISE, 0);
+    Assert.IsTrue(task.WaitFor(5000), 'Task did not terminate');
+    Assert.IsNotNull(task.FatalException,
+      'FatalException must be set after worker raises');
+    Assert.IsTrue(task.FatalException is EWorkerTestException,
+      Format('FatalException class mismatch — got %s',
+        [task.FatalException.ClassName]));
+    Assert.AreEqual('boom from worker message handler',
+      task.FatalException.Message);
+  finally task := nil; end;
+end;
+
+procedure TestITaskControl.TestDetachExceptionTransfersOwnership;
+// DetachException returns the exception and nils the executor's store,
+// transferring ownership to the caller. Subsequent FatalException
+// reads return nil. Caller must Free the returned exception —
+// FastMM4's leak tracker will catch a miss.
+var
+  detached: Exception;
+  task    : IOmniTaskControl;
+begin
+  task := CreateTask(
+    procedure (const tsk: IOmniTask)
+    begin
+      raise EWorkerTestException.Create('detachable');
+    end, 'DetachException').Run;
+  try
+    Assert.IsTrue(task.WaitFor(5000), 'Task did not terminate');
+    Assert.IsNotNull(task.FatalException, 'Pre-detach FatalException nil');
+
+    detached := task.DetachException;
+    try
+      Assert.IsNotNull(detached, 'DetachException returned nil');
+      Assert.IsTrue(detached is EWorkerTestException,
+        'DetachException class mismatch');
+      Assert.AreEqual('detachable', detached.Message);
+      Assert.IsNull(task.FatalException,
+        'FatalException must be nil after DetachException');
+    finally FreeAndNil(detached); end;
+  finally task := nil; end;
+end;
+
+procedure TestITaskControl.TestNoExceptionMeansNilFatalException;
+var
+  task: IOmniTaskControl;
+begin
+  task := CreateTask(
+    procedure (const tsk: IOmniTask)
+    begin
+      // Normal exit — no raise.
+    end, 'NoFatal').Run;
+  try
+    Assert.IsTrue(task.WaitFor(5000), 'Task did not terminate');
+    Assert.IsNull(task.FatalException,
+      'FatalException must be nil after normal termination');
+  finally task := nil; end;
 end;
 
 procedure TestITaskControl.TestMultipleAdditionalComms;
