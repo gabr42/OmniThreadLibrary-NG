@@ -42,6 +42,7 @@ uses
   , TestUnobserved in 'TestUnobserved.pas'
   , TestOtlThreadPool1 in 'TestOtlThreadPool1.pas'
   , TestOtlEventMonitor1 in 'TestOtlEventMonitor1.pas'
+  , TestStressBlockingCollection1 in 'TestStressBlockingCollection1.pas'
   ;
 
 {$IFNDEF TESTINSIGHT}
@@ -49,12 +50,50 @@ var
   runner : ITestRunner;
   results: IRunResults;
   logger : ITestLogger;
+
+function HasAnyDUnitXFilterSwitch: boolean;
+// Returns True if the command line contains any DUnitX filter flag
+// (--run, --runlist, --include, --exclude, or their short forms).
+// System.SysUtils.FindCmdLineSwitch only strips a single '-' or '/',
+// so it misses DUnitX's double-dash form (`--include:Stress`).
+const
+  CFilters: array[0..7] of string = (
+    'run', 'r', 'runlist', 'rl', 'include', 'i', 'exclude', 'e');
+var
+  body: string;
+  colonPos: integer;
+  filter: string;
+  iParam: integer;
+  param: string;
+begin
+  for iParam := 1 to ParamCount do begin
+    param := ParamStr(iParam);
+    if (param = '') or (not CharInSet(param[1], ['-', '/'])) then
+      continue;
+    body := param.Substring(1);
+    if body.StartsWith('-') then
+      body := body.Substring(1);
+    colonPos := Pos(':', body);
+    if colonPos > 0 then
+      body := Copy(body, 1, colonPos - 1);
+    for filter in CFilters do
+      if SameText(body, filter) then
+        Exit(True);
+  end;
+  Result := False;
+end;
 {$ENDIF}
 begin
 {$IFDEF TESTINSIGHT}
   TestInsight.DUnitX.RunRegisteredTests;
 {$ELSE}
   try
+    // Default-exclude the Stress category so the standard run stays fast.
+    // Any explicit filter flag (--run/--runlist/--include/--exclude or their
+    // short forms) bypasses the default — otherwise the filter would AND with
+    // it and still drop stress tests the caller asked for.
+    if not HasAnyDUnitXFilterSwitch then
+      TDUnitX.Options.Exclude := 'Stress';
     TDUnitX.CheckCommandLine;
     runner := TDUnitX.CreateRunner;
     runner.UseRTTI := True;

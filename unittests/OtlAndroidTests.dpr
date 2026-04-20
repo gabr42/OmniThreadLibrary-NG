@@ -38,7 +38,8 @@ uses
   , TestMergeRace1 in 'TestMergeRace1.pas'
   , TestHooks1 in 'TestHooks1.pas'
   , TestOtlThreadPool1 in 'TestOtlThreadPool1.pas'
-  , TestOtlEventMonitor1 in 'TestOtlEventMonitor1.pas';
+  , TestOtlEventMonitor1 in 'TestOtlEventMonitor1.pas'
+  , TestStressBlockingCollection1 in 'TestStressBlockingCollection1.pas';
 
 {$R *.res}
 
@@ -159,6 +160,10 @@ begin
   System.ExceptProc := @DiagExceptProc;
   System.RaiseExceptObjProc := @DiagRaiseExceptObjProc;
   ALog('ALog address=' + IntToHex(NativeUInt(@ALog), 16));
+
+  // Default-exclude the Stress category — Android has no CLI so these
+  // multi-minute stress tests would otherwise block the auto-run.
+  TDUnitX.Options.Exclude := 'Stress';
 
   ALog('main begin');
   try

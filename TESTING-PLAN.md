@@ -234,10 +234,16 @@ Current `StressTestRunner.dpr` uses legacy DUnit (`TestFramework`) and
 depends on the `Windows` unit. These need to move into the main DUnitX
 suite so they run on Win32/Win64/Linux64/Android.
 
-- [ ] Port `StressTestBlockingCollection1.TestCompleteAdding` to DUnitX
-      - Drop `{$IFDEF Unicode}` wrapper (always true now)
-      - Remove `Windows` unit dependency
-      - Add to `ConsoleTestRunner.dpr` and `OtlAndroidTests.dpr`
+- [x] Port `StressTestBlockingCollection1.TestCompleteAdding` to DUnitX
+      - Ported as `TestStressBlockingCollection1.pas` →
+        `TStressIOmniBlockingCollection.StressTestCompleteAdding`.
+      - Marked `[Category('Stress')]` (fixture + method) and registered in
+        both `ConsoleTestRunner.dpr` and `OtlAndroidTests.dpr`.
+      - Uses OTL's own `Parallel.Join([...]).Execute` (same as legacy, not
+        `System.Threading.TParallel.Join`), 1000 iterations, breaks early
+        on first lastAdded/lastRead mismatch.
+      - Verified Win32/Win64 292+1, Linux64 286+1, Android64 287+1,
+        ARM64EC compile ✓. Runtime on Win32 ~20 s.
 - [ ] Port `StressTestOtlSync1.StressTestResourceCount` to DUnitX
       - Already uses `OtlPlatform.Time` — should be cross-platform as-is
       - Keep the 30-second runtime gated behind a "long test" category so it
@@ -247,8 +253,15 @@ suite so they run on Win32/Win64/Linux64/Android.
 
 ## 5. Cross-cutting / infrastructure
 
-- [ ] Add a `[Category('Stress')]` or similar DUnitX attribute so
+- [x] Add a `[Category('Stress')]` or similar DUnitX attribute so
       long-running tests can be filtered in/out of normal runs
+      - `ConsoleTestRunner.dpr` now sets `TDUnitX.Options.Exclude := 'Stress'`
+        by default unless the caller passed `--run/--runlist/--include/--exclude`
+        (DUnitX's `--` switches are not detected by `FindCmdLineSwitch`, so a
+        local helper `HasAnyDUnitXFilterSwitch` does the scan).
+      - `OtlAndroidTests.dpr` sets the exclusion unconditionally (no CLI on
+        Android).
+      - To run stress tests on demand: `ConsoleTestRunner.exe --include:Stress`.
 - [ ] Add memory-leak assertions to more tests (follow the
       `TMemLeakCheckObj` pattern from `StressTestBlockingCollection1`)
 - [ ] Audit tests for hard-coded `Sleep(...)` timing — replace with
