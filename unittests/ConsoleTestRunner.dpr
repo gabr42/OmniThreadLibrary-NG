@@ -40,6 +40,7 @@ uses
   , TestTask in 'TestTask.pas'
   , TestOtlParallel in 'TestOtlParallel.pas'
   , TestUnobserved in 'TestUnobserved.pas'
+  , TestOtlThreadPool1 in 'TestOtlThreadPool1.pas'
   ;
 
 {$IFNDEF TESTINSIGHT}

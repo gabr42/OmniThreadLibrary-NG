@@ -476,7 +476,7 @@ type
     procedure ForwardThreadDestroying(threadID: TThreadID;
       threadPoolOperation: TThreadPoolOperation; worker: TOTPWorkerThread = nil);
     procedure InternalStop(signalCancellationToken: boolean = false);
-    function  LocateThread(threadID: DWORD): TOTPWorkerThread;
+    function  LocateThread(threadID: TThreadID): TOTPWorkerThread;
     procedure Log(const msg: string; const params: array of const);
     function  NumRunningStoppedThreads: integer;
     procedure ProcessCompletedWorkItem(workItem: TOTPWorkItem);
@@ -1163,7 +1163,7 @@ begin
   owStoppingWorkers.Clear;
 end; { TOTPWorker.InternalStop }
 
-function TOTPWorker.LocateThread(threadID: DWORD): TOTPWorkerThread;
+function TOTPWorker.LocateThread(threadID: TThreadID): TOTPWorkerThread;
 var
   oThread: pointer;
 begin

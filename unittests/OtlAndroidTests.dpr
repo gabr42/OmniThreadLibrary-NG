@@ -36,7 +36,8 @@ uses
   , TestChannel1 in 'TestChannel1.pas'
   , TestSelect1 in 'TestSelect1.pas'
   , TestMergeRace1 in 'TestMergeRace1.pas'
-  , TestHooks1 in 'TestHooks1.pas';
+  , TestHooks1 in 'TestHooks1.pas'
+  , TestOtlThreadPool1 in 'TestOtlThreadPool1.pas';
 
 {$R *.res}
 
