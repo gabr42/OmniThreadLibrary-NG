@@ -14,6 +14,8 @@ type
     procedure TestTOmniValueArrayInt64Cast;
     [Test]
     procedure TestWaitForGateLeakRace;
+    [Test]
+    procedure TestTOmniValueUInt64HighBitRoundTrip;
   end;
 
 implementation
@@ -95,5 +97,40 @@ begin
     wfThread.Free;
   end;
 end;
+
+procedure TestBugfixes.TestTOmniValueUInt64HighBitRoundTrip;
+// Regression for commit 24a5162 (OtlThreadPool TThreadID range-check fix).
+//
+// On POSIX `TThreadID = NativeUInt = uint64`, and on Android ARM64 the high
+// bit is commonly set. TOTPWorkerThread.Execute used to send threadID via
+// implicit TOmniValue conversion, which picks the int64 overload — with
+// DCC_RangeChecking=true (as in OtlAndroidTests.dproj) this raised
+// ERangeError for any high-bit value. The fix routes the value through
+// TOmniValue.AsUInt64, which is bit-preserving.
+//
+// This test verifies that the chosen transport (AsUInt64 setter + getter)
+// preserves all 64 bits including the high bit. {$R+} is enabled locally
+// to catch any future regression where the property read path reintroduces
+// a range-checked conversion.
+//
+// The actual pool-side bug is additionally regression-covered by the
+// Android64 test run, where OtlAndroidTests.dproj sets DCC_RangeChecking=true
+// and exercises the pool through TestOtlThreadPool1 and the many other
+// tests that schedule work.
+{$IFOPT R+}{$DEFINE OTL_RANGECHECK_WAS_ON}{$ENDIF}
+{$R+}
+const
+  CHighBitPattern: uint64 = $FFFF000080000001;
+var
+  ov       : TOmniValue;
+  roundTrip: uint64;
+begin
+  ov.AsUInt64 := CHighBitPattern;
+  roundTrip := ov.AsUInt64;
+  Assert.AreEqual(CHighBitPattern, roundTrip,
+    'High-bit uint64 did not round-trip through TOmniValue');
+end;
+{$IFNDEF OTL_RANGECHECK_WAS_ON}{$R-}{$ENDIF}
+{$UNDEF OTL_RANGECHECK_WAS_ON}
 
 end.

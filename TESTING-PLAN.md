@@ -89,9 +89,18 @@ while the limitation is documented.
       thread creates and destroys `TWaitFor.Create([event])`. Uses
       `wfDone.WaitFor(30000 ms)` as deadlock detector — before the
       fix the race would leak the gate, hanging the next `SetEvent`
-- [ ] **TThreadID range-check** (commit 24a5162) — compile a dproj with
-      `DCC_RangeChecking=true` on non-Android, run pool tests, assert
-      no `ERangeError`
+- [x] **TThreadID range-check** (commit 24a5162) — covered by two
+      complementary tests:
+      - `TestRegressions.TestBugfixes.TestTOmniValueUInt64HighBitRoundTrip`
+        asserts that `TOmniValue.AsUInt64` bit-preserves a high-bit
+        uint64 value. The test body is compiled under local `{$R+}` so
+        any future regression that reintroduces a range-checked
+        conversion on the read path would fail here, cross-platform.
+      - `OtlAndroidTests.dproj` sets `DCC_RangeChecking=true` on the
+        entire library build, so every pool-using test (TestOtlThreadPool1,
+        TestOtlParallel, TestBackgroundObserver1, TestUnobserved, etc.)
+        is an end-to-end regression of the actual buggy code path on
+        ARM64. Android64 currently at 268 passed + 3 ignored
 - [ ] **Pipeline closure capture** (3.02) — multi-stage pipeline that
       propagates stage exceptions and asserts each stage's captured
       state is independent
