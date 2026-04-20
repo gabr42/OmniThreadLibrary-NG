@@ -244,10 +244,30 @@ suite so they run on Win32/Win64/Linux64/Android.
         on first lastAdded/lastRead mismatch.
       - Verified Win32/Win64 292+1, Linux64 286+1, Android64 287+1,
         ARM64EC compile ✓. Runtime on Win32 ~20 s.
-- [ ] Port `StressTestOtlSync1.StressTestResourceCount` to DUnitX
-      - Already uses `OtlPlatform.Time` — should be cross-platform as-is
-      - Keep the 30-second runtime gated behind a "long test" category so it
-        doesn't bloat the normal CI run
+- [x] Port `StressTestOtlSync1.StressTestResourceCount` to DUnitX
+      - Ported as `TestStressOtlSync1.pas` →
+        `TStressOtlSync.StressTestResourceCount` (3×3 allocate/release
+        combinations × 30 s per combination ≈ 4–5 min total).
+      - Marked `[Category('Stress')]` (fixture + method) and registered in
+        both `ConsoleTestRunner.dpr` and `OtlAndroidTests.dpr`.
+      - All timing variables renamed with `_ms` suffix (`startTime_ms`,
+        `wait_ms`) per project convention; the legacy
+        `CheckTrue(task.WaitFor(...), ...)` calls replaced with
+        `Assert.IsTrue(...)` + a `Format` message that names the fixture,
+        the ResourceAllocate/Release index, and the `iAlloc/iRelease`
+        combination so a hang is immediately diagnosable.
+      - Verified Win32 (4m21s passing) / Win64 / Linux64 (WSL manual link)
+        runtime passing; ARM64EC compile ✓; Android64 run confirmed the
+        stress test is *excluded* from the auto-run (TestCount=289
+        Passed=286 Ignored=3).
+      - Android-side fix required for this task: the FMX `MobileGUI`
+        runner at `DUNitX.Loggers.MobileGUI.pas:144` calls
+        `TDUnitX.CreateRunner` but never `CheckCommandLine`, so
+        `TDUnitX.Filter` stays nil and category filtering is skipped at
+        `DUnitX.TestRunner.pas:538-539`. `OtlAndroidTests.dpr` now
+        builds the filter manually via
+        `TDUnitX.Filter := TDUnitXFilterBuilder.BuildFilter(TDUnitX.Options)`
+        after setting `Options.Exclude := 'Stress'`.
 - [ ] Decide fate of `StressTestRunner.dpr`/`.dproj`: delete once ported,
       or keep as a Windows-only high-iteration harness
 

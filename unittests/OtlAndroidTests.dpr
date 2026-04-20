@@ -12,6 +12,7 @@ uses
   Androidapi.Log,
   Androidapi.IOUtils,
   DUnitX.TestFramework,
+  DUnitX.FilterBuilder,
   DUNitX.Loggers.MobileGUI in 'DUNitX.Loggers.MobileGUI.pas' {MobileGUITestRunner}
   , SmokeTest in 'SmokeTest.pas'
   , TestOtlBase in 'TestOtlBase.pas'
@@ -39,7 +40,8 @@ uses
   , TestHooks1 in 'TestHooks1.pas'
   , TestOtlThreadPool1 in 'TestOtlThreadPool1.pas'
   , TestOtlEventMonitor1 in 'TestOtlEventMonitor1.pas'
-  , TestStressBlockingCollection1 in 'TestStressBlockingCollection1.pas';
+  , TestStressBlockingCollection1 in 'TestStressBlockingCollection1.pas'
+  , TestStressOtlSync1 in 'TestStressOtlSync1.pas';
 
 {$R *.res}
 
@@ -163,7 +165,10 @@ begin
 
   // Default-exclude the Stress category — Android has no CLI so these
   // multi-minute stress tests would otherwise block the auto-run.
+  // The MobileGUI runner never calls CheckCommandLine, so Options.Exclude
+  // alone has no effect — the filter must be built and assigned manually.
   TDUnitX.Options.Exclude := 'Stress';
+  TDUnitX.Filter := TDUnitXFilterBuilder.BuildFilter(TDUnitX.Options);
 
   ALog('main begin');
   try

@@ -43,6 +43,7 @@ uses
   , TestOtlThreadPool1 in 'TestOtlThreadPool1.pas'
   , TestOtlEventMonitor1 in 'TestOtlEventMonitor1.pas'
   , TestStressBlockingCollection1 in 'TestStressBlockingCollection1.pas'
+  , TestStressOtlSync1 in 'TestStressOtlSync1.pas'
   ;
 
 {$IFNDEF TESTINSIGHT}
