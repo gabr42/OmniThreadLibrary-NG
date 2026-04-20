@@ -341,7 +341,27 @@ suite so they run on Win32/Win64/Linux64/Android.
 
 ## 6. Lower-priority / nice-to-have
 
-- [ ] OtlLogger.pas — basic unit tests (currently zero)
+- [x] OtlLogger.pas — basic unit tests (currently zero)
+    - 2026-04-20: added `TestOtlLogger.pas` (10 tests):
+        `TestLogAndGet`, `TestLogFormatOverload`, `TestGetDrainsQueue`,
+        `TestClear`, `TestStoreTimeOfDayDefaultNumeric`,
+        `TestStoreTimeOfDayFormatted`, `TestThreadIDPrefix`,
+        `TestConcurrentLog` (4 threads × 250 logs via `Parallel.For`),
+        `TestSaveEventListAppends`, `TestGlobalLoggerAlive`. Uses
+        `System.RegularExpressions.TRegEx` to validate the
+        `[tid] <ms> msg` and `[tid] yyyymmdd-hhnnsszzz msg` entry
+        formats. Added unit to `ConsoleTestRunner.dpr` and
+        `OtlAndroidTests.dpr`. Verified on all five targets —
+        Win32/Win64: full suite 242 → 252 passed; Linux64: 235 → 245
+        passed (+3 ignored); Android64: 289 → 299 passed (+3
+        ignored); ARM64EC: compile-only smoke clean. For the Linux64
+        link three new `.o` references had to be added to the staged
+        `.lnk` via a file-based Python patch script in
+        `C:\tmp_otl_link\`: `OtlLogger.o`, `System.IOUtils.o`, and
+        `System.Masks.o` (transitively pulled by the `TRegEx`
+        dependency). The patch script uses raw byte literals
+        (`br'H:\\...'`) to match the double-backslash separator
+        format dcclinux64 writes into the `.lnk`.
 - [ ] OtlPlatform.pas — POSIX/Windows divergence coverage
 - [ ] OtlCommon.TOmniEnvironment — NUMA/affinity fallback paths
 - [ ] OtlBackgroundObserver concurrent registration/unregistration stress
