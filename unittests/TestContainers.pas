@@ -25,13 +25,75 @@ type
     procedure TestQueueObserverNotification;
     [Test]
     procedure TestStackObserverNotification;
+    [Test]
+    procedure TestBoundedQueueLargeCapacity;
+    [Test]
+    procedure TestBoundedStackLargeCapacity;
+    [Test]
+    procedure TestBoundedQueueMPMC;
+    [Test]
+    procedure TestBoundedStackMPMC;
   end;
 
 implementation
 
 uses
-  System.SysUtils, System.SyncObjs,
+  System.Classes, System.SysUtils, System.SyncObjs,
   OtlContainers, OtlContainerObserver, OtlSync;
+
+// Helper functions for MPMC stress tests. Parameters are passed by value so
+// each returned closure captures fresh per-iteration state (see CLAUDE.md on
+// Delphi's for-loop closure-capture trap).
+type
+  TContainerProducer = reference to function(value: integer): boolean;
+  TContainerConsumer = reference to function(var value: integer): boolean;
+
+function MakeProducer(gate: IOmniEvent; startValue, endValue: integer;
+  const produce: TContainerProducer; producedCounter: PInteger): TProc;
+begin
+  Result :=
+    procedure
+    var i: integer;
+    begin
+      gate.WaitFor(INFINITE);
+      for i := startValue to endValue do
+        while not produce(i) do
+          TThread.Yield;
+      TInterlocked.Add(producedCounter^, endValue - startValue + 1);
+    end;
+end;
+
+function MakeConsumer(gate, doneProducing: IOmniEvent;
+  const consume: TContainerConsumer;
+  consumedCounter, consumedSum: PInteger): TProc;
+begin
+  Result :=
+    procedure
+    var
+      value: integer;
+      done : boolean;
+    begin
+      gate.WaitFor(INFINITE);
+      done := false;
+      while not done do begin
+        if consume(value) then begin
+          TInterlocked.Increment(consumedCounter^);
+          TInterlocked.Add(consumedSum^, value);
+        end
+        else if doneProducing.WaitFor(0) = wrSignaled then begin
+          // Producers finished. Drain once more to catch items enqueued
+          // before the event was set but not yet visible at our first probe.
+          while consume(value) do begin
+            TInterlocked.Increment(consumedCounter^);
+            TInterlocked.Add(consumedSum^, value);
+          end;
+          done := true;
+        end
+        else
+          TThread.Yield;
+      end;
+    end;
+end;
 
 { TestContainers }
 
@@ -186,6 +248,217 @@ begin
     Assert.IsTrue(stack.Pop(value), 'Pop');
     Assert.AreEqual(42, value);
     Assert.IsTrue(stack.IsEmpty);
+  finally FreeAndNil(stack); end;
+end;
+
+procedure TTestContainers.TestBoundedQueueLargeCapacity;
+// Fill a queue to a large capacity and drain it, asserting FIFO order.
+// Exercises the queue's internal slot-addressing at scale.
+const
+  CCapacity = 65536;
+var
+  queue: TOmniBaseBoundedQueue;
+  i    : integer;
+  value: integer;
+begin
+  queue := TOmniBaseBoundedQueue.Create;
+  try
+    queue.Initialize(CCapacity, SizeOf(integer));
+    Assert.IsTrue(queue.IsEmpty, 'Queue should start empty');
+    for i := 1 to CCapacity do
+      Assert.IsTrue(queue.Enqueue(i), Format('Enqueue #%d failed', [i]));
+    Assert.IsTrue(queue.IsFull, 'Queue should be full at capacity');
+    value := -1;
+    Assert.IsFalse(queue.Enqueue(value), 'Enqueue past capacity should fail');
+    for i := 1 to CCapacity do begin
+      Assert.IsTrue(queue.Dequeue(value), Format('Dequeue #%d failed', [i]));
+      Assert.AreEqual(i, value, Format('FIFO violation at element %d', [i]));
+    end;
+    Assert.IsTrue(queue.IsEmpty, 'Queue should be empty after drain');
+  finally FreeAndNil(queue); end;
+end;
+
+procedure TTestContainers.TestBoundedStackLargeCapacity;
+// Fill a stack to a large capacity and drain it, asserting LIFO order.
+const
+  CCapacity = 65536;
+var
+  stack: TOmniBaseBoundedStack;
+  i    : integer;
+  value: integer;
+begin
+  stack := TOmniBaseBoundedStack.Create;
+  try
+    stack.Initialize(CCapacity, SizeOf(integer));
+    Assert.IsTrue(stack.IsEmpty, 'Stack should start empty');
+    for i := 1 to CCapacity do
+      Assert.IsTrue(stack.Push(i), Format('Push #%d failed', [i]));
+    Assert.IsTrue(stack.IsFull, 'Stack should be full at capacity');
+    value := -1;
+    Assert.IsFalse(stack.Push(value), 'Push past capacity should fail');
+    for i := CCapacity downto 1 do begin
+      Assert.IsTrue(stack.Pop(value), Format('Pop failed at element %d', [i]));
+      Assert.AreEqual(i, value, Format('LIFO violation at element %d', [i]));
+    end;
+    Assert.IsTrue(stack.IsEmpty, 'Stack should be empty after drain');
+  finally FreeAndNil(stack); end;
+end;
+
+procedure TTestContainers.TestBoundedQueueMPMC;
+// Multiple producers push distinct non-overlapping integer ranges; multiple
+// consumers drain concurrently. Verifies no items are lost or duplicated
+// under contention by checking both the count and the summed values.
+const
+  CProducers         = 4;
+  CConsumers         = 4;
+  CItemsPerProducer  = 2500;
+  CCapacity          = 128;  // deliberately smaller than total work set
+  CTimeout_ms        = 10000;
+var
+  queue       : TOmniBaseBoundedQueue;
+  gate        : IOmniEvent;
+  doneProd    : IOmniEvent;
+  produced    : integer;
+  consumed    : integer;
+  sum         : integer;
+  prodThreads : TArray<TThread>;
+  consThreads : TArray<TThread>;
+  i           : integer;
+  expectedSum : int64;
+  startValue  : integer;
+begin
+  queue := TOmniBaseBoundedQueue.Create;
+  try
+    queue.Initialize(CCapacity, SizeOf(integer));
+    gate := CreateOmniEvent(true, false);
+    doneProd := CreateOmniEvent(true, false);
+    produced := 0;
+    consumed := 0;
+    sum := 0;
+    SetLength(prodThreads, CProducers);
+    SetLength(consThreads, CConsumers);
+    for i := 0 to CProducers - 1 do begin
+      startValue := i * CItemsPerProducer + 1;
+      prodThreads[i] := TThread.CreateAnonymousThread(
+        MakeProducer(gate, startValue, startValue + CItemsPerProducer - 1,
+          function(value: integer): boolean
+          begin
+            Result := queue.Enqueue(value);
+          end,
+          @produced));
+      prodThreads[i].FreeOnTerminate := false;
+      prodThreads[i].Start;
+    end;
+    for i := 0 to CConsumers - 1 do begin
+      consThreads[i] := TThread.CreateAnonymousThread(
+        MakeConsumer(gate, doneProd,
+          function(var value: integer): boolean
+          begin
+            Result := queue.Dequeue(value);
+          end,
+          @consumed, @sum));
+      consThreads[i].FreeOnTerminate := false;
+      consThreads[i].Start;
+    end;
+    gate.SetEvent;
+    for i := 0 to CProducers - 1 do begin
+      prodThreads[i].WaitFor;
+      prodThreads[i].Free;
+    end;
+    doneProd.SetEvent;
+    for i := 0 to CConsumers - 1 do begin
+      consThreads[i].WaitFor;
+      consThreads[i].Free;
+    end;
+    expectedSum := int64(CProducers) * CItemsPerProducer * (CProducers * CItemsPerProducer + 1) div 2;
+    Assert.AreEqual(CProducers * CItemsPerProducer, produced,
+      'Producers did not produce expected item count');
+    Assert.AreEqual(CProducers * CItemsPerProducer, consumed,
+      Format('Consumer count mismatch: produced=%d consumed=%d',
+        [produced, consumed]));
+    Assert.AreEqual(expectedSum, int64(sum),
+      Format('Sum mismatch: expected=%d got=%d — lost or duplicated items',
+        [expectedSum, sum]));
+    Assert.IsTrue(queue.IsEmpty, 'Queue should be empty after MPMC run');
+  finally FreeAndNil(queue); end;
+end;
+
+procedure TTestContainers.TestBoundedStackMPMC;
+// Multiple producers push, multiple consumers pop. No ordering assertion
+// (stack is LIFO and interleaved), just conservation: every pushed value
+// appears in the consumed sum exactly once.
+const
+  CProducers         = 4;
+  CConsumers         = 4;
+  CItemsPerProducer  = 2500;
+  CCapacity          = 128;
+  CTimeout_ms        = 10000;
+var
+  stack       : TOmniBaseBoundedStack;
+  gate        : IOmniEvent;
+  doneProd    : IOmniEvent;
+  produced    : integer;
+  consumed    : integer;
+  sum         : integer;
+  prodThreads : TArray<TThread>;
+  consThreads : TArray<TThread>;
+  i           : integer;
+  expectedSum : int64;
+  startValue  : integer;
+begin
+  stack := TOmniBaseBoundedStack.Create;
+  try
+    stack.Initialize(CCapacity, SizeOf(integer));
+    gate := CreateOmniEvent(true, false);
+    doneProd := CreateOmniEvent(true, false);
+    produced := 0;
+    consumed := 0;
+    sum := 0;
+    SetLength(prodThreads, CProducers);
+    SetLength(consThreads, CConsumers);
+    for i := 0 to CProducers - 1 do begin
+      startValue := i * CItemsPerProducer + 1;
+      prodThreads[i] := TThread.CreateAnonymousThread(
+        MakeProducer(gate, startValue, startValue + CItemsPerProducer - 1,
+          function(value: integer): boolean
+          begin
+            Result := stack.Push(value);
+          end,
+          @produced));
+      prodThreads[i].FreeOnTerminate := false;
+      prodThreads[i].Start;
+    end;
+    for i := 0 to CConsumers - 1 do begin
+      consThreads[i] := TThread.CreateAnonymousThread(
+        MakeConsumer(gate, doneProd,
+          function(var value: integer): boolean
+          begin
+            Result := stack.Pop(value);
+          end,
+          @consumed, @sum));
+      consThreads[i].FreeOnTerminate := false;
+      consThreads[i].Start;
+    end;
+    gate.SetEvent;
+    for i := 0 to CProducers - 1 do begin
+      prodThreads[i].WaitFor;
+      prodThreads[i].Free;
+    end;
+    doneProd.SetEvent;
+    for i := 0 to CConsumers - 1 do begin
+      consThreads[i].WaitFor;
+      consThreads[i].Free;
+    end;
+    expectedSum := int64(CProducers) * CItemsPerProducer * (CProducers * CItemsPerProducer + 1) div 2;
+    Assert.AreEqual(CProducers * CItemsPerProducer, produced,
+      'Producers did not produce expected item count');
+    Assert.AreEqual(CProducers * CItemsPerProducer, consumed,
+      Format('Consumer count mismatch: produced=%d consumed=%d',
+        [produced, consumed]));
+    Assert.AreEqual(expectedSum, int64(sum),
+      Format('Sum mismatch: expected=%d got=%d — lost or duplicated items',
+        [expectedSum, sum]));
+    Assert.IsTrue(stack.IsEmpty, 'Stack should be empty after MPMC run');
   finally FreeAndNil(stack); end;
 end;
 

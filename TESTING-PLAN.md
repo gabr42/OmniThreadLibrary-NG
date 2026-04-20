@@ -56,11 +56,29 @@ while the limitation is documented.
 
 ### 1c. OtlContainers (thin — 8 tests for 2000 LOC)
 
-- [ ] Test `TOmniBaseBoundedQueue.IsFull` / `IsEmpty` state transitions
-      (regression for the IsFull-always-false bug)
-- [ ] Test CAS16 alignment behavior on 64-bit (3.02 fix)
-- [ ] Stress test: bounded queue/stack under N producers + M consumers
-- [ ] Test edge cases: capacity=1, capacity=max, Count accuracy under contention
+- [x] Test `TOmniBaseBoundedQueue.IsFull` / `IsEmpty` state transitions
+      (regression for the IsFull-always-false bug) — covered by pre-existing
+      `TestBasicQueue`/`TestBasicStack` (each step asserts both states via
+      `Verify(isEmpty, isFull)`) and the new one-element / large-capacity
+      tests (`TestOneElementQueue`, `TestBoundedQueueLargeCapacity`, etc.)
+- [ ] ~~Test CAS16 alignment behavior on 64-bit (3.02 fix)~~ — not
+      externally observable. Alignment is enforced by the container's
+      internal buffer layout (`TOmniBaseBoundedQueue.Initialize` rounds
+      slot size up to 16-byte alignment on CPUX64); any misalignment
+      would crash at the CAS site rather than produce a wrong result,
+      so the MPMC stress tests below serve as indirect coverage.
+- [x] Stress test: bounded queue/stack under N producers + M consumers —
+      `TestBoundedQueueMPMC` / `TestBoundedStackMPMC` (4 producers ×
+      4 consumers × 2500 items each, capacity=128). Uses
+      `expectedSum = N*(N+1) div 2` to detect lost or duplicated items.
+      MPMC helpers `MakeProducer` / `MakeConsumer` follow the CLAUDE.md
+      closure-capture rule (by-value params in a helper function)
+- [x] Test edge cases: capacity=1, capacity=max — covered by
+      `TestOneElementQueue`/`TestOneElementStack` and the new
+      `TestBoundedQueueLargeCapacity`/`TestBoundedStackLargeCapacity`
+      (CCapacity=65536). Count accuracy under contention: N/A — there
+      is no public `Count` property on `TOmniBaseBoundedQueue` or
+      `TOmniBaseBoundedStack`; only `IsEmpty`/`IsFull` are exposed
 
 ## 2. Regression tests for recent "fix-without-a-test" commits
 
