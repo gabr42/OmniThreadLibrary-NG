@@ -294,11 +294,50 @@ suite so they run on Win32/Win64/Linux64/Android.
 - [ ] Add memory-leak assertions to more tests (follow the
       `TMemLeakCheckObj` pattern from `TestBlockingCollection1`
       — see `TestOmniValueObjectleak`)
-- [ ] Audit tests for hard-coded `Sleep(...)` timing — replace with
+- [x] Audit tests for hard-coded `Sleep(...)` timing — replace with
       event-driven waits where feasible to reduce CI flakiness
-- [ ] Document how to run the full suite across all four platforms in
+      - Audited all 55 `Sleep(...)` sites across 14 test files. None fall
+        into the "hard-coded timing that could flake" bucket the plan
+        anticipated — every call is intentional. Categories:
+        1. **Timing measurement itself** — the Sleep *is* the test
+           (`TestPlatform.TestTimestamp`: `Sleep(1000)` then
+           `Time.Elapsed_ms(...)`).
+        2. **Work simulation** — the task Sleep *is* the simulated work
+           (`TestOtlParallel.TestJoinCancel*`: `Sleep(100)` per branch;
+           `TestSyncUtils1`: `Sleep(50)` before `Signal('done')`;
+           `TestOtlThreadPool1.TestCancelForceKill`: `while true do
+           Sleep(1000)` is the stuck-task fixture).
+        3. **Deterministic lock-contention** — reader/writer holds the
+           lock for a fixed window so the test can probe the blocked
+           state (`TestOtlSync1.TestSharedReadLock`: 500 ms reader hold;
+           mirror for writer hold).
+        4. **Intentional race trigger** — a small Sleep before the raced
+           action is how the test provokes the race
+           (`TestStressBlockingCollection1`: `Sleep(1)` before
+           `CompleteAdding`; `TestMergeRace1`/`TestSelect1`: `Sleep(50)`
+           before `Send`).
+        5. **Scheduler yield / poll step** — `Sleep(0)` after `Terminate`
+           (7× in `TestTask`), poll-loop step inside bounded
+           `WaitForPredicate`/`WaitForFlag` helpers
+           (`TestOtlThreadPool1.pas:56`, `TestUnobserved.pas:112,133`,
+           `TestRegressions.pas:347`, `TestTask.pas:690`).
+      - Conclusion: no replacements to make. The suite already uses
+        event-driven synchronizers (`IOmniSynchronizer.WaitFor`,
+        `TEvent`, `IOmniCancellationToken`) wherever the test is
+        *waiting* for a signal; the Sleeps that remain are the actions
+        under test, not wait-for-side-effect kludges.
+- [x] Document how to run the full suite across all four platforms in
       one place (currently split between CLAUDE.md and
       `unittests/build_android.bat`)
+      - Consolidated into CLAUDE.md `## Compiling and running unit
+        tests`: now covers Win32/Win64 (Delphi 11/12/13), Linux64 (WSL
+        manual-link workflow including the `cp *.o` sync step that
+        `linkit.sh` does not do), Android64 (pointing at
+        `build_android.bat` + the logcat grep for `TestCount=...`), and
+        ARM64EC compile-only smoke (including the `bin64\` vs `bin\`
+        gotcha for `dccarm64ec.exe`). Removed the stale "does not
+        compile yet" notice from the Linux64 section — that list
+        reflected pre-port OtlSync issues that are all resolved.
 
 ## 6. Lower-priority / nice-to-have
 
