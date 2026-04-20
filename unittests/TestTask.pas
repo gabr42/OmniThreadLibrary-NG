@@ -22,6 +22,10 @@ type
     [Test] procedure TestWorkerInitialized;
     [Test] procedure TestRegisterWaitObject;
     [Test] procedure TestInvoke;
+    [Test] procedure TestInvokeByPointerOverloads;
+    [Test] procedure TestInvokeArrayOfConstPacking;
+    [Test] procedure TestInvokeRemoteFunc;
+    [Test] procedure TestInvokeRemoteFuncEx;
     [Test] procedure TestRegisterCommDispatchesMessages;
     [Test] procedure TestUnregisterCommStopsDispatch;
     [Test] procedure TestMultipleAdditionalComms;
@@ -277,6 +281,147 @@ begin
 
   task.Terminate;
   Sleep(0);
+end;
+
+type
+  TInvokePointerWorker = class(TSynchronizedOmniWorker)
+  strict private
+    FFlags: integer;
+  strict protected
+    procedure SignalIfComplete;
+  public
+    procedure NoArgs;
+    procedure OneOmniValue(const value: TOmniValue);
+    procedure TwoItemArray(const value: TOmniValue);
+  end;
+
+procedure TInvokePointerWorker.SignalIfComplete;
+begin
+  if FFlags = 7 then
+    FSynchronizer.Signal('ptr-done');
+end;
+
+procedure TInvokePointerWorker.NoArgs;
+begin
+  FFlags := FFlags or 1;
+  SignalIfComplete;
+end;
+
+procedure TInvokePointerWorker.OneOmniValue(const value: TOmniValue);
+begin
+  if value = 42 then
+    FFlags := FFlags or 2;
+  SignalIfComplete;
+end;
+
+procedure TInvokePointerWorker.TwoItemArray(const value: TOmniValue);
+begin
+  // array-of-const [11, string('x')] packs into an array TOmniValue.
+  if value.IsArray and (value.AsArray.Count = 2)
+     and (value[0].AsInteger = 11) and (value[1].AsString = 'x')
+  then
+    FFlags := FFlags or 4;
+  SignalIfComplete;
+end;
+
+procedure TestITaskControl.TestInvokeByPointerOverloads;
+// Covers the three by-pointer Invoke overloads:
+//   Invoke(msgMethod: pointer)
+//   Invoke(msgMethod: pointer; msgData: array of const)
+//   Invoke(msgMethod: pointer; msgData: TOmniValue)
+// Dispatch goes through TOmniInternalAddressMsg.UnpackMessage which calls
+// Implementor.MethodName(method) (OtlTaskControl.pas:2402) to resolve the
+// method name — a different lookup path than the by-name overloads.
+var
+  ov  : TOmniValue;
+  task: IOmniTaskControl;
+begin
+  task := CreateTask(TInvokePointerWorker.Create(Synchronizer), 'Invoke-by-ptr').Run;
+  try
+    task.Invoke(@TInvokePointerWorker.NoArgs);                   // overload 1
+    ov := 42;
+    task.Invoke(@TInvokePointerWorker.OneOmniValue, ov);         // overload 3 (TOmniValue)
+    task.Invoke(@TInvokePointerWorker.TwoItemArray, [11, string('x')]);  // overload 2 (array of const)
+    Assert.IsTrue(Synchronizer.WaitFor('ptr-done', 5000),
+      'By-pointer Invoke dispatch did not reach all three methods');
+  finally
+    task.Terminate;
+    task := nil;
+  end;
+end;
+
+procedure TestITaskControl.TestInvokeArrayOfConstPacking;
+// Multi-item array-of-const packs into an array TOmniValue. Verifies the
+// Invoke(msgName, array of const) overload correctly delivers multiple
+// values inside a single TOmniValue that the worker can unpack.
+var
+  task: IOmniTaskControl;
+begin
+  task := CreateTask(TInvokePointerWorker.Create(Synchronizer), 'Invoke-multi-arg').Run;
+  try
+    task.Invoke('NoArgs');
+    task.Invoke('OneOmniValue', 42);
+    task.Invoke('TwoItemArray', [11, string('x')]);
+    Assert.IsTrue(Synchronizer.WaitFor('ptr-done', 5000),
+      'Multi-item array-of-const dispatch failed');
+  finally
+    task.Terminate;
+    task := nil;
+  end;
+end;
+
+procedure TestITaskControl.TestInvokeRemoteFunc;
+// Invoke(remoteFunc: TOmniTaskControlInvokeFunction) — anonymous proc runs
+// on the task thread. Dispatch path is TOmniInternalFuncMsg, handled at
+// OtlTaskControl.pas:2138-2139 via `func` without any method lookup.
+var
+  hasRun: boolean;
+  task  : IOmniTaskControl;
+begin
+  hasRun := false;
+  task := CreateTask(TInvokePointerWorker.Create(Synchronizer), 'Invoke-remoteFunc').Run;
+  try
+    task.Invoke(
+      procedure
+      begin
+        hasRun := true;
+        Synchronizer.Signal('remote-done');
+      end);
+    Assert.IsTrue(Synchronizer.WaitFor('remote-done', 5000),
+      'Anonymous-proc Invoke did not execute');
+    Assert.IsTrue(hasRun, 'Anonymous proc ran but did not set the flag');
+  finally
+    task.Terminate;
+    task := nil;
+  end;
+end;
+
+procedure TestITaskControl.TestInvokeRemoteFuncEx;
+// Invoke(remoteFunc: TOmniTaskControlInvokeFunctionEx) — same as above but
+// receives the IOmniTask. OtlTaskControl.pas:2140-2141 calls
+// `funcEx(WorkerIntf.Task)`, so the closure must see the task that
+// actually runs it.
+var
+  capturedUniqueID: int64;
+  task            : IOmniTaskControl;
+begin
+  capturedUniqueID := 0;
+  task := CreateTask(TInvokePointerWorker.Create(Synchronizer), 'Invoke-remoteFuncEx').Run;
+  try
+    task.Invoke(
+      procedure (const tsk: IOmniTask)
+      begin
+        capturedUniqueID := tsk.UniqueID;
+        Synchronizer.Signal('remote-ex-done');
+      end);
+    Assert.IsTrue(Synchronizer.WaitFor('remote-ex-done', 5000),
+      'Anonymous-procEx Invoke did not execute');
+    Assert.AreEqual(task.UniqueID, capturedUniqueID,
+      'Task passed to Invoke lambda does not match task control UniqueID');
+  finally
+    task.Terminate;
+    task := nil;
+  end;
 end;
 
 type

@@ -188,7 +188,27 @@ while the limitation is documented.
       `TRaisingWorker.Create` directly on a TOmniWorker subclass
       with no declared constructor triggers `E2250` on the
       `CreateTask(const worker: IOmniWorker; ...)` overload
-- [ ] `Invoke` with varying argument counts / types
+- [x] `Invoke` with varying argument counts / types —
+      `TestTask.TestITaskControl` now covers the four Invoke overloads
+      that existing `TestInvoke` missed:
+      `TestInvokeByPointerOverloads` (method-pointer dispatch — three
+      variants: no args, TOmniValue, array-of-const; these go through
+      `TOmniInternalAddressMsg` and resolve the name via
+      `Implementor.MethodName(method)` at `OtlTaskControl.pas:2402`),
+      `TestInvokeArrayOfConstPacking` (multi-item array-of-const packs
+      into an array `TOmniValue` the worker can index),
+      `TestInvokeRemoteFunc` (anonymous procedure — dispatched via
+      `TOmniInternalFuncMsg`, line 2138-2139), and
+      `TestInvokeRemoteFuncEx` (anonymous procedure receiving
+      `IOmniTask` — line 2140-2141 calls
+      `funcEx(WorkerIntf.Task)`, test asserts the captured
+      `UniqueID` matches the task control). New test worker
+      `TInvokePointerWorker` uses a 3-bit flag register and a single
+      Synchronizer signal so the entire by-pointer sequence races to
+      completion. Note: a single-char literal like `'x'` must be
+      cast to `string` inside an `array of const` — otherwise it
+      types as `vtWideChar`, which `TOmniValue.Create(array of const)`
+      at `OtlCommon.pas:1941` rejects with "invalid data type".
 - [ ] Group affinity / `SetProcessorGroupAffinity` paths
 
 ## 4. Port existing stress tests to DUnitX + make cross-platform
