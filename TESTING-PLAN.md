@@ -116,10 +116,26 @@ while the limitation is documented.
       Exception reaches opOutput, (b) stage 2 observes exactly one
       exception marker, (c) non-exception values transform through
       both stages
-- [ ] **OtlParallel.Select missed-wakeup** (3.02) — high-contention
-      send/receive loop, assert no deadlock after 1M iterations
-- [ ] **TOmniValue container leak on exception** (3.01) — force
-      construction failure path, assert ref counts return to baseline
+- [x] **OtlParallel.Select missed-wakeup** (commit c5ccd38) — already
+      regression-covered by `TestSelect1.TestParallelSelect.TestSelectNoMissedWakeup`.
+      Runs 200 iterations of producer-sends-immediately-after-select-waits
+      with a 500 ms timeout. The bug left a window between Select's
+      poll and its condvar wait where a signal could be lost; the fix
+      replaced the condvar with an auto-reset event. Scaled back from
+      the originally-planned 1M iterations because a single miss already
+      fails the assertion (`even one miss indicates a wakeup bug`) and
+      higher counts would unnecessarily stretch CI. Runs on Win32,
+      Win64, Linux64, Android64
+- [x] **TOmniValue container leak on exception** (3.01, commit 3210d64) —
+      `TestRegressions.TestBugfixes.TestOmniValueCreateLeakOnInvalidType`:
+      passes `TObject` (a TClass reference, vtClass=8) in the
+      `array of const` to `TOmniValue.Create`. vtClass is not handled
+      in the case statement, so the else-branch raises
+      `'invalid data type'`. Pre-fix, the half-populated
+      `TOmniValueContainer` leaked; fix wraps the loop in try/except
+      and frees it on raise. Relies on DUnitX per-run leak tracking
+      (FastMM4 reports `Tests Leaked: 0` end-of-run) — a regression
+      would surface as one leaked container
 
 ## 3. OtlTaskControl — expand from 7 tests
 

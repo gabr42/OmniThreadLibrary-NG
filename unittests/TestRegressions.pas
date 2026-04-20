@@ -18,6 +18,8 @@ type
     procedure TestTOmniValueUInt64HighBitRoundTrip;
     [Test]
     procedure TestPipelineClosureCapturePerStage;
+    [Test]
+    procedure TestOmniValueCreateLeakOnInvalidType;
   end;
 
 implementation
@@ -251,6 +253,33 @@ begin
     'Pipeline output count wrong (expected 4 transformed values + 1 marker)');
   Assert.AreEqual(int64(6+12+18+24), nonMarkerSum,
     'Pipeline non-exception values did not transform through both stages');
+end;
+
+procedure TestBugfixes.TestOmniValueCreateLeakOnInvalidType;
+// Regression for commit 3210d64 (OtlCommon.pas v3.01).
+//
+// TOmniValue.Create(array of const) constructed a TOmniValueContainer
+// and walked the args; on an unrecognised VType it raised an
+// exception, leaking the half-populated container. Fix: wrap the
+// loop in try/except and free the container on raise.
+//
+// To trigger, pass a vtClass arg (TClass reference) — that VType is
+// not handled by the case statement and hits the `raise` branch.
+// The test relies on DUnitX's per-test leak tracking (FastMM4) to
+// detect the container leak; a pre-fix build would report a leaked
+// TOmniValueContainer for this fixture.
+var
+  raised: boolean;
+begin
+  raised := false;
+  try
+    TOmniValue.Create([42, TObject]); // TObject is TClass -> vtClass
+  except
+    on E: Exception do
+      raised := True;
+  end;
+  Assert.IsTrue(raised,
+    'Expected TOmniValue.Create to raise on invalid data type');
 end;
 
 end.
