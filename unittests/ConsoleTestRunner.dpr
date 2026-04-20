@@ -45,6 +45,7 @@ uses
   , TestStressBlockingCollection1 in 'TestStressBlockingCollection1.pas'
   , TestStressOtlSync1 in 'TestStressOtlSync1.pas'
   , TestStressBackgroundObserver1 in 'TestStressBackgroundObserver1.pas'
+  , TestStressContainerObserver1 in 'TestStressContainerObserver1.pas'
   , TestOtlLogger in 'TestOtlLogger.pas'
   ;
 

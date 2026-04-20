@@ -464,7 +464,43 @@ suite so they run on Win32/Win64/Linux64/Android.
         auto-run excludes `Stress` so behaviour is unchanged
         (316/319 Passed=316 +3 Ignored on Linux64/Android64);
         ARM64EC compile-only clean.
-- [ ] OtlContainerObserver snapshot-delivery concurrency (1.05 deadlock fix)
+- [x] OtlContainerObserver snapshot-delivery concurrency (1.05 deadlock fix)
+    - 2026-04-20: split across two test units. Added three fast
+        reentrancy tests to `TestContainerObserver1.pas` using a
+        new local `TCallbackObserver` (descends from
+        `TOmniContainerObserver`, runs a `TProc` inside `Notify`):
+        `TestNotifyAllowsDetachFromCallback` — observer detaches
+        itself from its own callback, verifying the 2.05 fix
+        (snapshot-then-dispatch so callback `Detach` no longer
+        deadlocks against the read-lock held by `Notify`);
+        `TestNotifyAllowsAttachFromCallback` — callback attaches
+        another observer; the late attach is invisible to the
+        current snapshot but visible on the next `Notify`;
+        `TestSnapshotKeepsObserverAliveDuringDispatch` — callback
+        drops the only external interface ref to a second observer
+        mid-dispatch; that observer must still fire because the
+        snapshot holds an interface reference (the 2.06 fix). Added
+        a new `TestStressContainerObserver1.pas` (excluded by
+        `[Category('Stress')]`) with two stress tests:
+        `StressTestConcurrentAttachDetachNotify` — 4 workers × 3 s
+        hammer Attach + Notify + Detach on a shared subject; asserts
+        final `attachCount = detachCount` and every worker fired at
+        least one `Notify`;
+        `StressTestNotifyDuringObserverRelease` — 1 churner thread
+        attaches/detaches/releases 64 observers per cycle while 4
+        notifiers spam `Notify`; no-crash assertion proves the
+        snapshot's interface refcount keeps observers alive against
+        concurrent release (the 2.06 scenario). Helper methods pass
+        captured state by value per the CLAUDE.md closure rule.
+        Registered both in `ConsoleTestRunner.dpr` and
+        `OtlAndroidTests.dpr`; patched the Linux64 staged `.lnk` via
+        `C:\tmp_otl_link\add_teststresscobs.py`. Verified on all
+        five targets: Win32/Win64 316 → 319 (+2 stress when
+        `--include:Stress`); Linux64 319 → 322 Passed=319 +3 ignored
+        (+2 stress on opt-in); Android64 auto-run 322 Passed=319
+        +3 Ignored (the `--include:Stress` path is not wired into
+        the MobileGUI runner, so Android stress coverage is
+        compile-only); ARM64EC compile-only clean.
 
 ---
 
