@@ -26,6 +26,10 @@ type
     [Test] procedure TestInvokeArrayOfConstPacking;
     [Test] procedure TestInvokeRemoteFunc;
     [Test] procedure TestInvokeRemoteFuncEx;
+    [Test] procedure TestProcessorGroupValidIsAccepted;
+    [Test] procedure TestProcessorGroupInvalidRaises;
+    [Test] procedure TestNUMANodeValidIsAccepted;
+    [Test] procedure TestNUMANodeInvalidRaises;
     [Test] procedure TestRegisterCommDispatchesMessages;
     [Test] procedure TestUnregisterCommStopsDispatch;
     [Test] procedure TestMultipleAdditionalComms;
@@ -422,6 +426,84 @@ begin
     task.Terminate;
     task := nil;
   end;
+end;
+
+procedure TestITaskControl.TestProcessorGroupValidIsAccepted;
+// VerifyProcessorGroup(0) succeeds on every platform — the fake
+// single-group environment CreateFakeNUMAInfo registers on
+// non-Windows also has group 0. On Windows SetThreadGroupAffinity
+// is actually called from the task thread; on other platforms the
+// SetProcessorGroup body is a no-op after Verify passes.
+var
+  didRun: boolean;
+  task  : IOmniTaskControl;
+begin
+  didRun := false;
+  task := CreateTask(
+    procedure (const tsk: IOmniTask)
+    begin
+      didRun := true;
+    end, 'ProcGroup-valid').ProcessorGroup(0).Run;
+  try
+    Assert.IsTrue(task.WaitFor(5000), 'Task did not terminate');
+    Assert.IsTrue(didRun, 'Task body did not run');
+  finally task := nil; end;
+end;
+
+procedure TestITaskControl.TestProcessorGroupInvalidRaises;
+// ProcessorGroup(n) raises synchronously from VerifyProcessorGroup
+// for negative or out-of-range values — no task startup needed.
+var
+  task: IOmniTaskControl;
+begin
+  task := CreateTask(
+    procedure (const tsk: IOmniTask) begin end, 'ProcGroup-invalid');
+  try
+    Assert.WillRaise(
+      procedure begin task.ProcessorGroup(-1); end,
+      Exception, 'Negative processor group must raise');
+    Assert.WillRaise(
+      procedure begin task.ProcessorGroup(999); end,
+      Exception, 'Out-of-range processor group must raise');
+  finally task := nil; end;
+end;
+
+procedure TestITaskControl.TestNUMANodeValidIsAccepted;
+// Same as ProcessorGroup: node 0 always exists (real on Windows,
+// faked on non-Windows).
+var
+  didRun: boolean;
+  task  : IOmniTaskControl;
+begin
+  didRun := false;
+  task := CreateTask(
+    procedure (const tsk: IOmniTask)
+    begin
+      didRun := true;
+    end, 'NUMANode-valid').NUMANode(0).Run;
+  try
+    Assert.IsTrue(task.WaitFor(5000), 'Task did not terminate');
+    Assert.IsTrue(didRun, 'Task body did not run');
+  finally task := nil; end;
+end;
+
+procedure TestITaskControl.TestNUMANodeInvalidRaises;
+// VerifyNUMANode raises when FindNode returns nil. Unlike
+// VerifyProcessorGroup (range check), it uses dictionary lookup,
+// so a nonexistent positive number also raises.
+var
+  task: IOmniTaskControl;
+begin
+  task := CreateTask(
+    procedure (const tsk: IOmniTask) begin end, 'NUMANode-invalid');
+  try
+    Assert.WillRaise(
+      procedure begin task.NUMANode(-1); end,
+      Exception, 'Negative NUMA node must raise');
+    Assert.WillRaise(
+      procedure begin task.NUMANode(999); end,
+      Exception, 'Nonexistent NUMA node must raise');
+  finally task := nil; end;
 end;
 
 type

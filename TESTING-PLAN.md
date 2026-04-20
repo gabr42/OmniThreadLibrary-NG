@@ -209,7 +209,24 @@ while the limitation is documented.
       cast to `string` inside an `array of const` — otherwise it
       types as `vtWideChar`, which `TOmniValue.Create(array of const)`
       at `OtlCommon.pas:1941` rejects with "invalid data type".
-- [ ] Group affinity / `SetProcessorGroupAffinity` paths
+- [x] Group affinity / `SetProcessorGroupAffinity` paths —
+      `TestTask.TestITaskControl` now covers the four branches of
+      the fluent `ProcessorGroup(n)` and `NUMANode(n)` builders:
+      `TestProcessorGroupValidIsAccepted` and
+      `TestNUMANodeValidIsAccepted` run a task with group/node 0
+      (always present: real on Windows, faked via
+      `TOmniEnvironment.CreateFakeNUMAInfo` at
+      `OtlCommon.pas:3963-3973` on Linux64/Android64), and
+      `TestProcessorGroupInvalidRaises` /
+      `TestNUMANodeInvalidRaises` assert that
+      `VerifyProcessorGroup` and `VerifyNUMANode` raise
+      synchronously for negative / out-of-range values — no task
+      startup needed. The `SetThreadGroupAffinity` /
+      `SetThreadAffinityMask` Windows APIs in `SetProcessorGroup`
+      and `SetNUMANode` are reached only on Windows (guarded by
+      `{$IFDEF MSWindows}` at `OtlTaskControl.pas:2645-2650`), but
+      the overall cross-platform invariant — valid values accepted,
+      invalid values rejected — holds on all targets.
 
 ## 4. Port existing stress tests to DUnitX + make cross-platform
 
