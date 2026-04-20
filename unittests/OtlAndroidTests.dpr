@@ -42,6 +42,7 @@ uses
   , TestOtlEventMonitor1 in 'TestOtlEventMonitor1.pas'
   , TestStressBlockingCollection1 in 'TestStressBlockingCollection1.pas'
   , TestStressOtlSync1 in 'TestStressOtlSync1.pas'
+  , TestStressBackgroundObserver1 in 'TestStressBackgroundObserver1.pas'
   , TestOtlLogger in 'TestOtlLogger.pas';
 
 {$R *.res}

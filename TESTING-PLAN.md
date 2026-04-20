@@ -426,7 +426,44 @@ suite so they run on Win32/Win64/Linux64/Android.
         Verified on all five targets: Win32/Win64 304 → 316;
         Linux64 304 → 319 (+3 ignored); Android64 304 → 319
         Passed=316 (+3 ignored); ARM64EC compile-only clean.
-- [ ] OtlBackgroundObserver concurrent registration/unregistration stress
+- [x] OtlBackgroundObserver concurrent registration/unregistration stress
+    - 2026-04-20: added `TestStressBackgroundObserver1.pas` with a
+        `[Category('Stress')]` fixture (excluded from default runs,
+        opt-in via `--include:Stress`). Three tests:
+        `StressTestNotifyStormCoalescing` — 4 producer threads spam
+        `Notify` on a single observer for 3 s while the owner thread
+        loops on `DrainBackgroundObservers`; asserts every producer
+        fired at least once, the callback fired at least once, and
+        `callbackCount ≤ notifyCount` (the coalescing invariant — the
+        pending-flag CAS in `APCCallback` / `DrainPending` must never
+        *inflate* the notify count on the owner side);
+        `StressTestConcurrentCreateRelease` — 4 worker threads ×
+        500 iterations each, each iteration creates an observer
+        targeting its own thread-ID, notifies, drains, releases (on
+        POSIX also register/unregister the observer and cleanup the
+        threadvar registry at worker exit); asserts all 2000
+        completions occurred with zero exceptions (stresses
+        `OpenThread`/`CloseHandle` + `AllocMem`/`FreeMem` on Windows
+        and the threadvar `TList<>` churn on POSIX);
+        `StressTestCrossThreadLifecycle` — observer is created on
+        the main thread targeting a transient owner worker thread,
+        4 producer threads hammer `Notify` while the owner drains,
+        then the owner is stopped and the observer is released on
+        the main thread *after* the target is gone (exercises the
+        observer's tolerance for a dead target thread handle).
+        Helper methods `MakeNotifyProducer` and
+        `MakeCreateReleaseWorker` pass their captured state by value
+        to sidestep the Delphi for-loop closure-capture trap
+        (CLAUDE.md). Added unit to `ConsoleTestRunner.dpr` and
+        `OtlAndroidTests.dpr`; patched the Linux64 staged `.lnk` via
+        `C:\tmp_otl_link\add_teststressbgobs.py` (Linux64 paths use
+        single backslashes, not the double-backslash format that the
+        earlier `add_otllogger.py` used). Verified: Win32/Win64
+        3/3 stress tests pass; Linux64 3/3 stress tests pass (WSL
+        manual link); Android64 compiles and the default
+        auto-run excludes `Stress` so behaviour is unchanged
+        (316/319 Passed=316 +3 Ignored on Linux64/Android64);
+        ARM64EC compile-only clean.
 - [ ] OtlContainerObserver snapshot-delivery concurrency (1.05 deadlock fix)
 
 ---
