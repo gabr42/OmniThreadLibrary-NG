@@ -32,7 +32,11 @@ uses
   , TestUnobserved in 'TestUnobserved.pas'
   , TestOtlParallel in 'TestOtlParallel.pas'
   , TestRegressions in 'TestRegressions.pas'
-  , TestBackgroundObserver1 in 'TestBackgroundObserver1.pas';
+  , TestBackgroundObserver1 in 'TestBackgroundObserver1.pas'
+  , TestChannel1 in 'TestChannel1.pas'
+  , TestSelect1 in 'TestSelect1.pas'
+  , TestMergeRace1 in 'TestMergeRace1.pas'
+  , TestHooks1 in 'TestHooks1.pas';
 
 {$R *.res}
 
