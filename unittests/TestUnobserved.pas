@@ -48,6 +48,7 @@ uses
   System.SysUtils,
   System.Diagnostics,
   System.SyncObjs,
+  OtlBackgroundObserver,
   OtlCommon,
   OtlSync,
   OtlTask,
@@ -89,28 +90,46 @@ begin
   inherited;
 end;
 
-{ Helper: wait for a boolean flag to become true, pumping CheckSynchronize.
-  Returns true if the flag was set within the timeout. }
+{ Helper: wait for a boolean flag to become true, pumping the owner thread's
+  delivery mechanism. On the main thread we call CheckSynchronize (which
+  drains TThread.Queue/ForceQueue items). On a worker thread that owns a
+  task (FMX runner dispatches tests on a worker), we call
+  DrainBackgroundObservers to fire any OnTerminated/OnMessage callbacks the
+  task has posted to this thread's bg-observer registry. }
 
 function WaitForFlag(var flag: boolean; timeout_ms: cardinal): boolean;
 var
   sw: TStopwatch;
+  onMain: boolean;
 begin
+  onMain := TThread.CurrentThread.ThreadID = MainThreadID;
   sw := TStopwatch.StartNew;
-  while (not flag) and (sw.ElapsedMilliseconds < timeout_ms) do
-    CheckSynchronize(10);
+  while (not flag) and (sw.ElapsedMilliseconds < timeout_ms) do begin
+    if onMain then
+      CheckSynchronize(10)
+    else begin
+      DrainBackgroundObservers;
+      Sleep(10);
+    end;
+  end;
   Result := flag;
 end;
 
-{ Helper: wait for an integer to reach a target value, pumping CheckSynchronize. }
+{ Helper: wait for an integer to reach a target value. Same main-vs-worker
+  dispatch discipline as WaitForFlag. }
 
 function WaitForCount(var counter: integer; target: integer; timeout_ms: cardinal): boolean;
 var
   sw: TStopwatch;
+  onMain: boolean;
 begin
+  onMain := TThread.CurrentThread.ThreadID = MainThreadID;
   sw := TStopwatch.StartNew;
   while (counter <> target) and (sw.ElapsedMilliseconds < timeout_ms) do begin
-    CheckSynchronize(0);
+    if onMain then
+      CheckSynchronize(0)
+    else
+      DrainBackgroundObservers;
     Sleep(1);
   end;
   Result := counter = target;
@@ -341,7 +360,8 @@ begin
     .Schedule;
     Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
       Format('Task %d did not run within timeout', [n]));
-    CheckSynchronize(0);
+    if TThread.CurrentThread.ThreadID = MainThreadID then
+      CheckSynchronize(0);
   end;
 end;
 
@@ -361,7 +381,8 @@ begin
     .Run;
     Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
       Format('Task %d did not run within timeout', [n]));
-    CheckSynchronize(0);
+    if TThread.CurrentThread.ThreadID = MainThreadID then
+      CheckSynchronize(0);
   end;
 end;
 

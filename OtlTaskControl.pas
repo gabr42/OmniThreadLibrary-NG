@@ -34,10 +34,19 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
-///   Last modification : 2026-04-14
-///   Version           : 3.02
+///   Last modification : 2026-04-19
+///   Version           : 3.03
 ///</para><para>
 ///   History:
+///     3.03: 2026-04-19
+///       - Fixed OnTerminated not firing for non-main-thread task owners
+///         when the task body never sends a comm message. The background
+///         observer (registered by CreateInternalMonitor in the non-main-
+///         thread branch) is now explicitly notified from
+///         TOmniTask.InternalExecute at task termination, so ProcessMessages
+///         fires on the owner thread and ForwardTaskTerminated delivers the
+///         OnTerminated callback. Added BackgroundObserver property to
+///         TOmniSharedTaskInfo so the task side can reach the observer.
 ///     3.02: 2026-04-14
 ///       - Fixed uninitialized output parameters (taskFunc, msgName, msgData)
 ///         in GetMethodNameFromInternalMessage.
@@ -412,6 +421,7 @@ type
   strict private
     ostiCancellationToken : IOmniCancellationToken; // must be the first field for alignment
   strict private
+    ostiBackgroundObserver: Pointer; {weak IOmniContainerBackgroundObserver — kept alive by TOmniTaskControl.otcBackgroundObserver}
     ostiChainIgnoreErrors : boolean;
     ostiChainTo           : IOmniTaskControl;
     ostiCommChannel       : IOmniTwoWayChannel;
@@ -437,6 +447,7 @@ type
   public
     constructor Create;
     function  ReleaseUnobservedRef: IOmniTaskControl;
+    property BackgroundObserver: Pointer read ostiBackgroundObserver write ostiBackgroundObserver;
     property CancellationToken: IOmniCancellationToken read GetCancellationToken;
     property ChainIgnoreErrors: boolean read ostiChainIgnoreErrors write ostiChainIgnoreErrors;
     property ChainTo: IOmniTaskControl read ostiChainTo write ostiChainTo;
@@ -1401,6 +1412,14 @@ begin
           sync := otSharedInfo_ref.MonitorLock.SyncObj;
           if assigned(otSharedInfo_ref.Monitor) then
             otSharedInfo_ref.Monitor.MonitorNotify.NotifyTerminated(UniqueID);
+          // Background observer is used for non-main-thread owners. Notify it
+          // explicitly so ProcessMessages fires on the owner thread even when
+          // the task body never sends a comm message (the ContainerSubject
+          // hook covers only the message path). The pointer is a weak ref;
+          // the observer is kept alive by TOmniTaskControl.otcBackgroundObserver
+          // under MonitorLock (same lock that clears the pointer in Terminate).
+          if assigned(otSharedInfo_ref.BackgroundObserver) then
+            IOmniContainerBackgroundObserver(otSharedInfo_ref.BackgroundObserver).Notify;
           unobservedRef := otSharedInfo_ref.ReleaseUnobservedRef;
           otSharedInfo_ref := nil;
         finally
@@ -2835,6 +2854,15 @@ begin
     var bgObs: IOmniContainerBackgroundObserver := CreateContainerBackgroundObserver(otcOwnerThreadID,
       procedure begin Self.ProcessMessages end);
     otcBackgroundObserver := bgObs;
+    // Publish a weak reference to the observer in SharedTaskInfo so the task
+    // side can notify it at termination (see TOmniTask.InternalExecute).
+    // Without this, the observer fires only when the task sends a comm
+    // message — tasks that exit without sending (very common with
+    // Unobserved+OnTerminated) would never deliver OnTerminated to a
+    // non-main-thread owner. The strong ref lives on otcBackgroundObserver;
+    // storing the interface instead would create a ref cycle through the
+    // ProcessMessages closure capture of Self.
+    otcSharedInfo.BackgroundObserver := Pointer(bgObs);
     otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Attach(
       bgObs, coiNotifyOnAllInserts);
     // If owner is an OTL worker task, register notification event in its wait set
@@ -3496,6 +3524,7 @@ begin
     otcOwnerExecutor_ref := nil;
     otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Detach(
       bgObs, coiNotifyOnAllInserts);
+    otcSharedInfo.BackgroundObserver := nil;
     bgObs := nil;
     otcBackgroundObserver := nil;
   end;
