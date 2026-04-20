@@ -139,9 +139,22 @@ while the limitation is documented.
 
 ## 3. OtlTaskControl — expand from 7 tests
 
-- [ ] Background-observer integration: non-main-thread task owner gets
+- [x] Background-observer integration: non-main-thread task owner gets
       `OnTerminated` fired exactly once (regression for 3.03 sync-delivery
-      + dispatcher fixes in commit 24a5162)
+      + dispatcher fixes in commit 24a5162) —
+      `TestRegressions.TestBugfixes.TestBgObserverOnTerminatedFromBgThread`:
+      100 iterations inside a `TThread.CreateAnonymousThread` owner,
+      each creating an `Unobserved` task with `OnTerminated`. Owner
+      calls `DrainBackgroundObservers` in a bounded poll loop until all
+      fire (30 s budget). Asserts `fireCount = 100`. Covers the two
+      paired fixes: (a) synchronous `ForwardTaskTerminated` from worker
+      thread when a bg observer is active (prevents drop when the
+      Unobserved cleanup thread frees the control before the owner
+      drains), and (b) `TOmniTaskControlDispatcher` lock-serialized
+      proxy so the drained closure can never touch a freed control.
+      On Win32/Win64/Linux64 the DUnitX runner executes on the main
+      thread, so this is the only non-main-thread-owner coverage; on
+      Android64 the whole suite already runs on a worker thread
 - [ ] Message filtering / `RegisterComm` / multiple comm channels
 - [ ] Exception-in-worker propagation via `FatalException`
 - [ ] `Invoke` with varying argument counts / types

@@ -20,14 +20,17 @@ type
     procedure TestPipelineClosureCapturePerStage;
     [Test]
     procedure TestOmniValueCreateLeakOnInvalidType;
+    [Test]
+    procedure TestBgObserverOnTerminatedFromBgThread;
   end;
 
 implementation
 
 uses
-  System.Classes, System.SysUtils, System.SyncObjs,
+  System.Classes, System.SysUtils, System.SyncObjs, System.Diagnostics,
   System.Generics.Collections,
-  OtlCommon, OtlSync, OtlParallel, OtlCollections;
+  OtlCommon, OtlSync, OtlParallel, OtlCollections, OtlTask, OtlTaskControl,
+  OtlBackgroundObserver;
 
 procedure TestBugfixes.TestTOmniValueArrayInt64Cast;
 var
@@ -280,6 +283,83 @@ begin
   end;
   Assert.IsTrue(raised,
     'Expected TOmniValue.Create to raise on invalid data type');
+end;
+
+procedure TestBugfixes.TestBgObserverOnTerminatedFromBgThread;
+// Regression for commit 24a5162 (OtlTaskControl.pas background-observer
+// sync-delivery + UAF-safe dispatcher).
+//
+// When a task is created from a non-main thread, OnTerminated is wired via
+// the bg-observer drain path on the owner thread. Two prior bugs:
+//
+//   1. Drop: the Unobserved cleanup thread could free the TaskControl before
+//      the owner drained the observer, so OnTerminated was never invoked.
+//      Fix: fire OnTerminated synchronously from the worker thread when a
+//      bg observer is active (ForwardTaskTerminated is idempotent).
+//
+//   2. UAF: the observer's closure held a raw `Self` reference into the
+//      TaskControl; if the control was freed while the observer still sat
+//      in the owner's threadvar registry, the next drain touched freed
+//      memory. Fix: wrap Self in a lock-serialized TOmniTaskControlDispatcher
+//      whose Clear (called from Destroy) is mutually exclusive with Dispatch.
+//
+// Test: a background TThread creates N Unobserved tasks with OnTerminated
+// and drains its observer registry. Asserts all N callbacks fire. On
+// Win32/Win64/Linux64 the DUnitX runner itself executes on the main thread,
+// so this is the only non-main-thread-owner coverage; on Android the whole
+// suite already runs on a worker thread and exercises the path end-to-end.
+const
+  CIterations = 100;
+  CTimeout_ms = 30000;
+var
+  bgDone    : IOmniEvent;
+  fireCount : integer;
+  bgThread  : TThread;
+begin
+  bgDone := CreateOmniEvent(true, false);
+  fireCount := 0;
+
+  bgThread := TThread.CreateAnonymousThread(
+    procedure
+    var
+      k : integer;
+      sw: TStopwatch;
+    begin
+      try
+        for k := 1 to CIterations do begin
+          CreateTask(
+            procedure (const task: IOmniTask)
+            begin
+              // exits immediately
+            end, 'bg-owner Unobserved')
+          .Unobserved
+          .OnTerminated(
+            procedure (const task: IOmniTaskControl)
+            begin
+              TInterlocked.Increment(fireCount);
+            end)
+          .Run;
+        end;
+
+        sw := TStopwatch.StartNew;
+        while (fireCount < CIterations) and (sw.ElapsedMilliseconds < CTimeout_ms) do begin
+          DrainBackgroundObservers;
+          Sleep(10);
+        end;
+      finally bgDone.SetEvent; end;
+    end);
+  bgThread.FreeOnTerminate := false;
+  bgThread.Start;
+  try
+    Assert.AreEqual(wrSignaled, bgDone.WaitFor(CTimeout_ms + 5000),
+      'Background owner thread did not finish in time');
+  finally
+    bgThread.WaitFor;
+    bgThread.Free;
+  end;
+
+  Assert.AreEqual(CIterations, fireCount,
+    'OnTerminated fire count mismatch — bg-observer drop regression');
 end;
 
 end.
