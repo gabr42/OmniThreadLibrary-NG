@@ -32,11 +32,19 @@ workers and skipping cleanup.
 
 ### 1b. OtlEventMonitor (no test file)
 
-- [ ] Create `unittests/TestOtlEventMonitor1.pas`
-- [ ] Test `OnTaskMessage` / `OnTaskTerminated` delivery
-- [ ] Test `ProcessTerminated` filtering — assert internal OTL messages
+- [x] Create `unittests/TestOtlEventMonitor1.pas`
+- [x] Test `OnTaskMessage` / `OnTaskTerminated` delivery
+- [x] Test `ProcessTerminated` filtering — assert internal OTL messages
       don't leak to user handler (2.0e regression)
-- [ ] Test monitor detach/destroy while tasks are still running
+- [x] Test monitor detach/destroy while tasks are still running
+
+**Incidental finding while writing these tests**: `TOmniThreadPool.MonitorWith`
+is guarded by `{$IFDEF MSWINDOWS}` in `OtlThreadPool.pas:1751` — the call
+`monitor.Monitor(Self)` is a no-op on Linux64/Android64, so pool-level
+events (`OnPoolThreadCreated`, `OnPoolWorkItemCompleted`, etc.) never fire
+on non-Windows targets. `TestMonitorPoolWorkItemCompleted` is runtime-skipped
+on `{$IFNDEF MSWINDOWS}` with a `Assert.Pass` so the test suite stays green
+while the limitation is documented.
 
 ### 1c. OtlContainers (thin — 8 tests for 2000 LOC)
 

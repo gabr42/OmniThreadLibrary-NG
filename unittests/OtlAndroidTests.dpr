@@ -37,7 +37,8 @@ uses
   , TestSelect1 in 'TestSelect1.pas'
   , TestMergeRace1 in 'TestMergeRace1.pas'
   , TestHooks1 in 'TestHooks1.pas'
-  , TestOtlThreadPool1 in 'TestOtlThreadPool1.pas';
+  , TestOtlThreadPool1 in 'TestOtlThreadPool1.pas'
+  , TestOtlEventMonitor1 in 'TestOtlEventMonitor1.pas';
 
 {$R *.res}
 

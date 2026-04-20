@@ -41,6 +41,7 @@ uses
   , TestOtlParallel in 'TestOtlParallel.pas'
   , TestUnobserved in 'TestUnobserved.pas'
   , TestOtlThreadPool1 in 'TestOtlThreadPool1.pas'
+  , TestOtlEventMonitor1 in 'TestOtlEventMonitor1.pas'
   ;
 
 {$IFNDEF TESTINSIGHT}
