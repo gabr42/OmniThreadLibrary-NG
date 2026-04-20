@@ -82,9 +82,13 @@ while the limitation is documented.
 
 ## 2. Regression tests for recent "fix-without-a-test" commits
 
-- [ ] **Gate-leak race in TWaitFor** (commit ac3f364) —
-      long-running loop of `PerformObservableAction` racing with
-      `TWaitFor.Destroy`; assert no gate leak and no deadlock
+- [x] **Gate-leak race in TWaitFor** (commit ac3f364) —
+      `TestRegressions.TestBugfixes.TestWaitForGateLeakRace`: 20000
+      iterations of `event.SetEvent`/`event.Reset` (each triggers
+      `PerformObservableAction`→`EnterGate`) while a background
+      thread creates and destroys `TWaitFor.Create([event])`. Uses
+      `wfDone.WaitFor(30000 ms)` as deadlock detector — before the
+      fix the race would leak the gate, hanging the next `SetEvent`
 - [ ] **TThreadID range-check** (commit 24a5162) — compile a dproj with
       `DCC_RangeChecking=true` on non-Android, run pool tests, assert
       no `ERangeError`
