@@ -268,8 +268,17 @@ suite so they run on Win32/Win64/Linux64/Android.
         builds the filter manually via
         `TDUnitX.Filter := TDUnitXFilterBuilder.BuildFilter(TDUnitX.Options)`
         after setting `Options.Exclude := 'Stress'`.
-- [ ] Decide fate of `StressTestRunner.dpr`/`.dproj`: delete once ported,
+- [x] Decide fate of `StressTestRunner.dpr`/`.dproj`: delete once ported,
       or keep as a Windows-only high-iteration harness
+      - Deleted. Both legacy DUnit units (`StressTestBlockingCollection1.pas`
+        and `StressTestOtlSync1.pas`) added nothing unique over the DUnitX
+        ports; the only non-ported code was a dead `InitializeCS` local in
+        `StressTestOtlSync1.pas` (never registered with any task) and an
+        unreferenced `TMemLeakCheckObj` scaffold in
+        `StressTestBlockingCollection1.pas` — and that pattern is already
+        used in `TestBlockingCollection1.TestOmniValueObjectleak`.
+      - Also removed the MultiBuilder scripts `StressTest.mbenv` and
+        `StressTest.mbproj` that drove the legacy Win32/Win64 stress runs.
 
 ## 5. Cross-cutting / infrastructure
 
@@ -283,7 +292,8 @@ suite so they run on Win32/Win64/Linux64/Android.
         Android).
       - To run stress tests on demand: `ConsoleTestRunner.exe --include:Stress`.
 - [ ] Add memory-leak assertions to more tests (follow the
-      `TMemLeakCheckObj` pattern from `StressTestBlockingCollection1`)
+      `TMemLeakCheckObj` pattern from `TestBlockingCollection1`
+      — see `TestOmniValueObjectleak`)
 - [ ] Audit tests for hard-coded `Sleep(...)` timing — replace with
       event-driven waits where feasible to reduce CI flakiness
 - [ ] Document how to run the full suite across all four platforms in
