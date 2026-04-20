@@ -3,7 +3,7 @@ object MobileGUITestRunner: TMobileGUITestRunner
   Top = 0
   Caption = 'Form1'
   ClientHeight = 544
-  ClientWidth = 774
+  ClientWidth = 776
   FormFactor.Width = 320
   FormFactor.Height = 480
   FormFactor.Devices = [Desktop]
@@ -13,12 +13,12 @@ object MobileGUITestRunner: TMobileGUITestRunner
   DesignerMasterStyle = 2
   object Panel1: TPanel
     Align = Client
-    Size.Width = 774.000000000000000000
+    Size.Width = 776.000000000000000000
     Size.Height = 544.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 0
     object ToolBar1: TToolBar
-      Size.Width = 774.000000000000000000
+      Size.Width = 776.000000000000000000
       Size.Height = 44.000000000000000000
       Size.PlatformDefault = False
       TabOrder = 0
@@ -47,13 +47,18 @@ object MobileGUITestRunner: TMobileGUITestRunner
     object TabControl1: TTabControl
       Align = Client
       FullSize = True
-      Size.Width = 774.000000000000000000
+      Size.Width = 776.000000000000000000
       Size.Height = 500.000000000000000000
       Size.PlatformDefault = False
       TabHeight = 49.000000000000000000
       TabIndex = 0
       TabOrder = 1
       TabPosition = PlatformDefault
+      Sizes = (
+        776s
+        451s
+        776s
+        451s)
       object TestsTab: TTabItem
         CustomIcon = <
           item
@@ -62,6 +67,7 @@ object MobileGUITestRunner: TMobileGUITestRunner
         Size.Width = 387.000000000000000000
         Size.Height = 49.000000000000000000
         Size.PlatformDefault = False
+        StyleLookup = ''
         TabOrder = 0
         Text = 'Tests'
         ExplicitSize.cx = 387.000000000000000000
@@ -72,7 +78,7 @@ object MobileGUITestRunner: TMobileGUITestRunner
           HeaderAppearanceClassName = 'TListHeaderObjects'
           FooterAppearanceClassName = 'TListHeaderObjects'
           Align = Client
-          Size.Width = 774.000000000000000000
+          Size.Width = 776.000000000000000000
           Size.Height = 451.000000000000000000
           Size.PlatformDefault = False
           TabOrder = 0
@@ -91,19 +97,20 @@ object MobileGUITestRunner: TMobileGUITestRunner
         Size.Width = 387.000000000000000000
         Size.Height = 49.000000000000000000
         Size.PlatformDefault = False
+        StyleLookup = ''
         TabOrder = 0
         Text = 'Results'
         ExplicitSize.cx = 387.000000000000000000
         ExplicitSize.cy = 49.000000000000000000
         object Panel2: TPanel
           Align = Client
-          Size.Width = 50.000000000000000000
-          Size.Height = 50.000000000000000000
+          Size.Width = 776.000000000000000000
+          Size.Height = 451.000000000000000000
           Size.PlatformDefault = False
           TabOrder = 0
           object Panel3: TPanel
             Align = Top
-            Size.Width = 50.000000000000000000
+            Size.Width = 776.000000000000000000
             Size.Height = 120.000000000000000000
             Size.PlatformDefault = False
             TabOrder = 0
@@ -156,6 +163,7 @@ object MobileGUITestRunner: TMobileGUITestRunner
             Align = Left
             Position.Y = 120.000000000000000000
             Size.Width = 321.000000000000000000
+            Size.Height = 331.000000000000000000
             Size.PlatformDefault = False
             TabOrder = 1
             OnItemClick = FailListItemClick
@@ -165,12 +173,12 @@ object MobileGUITestRunner: TMobileGUITestRunner
             DataDetectorTypes = []
             ReadOnly = True
             Align = Client
-            Size.Width = -279.000000000000000000
-            Size.Height = -70.000000000000000000
+            Size.Width = 447.000000000000000000
+            Size.Height = 331.000000000000000000
             Size.PlatformDefault = False
             TabOrder = 2
-            Viewport.Width = 42.000000000000000000
-            Viewport.Height = 42.000000000000000000
+            Viewport.Width = 447.000000000000000000
+            Viewport.Height = 331.000000000000000000
           end
           object Splitter1: TSplitter
             Align = Left
@@ -179,6 +187,7 @@ object MobileGUITestRunner: TMobileGUITestRunner
             Position.X = 321.000000000000000000
             Position.Y = 120.000000000000000000
             Size.Width = 8.000000000000000000
+            Size.Height = 331.000000000000000000
             Size.PlatformDefault = False
           end
         end

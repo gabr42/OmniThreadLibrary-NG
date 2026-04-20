@@ -34,7 +34,8 @@ uses
   System.SysUtils, System.Types, System.UITypes, System.Classes, System.Variants,
   FMX.Types, FMX.Controls, FMX.Forms, FMX.Graphics, FMX.Dialogs, DUnitX.TestFramework,
   DUnitX.Extensibility, FMX.Controls.Presentation, FMX.StdCtrls, FMX.ListView.Types, FMX.ListView,
-  FMX.ListView.Appearances, FMX.TabControl, System.Generics.Collections, FMX.ScrollBox, FMX.Memo;
+  FMX.ListView.Appearances, FMX.TabControl, System.Generics.Collections, FMX.ScrollBox, FMX.Memo,
+  FMX.ListView.Adapters.Base, FMX.Memo.Types, Androidapi.Log;
 
 type
   TMobileGUITestRunner = class(TForm, ITestLogger)
@@ -74,6 +75,9 @@ type
     FChecked: TList<Integer>;
     FLastResults: IRunResults;
     FFailedTests: TDictionary<String, ITestResult>;
+    FAutoRunFired: boolean;
+    procedure EnableAllTests(const AList: ITestFixtureList);
+    procedure AutoRun;
   protected
     procedure OnTestingStarts(const threadId: TThreadID; testCount, testActiveCount: Cardinal);
     procedure OnStartTestFixture(const threadId: TThreadID; const fixture: ITestFixtureInfo);
@@ -112,6 +116,13 @@ uses
 
 { TMobileGUITestRunner }
 
+procedure DLog(const msg: string);
+var utf8: RawByteString;
+begin
+  utf8 := UTF8Encode('OTL_DIAG: ' + msg);
+  __android_log_write(ANDROID_LOG_INFO, MarshaledAString(RawByteString('OTL_DIAG')), MarshaledAString(utf8));
+end;
+
 procedure TMobileGUITestRunner.FailListItemClick(const Sender: TObject;
   const AItem: TListViewItem);
 var
@@ -127,10 +138,13 @@ var
   NUnitLogger: ITestLogger;
 {$ENDIF}
 begin
+  DLog('FormCreate begin');
   FFailedTests := TDictionary<String, ITestResult>.Create;
   FChecked := TList<Integer>.Create;
   FTestRunner := TDUnitX.CreateRunner;
+  FTestRunner.UseRTTI := True;
   FTestRunner.AddLogger(Self);
+  DLog('FormCreate: runner created');
 {$IFDEF CI}
   NUnitLogger := TDUnitXXMLNUnitFileLogger.Create(TDUnitX.Options.XMLOutputFile);
   FTestRunner.AddLogger(NUnitLogger);
@@ -177,15 +191,93 @@ procedure TMobileGUITestRunner.FormShow(Sender: TObject);
     end;
   end;
 
+var
+  lf: ITestFixture;
+  nf: integer;
 begin
-  FFixtureList := FTestRunner.BuildFixtures as ITestFixtureList;
+  DLog('FormShow begin');
+  try
+    FFixtureList := FTestRunner.BuildFixtures as ITestFixtureList;
+  except
+    on E: Exception do begin
+      DLog('FormShow: BuildFixtures RAISED ' + E.ClassName + ': ' + E.Message);
+      raise;
+    end;
+  end;
+  nf := 0;
+  for lf in FFixtureList do Inc(nf);
+  DLog('FormShow: top-level fixtures = ' + IntToStr(nf));
   BuildTree(FFixtureList);
+  DLog('FormShow: ListView items = ' + IntToStr(TestsListView.Items.Count));
+  if not FAutoRunFired then begin
+    FAutoRunFired := True;
+    TThread.ForceQueue(nil,
+      procedure
+      begin
+        AutoRun;
+      end);
+  end;
+end;
+
+procedure TMobileGUITestRunner.EnableAllTests(const AList: ITestFixtureList);
+var
+  fixture: ITestFixture;
+  test: ITest;
+begin
+  for fixture in AList do begin
+    for test in fixture.Tests do
+      test.Enabled := True;
+    if fixture.HasChildFixtures then
+      EnableAllTests(fixture.Children);
+  end;
+end;
+
+procedure TMobileGUITestRunner.AutoRun;
+var
+  worker: TThread;
+begin
+  DLog('AutoRun begin (main thread)');
+  EnableAllTests(FFixtureList);
+  worker := TThread.CreateAnonymousThread(
+    procedure
+    var results: IRunResults;
+    begin
+      DLog('AutoRun: executing on worker thread...');
+      try
+        results := FTestRunner.Execute;
+        DLog('AutoRun: TestCount=' + IntToStr(results.TestCount) +
+             ' Passed='  + IntToStr(results.PassCount) +
+             ' Failed='  + IntToStr(results.FailureCount) +
+             ' Errors='  + IntToStr(results.ErrorCount) +
+             ' Leaks='   + IntToStr(results.MemoryLeakCount) +
+             ' Ignored=' + IntToStr(results.IgnoredCount));
+      except
+        on E: Exception do begin
+          DLog('AutoRun worker RAISED ' + E.ClassName + ': ' + E.Message);
+          exit;
+        end;
+      end;
+      TThread.Queue(nil,
+        procedure
+        begin
+          FLastResults := results;
+          RunsLabel.Text    := IntToStr(results.TestCount);
+          FailLabel.Text    := IntToStr(results.FailureCount);
+          SuccessLabel.Text := IntToStr(results.PassCount);
+          LeakedLabel.Text  := IntToStr(results.MemoryLeakCount);
+          ProgressLabel.Text := STestRunComplete;
+          TestProgress.Value := 100;
+          DLog('AutoRun: UI updated, done');
+        end);
+    end);
+  worker.FreeOnTerminate := True;
+  worker.Start;
 end;
 
 procedure TMobileGUITestRunner.OnBeginTest(const threadId: TThreadID;
   const Test: ITestInfo);
 begin
-  ProgressLabel.Text := SRunning + Test.Name;
+  DLog('-> ' + Test.FullName);
 end;
 
 procedure TMobileGUITestRunner.OnEndSetupFixture(const threadId: TThreadID;
@@ -215,18 +307,23 @@ end;
 procedure TMobileGUITestRunner.OnEndTest(const threadId: TThreadID;
   const Test: ITestResult);
 var
-  LItem: TListViewItem;
+  capturedTest: ITestResult;
 begin
-  if (Test.ResultType = TTestResultType.Failure)
-   or (Test.ResultType = TTestResultType.Error)
-   or (Test.ResultType = TTestResultType.MemoryLeak) then
-  begin
-    FFailedTests.Add(Test.Test.FullName, Test);
-    LItem := FailList.Items.Add;
-    LItem.Text := Test.Test.Name;
-    LItem.Detail := Test.Test.FullName;
-  end;
-  TestProgress.Value := TestProgress.Value + 100/FChecked.Count;
+  capturedTest := Test;
+  TThread.Queue(nil,
+    procedure
+    var LItem: TListViewItem;
+    begin
+      if (capturedTest.ResultType = TTestResultType.Failure)
+       or (capturedTest.ResultType = TTestResultType.Error)
+       or (capturedTest.ResultType = TTestResultType.MemoryLeak) then
+      begin
+        FFailedTests.AddOrSetValue(capturedTest.Test.FullName, capturedTest);
+        LItem := FailList.Items.Add;
+        LItem.Text   := capturedTest.Test.Name;
+        LItem.Detail := capturedTest.Test.FullName;
+      end;
+    end);
 end;
 
 procedure TMobileGUITestRunner.OnEndTestFixture(const threadId: TThreadID;
@@ -280,19 +377,19 @@ end;
 procedure TMobileGUITestRunner.OnTestError(const threadId: TThreadID;
   const Error: ITestError);
 begin
-
+  DLog('ERROR ' + Error.Test.FullName + ': ' + Error.Message);
 end;
 
 procedure TMobileGUITestRunner.OnTestFailure(const threadId: TThreadID;
   const Failure: ITestError);
 begin
-
+  DLog('FAIL ' + Failure.Test.FullName + ': ' + Failure.Message);
 end;
 
 procedure TMobileGUITestRunner.OnTestIgnored(const threadId: TThreadID;
   const AIgnored: ITestResult);
 begin
-
+  DLog('IGNORED ' + AIgnored.Test.FullName);
 end;
 
 procedure TMobileGUITestRunner.OnTestingEnds(const RunResults: IRunResults);
