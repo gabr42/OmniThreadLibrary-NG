@@ -14,6 +14,10 @@ type
     procedure TestBasics;
     [Test]
     procedure TestNewMessageEvent;
+    [Test]
+    procedure TestDestroyReleasesOwnedObjects;
+    [Test]
+    procedure TestEmptyReleasesOwnedObjects;
   end;
 
   [TestFixture]
@@ -50,8 +54,31 @@ uses
   Winapi.Windows,
   {$ENDIF}
   System.SysUtils, System.Types, System.Classes, System.Threading,
+  System.SyncObjs,
   OtlSync, OtlSync.Utils,
   OtlCommon, OtlComm;
+
+type
+  TLeakCheckObj = class
+  public
+    constructor Create;
+    destructor  Destroy; override;
+  end;
+
+var
+  GLeakCheckObjCount: integer = 0;
+
+constructor TLeakCheckObj.Create;
+begin
+  inherited Create;
+  TInterlocked.Increment(GLeakCheckObjCount);
+end;
+
+destructor TLeakCheckObj.Destroy;
+begin
+  TInterlocked.Decrement(GLeakCheckObjCount);
+  inherited;
+end;
 
 { TestOmniMessageQueue }
 
@@ -116,6 +143,63 @@ begin
     CheckEvent(false, '#3');
     msg := mq.Dequeue;
     CheckEvent(false, '#4');
+  finally FreeAndNil(mq); end;
+end;
+
+// Helper confines the temporary object produced by TLeakCheckObj.Create to
+// its own scope. Without this the compiler keeps a hidden refcounted temp
+// alive until the caller's procedure exits — the same Delphi quirk that
+// drives TestBlockingCollection1.FillOmniValueWithOwnedObject.
+procedure EnqueueOwnedLeakObj(mq: TOmniMessageQueue; msgID: integer);
+var
+  msg: TOmniMessage;
+begin
+  msg.MsgID := msgID;
+  msg.MsgData.AsOwnedObject := TLeakCheckObj.Create;
+  Assert.IsTrue(mq.Enqueue(msg),
+    Format('EnqueueOwnedLeakObj: Enqueue #%d failed', [msgID]));
+end;
+
+procedure TestOmniMessageQueue.TestDestroyReleasesOwnedObjects;
+// Regression: undelivered messages carrying AsOwnedObject payloads must be
+// released when the queue is destroyed. Destroy calls Empty, which dequeues
+// every remaining TOmniMessage; each MsgData's TOmniValue destructor then
+// frees the owned object.
+const
+  CMsgCount = 3;
+var
+  i: integer;
+begin
+  GLeakCheckObjCount := 0;
+  var mq := TOmniMessageQueue.Create(CMsgCount);
+  try
+    for i := 1 to CMsgCount do
+      EnqueueOwnedLeakObj(mq, i);
+    Assert.AreEqual<integer>(CMsgCount, GLeakCheckObjCount,
+      'owned objects should be alive while queued');
+  finally FreeAndNil(mq); end;
+  Assert.AreEqual<integer>(0, GLeakCheckObjCount,
+    'owned objects leaked after queue destroy');
+end;
+
+procedure TestOmniMessageQueue.TestEmptyReleasesOwnedObjects;
+// Explicit Empty path: same invariant as destroy, but while the queue is
+// still alive. Confirms Empty isn't only discarding slot ownership.
+const
+  CMsgCount = 3;
+var
+  i: integer;
+begin
+  GLeakCheckObjCount := 0;
+  var mq := TOmniMessageQueue.Create(CMsgCount);
+  try
+    for i := 1 to CMsgCount do
+      EnqueueOwnedLeakObj(mq, i);
+    Assert.AreEqual<integer>(CMsgCount, GLeakCheckObjCount,
+      'owned objects should be alive while queued');
+    mq.Empty;
+    Assert.AreEqual<integer>(0, GLeakCheckObjCount,
+      'owned objects leaked after Empty');
   finally FreeAndNil(mq); end;
 end;
 

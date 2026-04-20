@@ -36,6 +36,7 @@ type
     [Test] procedure TestFatalExceptionFromAnonymousTask;
     [Test] procedure TestFatalExceptionFromWorker;
     [Test] procedure TestDetachExceptionTransfersOwnership;
+    [Test] procedure TestFatalExceptionFreedOnTaskDestroy;
     [Test] procedure TestNoExceptionMeansNilFatalException;
   end;
 
@@ -765,11 +766,32 @@ const
 type
   EWorkerTestException = class(Exception);
 
+  ECountedWorkerException = class(Exception)
+  public
+    constructor Create(const msg: string);
+    destructor  Destroy; override;
+  end;
+
   TRaisingWorker = class(TOmniWorker)
   public
     constructor Create;
     procedure HandleRaise(var msg: TOmniMessage); message MSG_RAISE;
   end;
+
+var
+  GCountedWorkerExceptionCount: integer = 0;
+
+constructor ECountedWorkerException.Create(const msg: string);
+begin
+  inherited Create(msg);
+  TInterlocked.Increment(GCountedWorkerExceptionCount);
+end;
+
+destructor ECountedWorkerException.Destroy;
+begin
+  TInterlocked.Decrement(GCountedWorkerExceptionCount);
+  inherited;
+end;
 
 constructor TRaisingWorker.Create;
 begin
@@ -854,6 +876,47 @@ begin
         'FatalException must be nil after DetachException');
     finally FreeAndNil(detached); end;
   finally task := nil; end;
+end;
+
+procedure RunRaisingTaskAndWait;
+// Bounding the IOmniTaskControl to this helper's scope ensures that when
+// RunRaisingTaskAndWait returns, the only ref is the one released by the
+// `task := nil` inside the finally. A local IOmniTaskControl in the test
+// procedure would be kept alive by compiler-generated expression temps until
+// the test procedure exits (same quirk documented in
+// TestBlockingCollection1.FillOmniValueWithOwnedObject).
+var
+  task: IOmniTaskControl;
+begin
+  task := CreateTask(
+    procedure (const tsk: IOmniTask)
+    begin
+      raise ECountedWorkerException.Create('auto-freed');
+    end, 'FatalException-autofree').Run;
+  try
+    Assert.IsTrue(task.WaitFor(5000), 'Task did not terminate');
+    Assert.IsNotNull(task.FatalException,
+      'FatalException must be set before task destroy');
+    Assert.AreEqual<integer>(1,
+      TInterlocked.CompareExchange(GCountedWorkerExceptionCount, 0, 0),
+      'Exception instance should be alive while held by FatalException');
+  finally task := nil; end;
+end;
+
+procedure TestITaskControl.TestFatalExceptionFreedOnTaskDestroy;
+// Counter-backed regression: when no one calls DetachException, the
+// exception object attached to FatalException must be freed as part of
+// task-control teardown. Relies on an explicit instance counter in
+// ECountedWorkerException so the check fails at a specific spot rather
+// than as an end-of-run FastMM4 leak report.
+begin
+  TInterlocked.Exchange(GCountedWorkerExceptionCount, 0);
+  RunRaisingTaskAndWait;
+  if TThread.CurrentThread.ThreadID = MainThreadID then
+    CheckSynchronize(0);
+  Assert.AreEqual<integer>(0,
+    TInterlocked.CompareExchange(GCountedWorkerExceptionCount, 0, 0),
+    'ECountedWorkerException leaked — FatalException not freed by task destroy');
 end;
 
 procedure TestITaskControl.TestNoExceptionMeansNilFatalException;

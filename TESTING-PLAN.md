@@ -291,9 +291,34 @@ suite so they run on Win32/Win64/Linux64/Android.
       - `OtlAndroidTests.dpr` sets the exclusion unconditionally (no CLI on
         Android).
       - To run stress tests on demand: `ConsoleTestRunner.exe --include:Stress`.
-- [ ] Add memory-leak assertions to more tests (follow the
+- [x] Add memory-leak assertions to more tests (follow the
       `TMemLeakCheckObj` pattern from `TestBlockingCollection1`
       — see `TestOmniValueObjectleak`)
+    - 2026-04-20: added three counter-backed leak assertions. Two in
+        `TestOtlComm.TestOmniMessageQueue`:
+        `TestDestroyReleasesOwnedObjects` and
+        `TestEmptyReleasesOwnedObjects` enqueue messages carrying
+        `AsOwnedObject` payloads and assert (a) the counter equals
+        `CMsgCount` while queued and (b) drops to zero after
+        `FreeAndNil(mq)` / `mq.Empty` respectively. Uses a local
+        `TLeakCheckObj` class and a free-standing helper
+        `EnqueueOwnedLeakObj` that confines the temporary object
+        produced by `TLeakCheckObj.Create` to the helper's scope —
+        without this the compiler keeps a hidden interface temp alive
+        until the test procedure exits (same Delphi quirk documented
+        in `TestBlockingCollection1.FillOmniValueWithOwnedObject`).
+        One in `TestTask.TestITaskControl`:
+        `TestFatalExceptionFreedOnTaskDestroy` raises a counted
+        `ECountedWorkerException` from an anonymous task body, asserts
+        the instance is alive while `FatalException` holds it, then
+        verifies `FreeAndNil(oteException)` fires during task-control
+        teardown (last interface ref dropped via `task := nil` in a
+        bounded helper `RunRaisingTaskAndWait`). The helper keeps the
+        `IOmniTaskControl` out of the test procedure's expression-temp
+        scope for the same reason. Verified on all five targets:
+        Win32/Win64 322 pass; Linux64 322 Passed (+3 ignored);
+        Android64 auto-run 325 Passed=322 (+3 Ignored); ARM64EC
+        compile-only clean.
 - [x] Audit tests for hard-coded `Sleep(...)` timing — replace with
       event-driven waits where feasible to reduce CI flakiness
       - Audited all 55 `Sleep(...)` sites across 14 test files. None fall
