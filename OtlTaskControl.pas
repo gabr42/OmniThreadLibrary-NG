@@ -785,6 +785,17 @@ type
   TOmniTaskControlInternalDebugFlag = (dfLogDispatch);
   TOmniTaskControlInternalDebugFlags = set of TOmniTaskControlInternalDebugFlag;
 
+  ///<summary>Lock-serialized proxy that lets a background-observer closure
+  ///   invoke TOmniTaskControl.ProcessMessages without risking UAF. The
+  ///   TaskControl owns one of these and keeps it alive via a strong ref; the
+  ///   observer's closure captures the proxy interface. On TaskControl.Destroy
+  ///   we call Clear under the lock, so any in-flight or future Dispatch call
+  ///   becomes a safe no-op once Clear returns.</summary>
+  IOmniTaskControlDispatcher = interface ['{E8A3D2F1-7C4B-4D8E-9F5A-6B2C1A3E0D7F}']
+    procedure Clear;
+    procedure Dispatch;
+  end;
+
   IOmniTaskControlInternals = interface ['{CE7B53E0-902E-413F-AB6E-B97E7F4B0AD5}']
     function  GetDebugFlags: TOmniTaskControlInternalDebugFlags;
     function  GetTerminatedEvent: IOmniEvent;
@@ -804,6 +815,7 @@ type
   strict private
     otcBackgroundObserver  : IInterface; {IOmniContainerBackgroundObserver}
     otcBgNotifyEvent       : IOmniEvent;  // notification event registered in owner's wait set
+    otcDispatcher          : IOmniTaskControlDispatcher; // UAF-safe proxy for observer closure
     otcDebugFlags          : TOmniTaskControlInternalDebugFlags;
     otcDelayedTerminate    : boolean;
     otcDestroyLock         : boolean;
@@ -1074,6 +1086,17 @@ type
     destructor  Destroy; override;
     procedure ScheduleRelease(var ref: IOmniTaskControl);
   end; { TOmniUnobservedCleanupThread }
+
+  TOmniTaskControlDispatcher = class(TInterfacedObject, IOmniTaskControlDispatcher)
+  strict private
+    FLock  : TCriticalSection;
+    FTarget: Pointer; // raw TOmniTaskControl; nil after Clear
+  public
+    constructor Create(target: Pointer);
+    destructor  Destroy; override;
+    procedure Clear;
+    procedure Dispatch; reintroduce;
+  end; { TOmniTaskControlDispatcher }
 
 var
   GTaskControlEventMonitorPool: TOmniTaskControlEventMonitorPool;
@@ -1364,6 +1387,7 @@ procedure TOmniTask.InternalExecute(calledFromTerminate: boolean);
 var
   chainTo       : IOmniTaskControl;
   eventTerminate: IOmniEvent;
+  hasBgObserver : boolean;
   sync          : TSynchroObject;
   taskException : Exception;
   unobservedRef : IOmniTaskControl;
@@ -1418,7 +1442,8 @@ begin
           // hook covers only the message path). The pointer is a weak ref;
           // the observer is kept alive by TOmniTaskControl.otcBackgroundObserver
           // under MonitorLock (same lock that clears the pointer in Terminate).
-          if assigned(otSharedInfo_ref.BackgroundObserver) then
+          hasBgObserver := assigned(otSharedInfo_ref.BackgroundObserver);
+          if hasBgObserver then
             IOmniContainerBackgroundObserver(otSharedInfo_ref.BackgroundObserver).Notify;
           unobservedRef := otSharedInfo_ref.ReleaseUnobservedRef;
           otSharedInfo_ref := nil;
@@ -1441,8 +1466,17 @@ begin
   // Queue unobserved ref for deferred release AFTER all events are signaled
   // and locks released, so the cleanup thread's destructor call doesn't need
   // to wait for this thread to finish its cleanup.
-  if assigned(unobservedRef) then
+  // For non-main-thread owners (background-observer path), the owner-thread
+  // delivery via the observer can race with the cleanup thread freeing the
+  // TaskControl. Fire OnTerminated synchronously from this worker thread
+  // before scheduling release, so Unobserved tasks deliver OnTerminated
+  // reliably even when the owner thread is slow to drain. The call is
+  // idempotent (see TOmniTaskControl.ForwardTaskTerminated).
+  if assigned(unobservedRef) then begin
+    if hasBgObserver then
+      (unobservedRef as IOmniTaskControlInternals).ForwardTaskTerminated;
     GUnobservedCleanup.ScheduleRelease(unobservedRef);
+  end;
 end; { TOmniTask.InternalExecute }
 
 procedure TOmniTask.Invoke(remoteFunc: TOmniTaskInvokeFunction);
@@ -2760,6 +2794,23 @@ begin
     Terminate;
     FreeAndNil(otcThread);
   end;
+  // If a background-observer dispatcher was set up, clear its target pointer
+  // under the lock so any in-flight or future Dispatch call from the owner's
+  // drain cannot UAF on a freed Self. OnTerminated has already fired
+  // synchronously from the task worker thread (see TOmniTask.InternalExecute
+  // hasBgObserver branch), so Clear cannot drop a pending delivery. The
+  // dispatcher itself lingers in the observer's closure until the observer
+  // is released from the owner thread's threadvar registry — acceptable
+  // bounded memory cost.
+  if assigned(otcDispatcher) then begin
+    otcDispatcher.Clear;
+    otcDispatcher := nil;
+  end;
+  if assigned(otcBackgroundObserver) then begin
+    if assigned(otcSharedInfo) then
+      otcSharedInfo.BackgroundObserver := nil;
+    otcBackgroundObserver := nil;
+  end;
   if assigned(otcSharedInfo) then begin
     otcSharedInfo.MonitorLock.Acquire;
     try
@@ -2851,8 +2902,15 @@ begin
   end
   else begin
     EnsureCommChannel;
+    // Wrap Self in a lock-serialized dispatcher so the closure below cannot
+    // UAF if the TaskControl is freed (by the Unobserved cleanup thread) while
+    // the observer still sits in the owner thread's registry. Destroy calls
+    // otcDispatcher.Clear which acquires the same lock as Dispatch, so any
+    // in-flight Dispatch finishes first and any subsequent Dispatch is a no-op.
+    otcDispatcher := TOmniTaskControlDispatcher.Create(Self);
+    var dispatcher: IOmniTaskControlDispatcher := otcDispatcher;
     var bgObs: IOmniContainerBackgroundObserver := CreateContainerBackgroundObserver(otcOwnerThreadID,
-      procedure begin Self.ProcessMessages end);
+      procedure begin dispatcher.Dispatch end);
     otcBackgroundObserver := bgObs;
     // Publish a weak reference to the observer in SharedTaskInfo so the task
     // side can notify it at termination (see TOmniTask.InternalExecute).
@@ -3527,6 +3585,10 @@ begin
     otcSharedInfo.BackgroundObserver := nil;
     bgObs := nil;
     otcBackgroundObserver := nil;
+    if assigned(otcDispatcher) then begin
+      otcDispatcher.Clear;
+      otcDispatcher := nil;
+    end;
   end;
   if not Result then begin
     if assigned(otcThread) then begin
@@ -3961,6 +4023,38 @@ procedure TOmniTaskControlEventMonitorPool.Release(monitor: TOmniTaskControlEven
 begin
   monitorPool.Release(monitor);
 end; { TOmniTaskControlEventMonitorPool.Release }
+
+{ TOmniTaskControlDispatcher }
+
+constructor TOmniTaskControlDispatcher.Create(target: Pointer);
+begin
+  inherited Create;
+  FLock := TCriticalSection.Create;
+  FTarget := target;
+end; { TOmniTaskControlDispatcher.Create }
+
+destructor TOmniTaskControlDispatcher.Destroy;
+begin
+  FreeAndNil(FLock);
+  inherited;
+end; { TOmniTaskControlDispatcher.Destroy }
+
+procedure TOmniTaskControlDispatcher.Clear;
+begin
+  FLock.Enter;
+  try
+    FTarget := nil;
+  finally FLock.Leave; end;
+end; { TOmniTaskControlDispatcher.Clear }
+
+procedure TOmniTaskControlDispatcher.Dispatch;
+begin
+  FLock.Enter;
+  try
+    if FTarget <> nil then
+      TOmniTaskControl(FTarget).ProcessMessages;
+  finally FLock.Leave; end;
+end; { TOmniTaskControlDispatcher.Dispatch }
 
 { TOmniUnobservedCleanupThread }
 

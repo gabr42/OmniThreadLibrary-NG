@@ -776,13 +776,18 @@ end; { TOTPWorkerThread.Description }
 
 procedure TOTPWorkerThread.Execute;
 var
-  msg: TOmniMessage;
+  msg     : TOmniMessage;
+  threadOV: TOmniValue;
 begin
   {$IFDEF LogThreadPool}Log('>>>Execute thread %s', [Description]);{$ENDIF LogThreadPool}
   SendThreadNotifications(tntCreate, 'OtlThreadPool worker');
   try
     try
-      Comm.Send(MSG_THREAD_CREATED, threadID);
+      // threadID is TThreadID = NativeUInt (uint64 on POSIX). Implicit conversion
+      // to TOmniValue goes via int64 and raises ERangeError when the high bit is
+      // set (common on Android ARM64). Use SetAsUInt64 for a bit-preserving cast.
+      threadOV.AsUInt64 := threadID;
+      Comm.Send(MSG_THREAD_CREATED, threadOV);
       try
         if owtThreadDataFactory.IsEmpty then
           owtThreadData := nil
@@ -806,7 +811,10 @@ begin
           owtThreadData := nil;
         except
         end;
-      finally Comm.Send(MSG_THREAD_DESTROYING, threadID); end;
+      finally
+        threadOV.AsUInt64 := threadID;
+        Comm.Send(MSG_THREAD_DESTROYING, threadOV);
+      end;
     except
       on E: Exception do
         if assigned(owtAsy_OnUnhandledException) then
@@ -1279,12 +1287,14 @@ end; { TOTPWorker.MsgCompleted }
 
 procedure TOTPWorker.MsgThreadCreated(var msg: TOmniMessage);
 begin
-  ForwardThreadCreated(msg.MsgData);
+  // AsUInt64 is a bit-preserving read; implicit TOmniValue→TThreadID goes via
+  // int64 and raises ERangeError on Android ARM64 when high bit is set.
+  ForwardThreadCreated(msg.MsgData.AsUInt64);
 end; { TOTPWorker.MsgThreadCreated }
 
 procedure TOTPWorker.MsgThreadDestroying(var msg: TOmniMessage);
 begin
-  ForwardThreadDestroying(msg.MsgData, tpoDestroyThread);
+  ForwardThreadDestroying(msg.MsgData.AsUInt64, tpoDestroyThread);
 end; { TOTPWorker.MsgThreadDestroying }
 
 /// <summary>Counts number of threads in the 'stopping' queue that are still doing work.</summary> 
