@@ -1320,7 +1320,7 @@ type
     procedure Add(const group: IOmniProcessorGroup); inline;
     function  All: IOmniIntegerSet;
     function  Count: integer; inline;
-    function  FindGroup(groupNumber: integer): IOmniProcessorGroup; inline;
+    function  FindGroup(groupNumber: integer): IOmniProcessorGroup;
     function  GetEnumerator: TList<IOmniProcessorGroup>.TEnumerator; inline;
     property Item[idx: integer]: IOmniProcessorGroup read GetItem; default;
   end; { IOmniProcessorGroups }
@@ -3927,8 +3927,13 @@ begin
 end; { TOmniProcessorGroups.Count }
 
 function TOmniProcessorGroups.FindGroup(groupNumber: integer): IOmniProcessorGroup;
+var
+  group: IOmniProcessorGroup;
 begin
-  Result := Item[groupNumber];
+  Result := nil;
+  for group in Environment.ProcessorGroups do
+    if group.GroupNumber = groupNumber then
+      Exit(group);
 end; { TOmniProcessorGroups.FindGroup }
 
 function TOmniProcessorGroups.GetEnumerator: TList<IOmniProcessorGroup>.TEnumerator;

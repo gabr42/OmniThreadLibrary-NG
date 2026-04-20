@@ -388,7 +388,44 @@ suite so they run on Win32/Win64/Linux64/Android.
         Win32/Win64 302 → 304; Linux64 299 → 304 (+3 ignored);
         Android64 299 → 304 Passed=301 (+3 ignored); ARM64EC
         compile-only clean.
-- [ ] OtlCommon.TOmniEnvironment — NUMA/affinity fallback paths
+- [x] OtlCommon.TOmniEnvironment — NUMA/affinity fallback paths
+    - 2026-04-20: added `TestOmniEnvironment` fixture to
+        `TestOtlCommon1.pas`. 12 cross-platform tests:
+        `TestEnvironmentSingleton` (pointer identity across
+        `Environment` calls); `TestProcessorGroupsAtLeastOne` and
+        `TestNUMANodesAtLeastOne` (the fake info produced by
+        `CreateFakeNUMAInfo` on POSIX and the real
+        Windows info both must report ≥ 1); `TestProcessorGroupZeroExists`
+        and `TestNUMANodeZeroExists` (group 0 / node 0 are always
+        present); `TestFindGroupInvalidReturnsNil` and
+        `TestFindNodeInvalidReturnsNil` (`-1` and `9999` must return
+        `nil`, not raise); `TestFindGroupEnumeratesAllGroups` (every
+        enumerated group round-trips through `FindGroup`);
+        `TestProcessorGroupAffinityNonEmpty` and
+        `TestNUMANodeAffinityNonEmpty` (affinity masks on group 0 /
+        node 0 cover ≥ 1 CPU); `TestNUMANodesAllContainsZero` (the
+        `All` set contains node 0 and its cardinality equals
+        `NUMANodes.Count`); `TestNUMANodeSelfDistanceIsTen` (the
+        ACPI SLIT convention of `Distance(n, n) = 10` must hold on
+        every target — Windows pre-SLIT init and POSIX fake both
+        hard-code 10). 3 POSIX-only tests:
+        `TestPosixFakeSingleProcessorGroup` (exactly one fake group),
+        `TestPosixFakeSingleNUMANode` (exactly one fake node), and
+        `TestPosixFakeAffinityMatchesProcessorCount` (both group-0 and
+        node-0 affinity masks must cover exactly
+        `Environment.System.Affinity.Count` CPUs — the documented
+        `(1 SHL ProcessorCount) - 1` mask shape). Also fixed a
+        real bug uncovered by
+        `TestFindGroupInvalidReturnsNil`:
+        `TOmniProcessorGroups.FindGroup` was `Result := Item[groupNumber]`
+        (i.e. treated `groupNumber` as a list index, so invalid
+        values raised `List index out of bounds` instead of returning
+        `nil`). Fixed to scan by `GroupNumber` the same way
+        `TOmniNUMANodes.FindNode` does; removed the `inline;`
+        directive on the declaration since the body is now a loop.
+        Verified on all five targets: Win32/Win64 304 → 316;
+        Linux64 304 → 319 (+3 ignored); Android64 304 → 319
+        Passed=316 (+3 ignored); ARM64EC compile-only clean.
 - [ ] OtlBackgroundObserver concurrent registration/unregistration stress
 - [ ] OtlContainerObserver snapshot-delivery concurrency (1.05 deadlock fix)
 
