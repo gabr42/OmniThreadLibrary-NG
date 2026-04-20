@@ -362,7 +362,32 @@ suite so they run on Win32/Win64/Linux64/Android.
         dependency). The patch script uses raw byte literals
         (`br'H:\\...'`) to match the double-backslash separator
         format dcclinux64 writes into the `.lnk`.
-- [ ] OtlPlatform.pas — POSIX/Windows divergence coverage
+- [x] OtlPlatform.pas — POSIX/Windows divergence coverage
+    - 2026-04-20: expanded `TestPlatform.pas`. Unguarded the existing
+        thread-affinity non-empty assertion (renamed
+        `TestThreadAffinityNotEmpty`) so it runs on POSIX too — the
+        POSIX fallback returns `Copy(CCPUIDs, 1, ProcessorCount)`
+        which is never empty. Added four new tests:
+        `TestTimestampIsMonotonic` (10k calls, must never go
+        backwards — cross-platform guard against regression in the
+        `TStopwatch.ElapsedMilliseconds` wiring);
+        `TestTimeReturnsGlobalInstance` (the `Time` global must
+        return the same `PTimeSource` across calls, since
+        `Timestamp_ms` is inlined through it and any pointer
+        change would silently break every inline caller);
+        `TestPosixThreadAffinityMatchesProcessorCount` (POSIX only —
+        length of the returned string must equal
+        `TThread.ProcessorCount`, the documented dummy-affinity
+        shape until `pthread_getaffinity_np` is wired up);
+        `TestPosixSetThreadAffinityIsNoOp` (POSIX only — two
+        arbitrary writes including garbage must leave
+        `GetThreadAffinity` unchanged, the documented no-op until
+        `pthread_setaffinity_np` is wired up). Also expanded the
+        Windows `TestAffinityMaskRoundTrip` to cover the empty-mask
+        and bit-63 edges. Verified on all five targets:
+        Win32/Win64 302 → 304; Linux64 299 → 304 (+3 ignored);
+        Android64 299 → 304 Passed=301 (+3 ignored); ARM64EC
+        compile-only clean.
 - [ ] OtlCommon.TOmniEnvironment — NUMA/affinity fallback paths
 - [ ] OtlBackgroundObserver concurrent registration/unregistration stress
 - [ ] OtlContainerObserver snapshot-delivery concurrency (1.05 deadlock fix)
