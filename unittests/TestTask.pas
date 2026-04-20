@@ -22,13 +22,16 @@ type
     [Test] procedure TestWorkerInitialized;
     [Test] procedure TestRegisterWaitObject;
     [Test] procedure TestInvoke;
+    [Test] procedure TestRegisterCommDispatchesMessages;
+    [Test] procedure TestUnregisterCommStopsDispatch;
+    [Test] procedure TestMultipleAdditionalComms;
   end;
 
 implementation
 
 uses
-  System.SysUtils, System.Diagnostics,
-  OtlTask, OtlTaskControl, OtlCommon, OtlSync;
+  System.Classes, System.SysUtils, System.SyncObjs, System.Diagnostics,
+  OtlTask, OtlTaskControl, OtlCommon, OtlSync, OtlComm;
 
 type
   TSynchronizedOmniWorker = class(TOmniWorker)
@@ -344,6 +347,223 @@ constructor TSynchronizedOmniWorker.Create(Synchronizer: IOmniSynchronizer<strin
 begin
   inherited Create;
   FSynchronizer := Synchronizer;
+end;
+
+{ Task.RegisterComm / UnregisterComm coverage }
+
+const
+  MSG_EXT_A = 2001;
+  MSG_EXT_B = 2002;
+
+type
+  TCommCounter = class
+  strict private
+    FCountA: integer;
+    FCountB: integer;
+  public
+    procedure IncA; inline;
+    procedure IncB; inline;
+    function  CountA: integer;
+    function  CountB: integer;
+  end;
+
+procedure TCommCounter.IncA;
+begin
+  TInterlocked.Increment(FCountA);
+end;
+
+procedure TCommCounter.IncB;
+begin
+  TInterlocked.Increment(FCountB);
+end;
+
+function TCommCounter.CountA: integer;
+begin
+  Result := TInterlocked.CompareExchange(FCountA, 0, 0);
+end;
+
+function TCommCounter.CountB: integer;
+begin
+  Result := TInterlocked.CompareExchange(FCountB, 0, 0);
+end;
+
+type
+  TRegisterCommWorker = class(TSynchronizedOmniWorker)
+  strict private
+    FChannelA: IOmniCommunicationEndpoint;
+    FChannelB: IOmniCommunicationEndpoint;
+    FCounter : TCommCounter;
+  protected
+    function  Initialize: boolean; override;
+  public
+    constructor Create(Synchronizer: IOmniSynchronizer<string>;
+      const channelA, channelB: IOmniCommunicationEndpoint;
+      counter: TCommCounter);
+    procedure UnregisterChannelA;
+    procedure HandleMsgA(var msg: TOmniMessage); message MSG_EXT_A;
+    procedure HandleMsgB(var msg: TOmniMessage); message MSG_EXT_B;
+  end;
+
+constructor TRegisterCommWorker.Create(Synchronizer: IOmniSynchronizer<string>;
+  const channelA, channelB: IOmniCommunicationEndpoint; counter: TCommCounter);
+begin
+  inherited Create(Synchronizer);
+  FChannelA := channelA;
+  FChannelB := channelB;
+  FCounter := counter;
+end;
+
+function TRegisterCommWorker.Initialize: boolean;
+begin
+  Result := inherited Initialize;
+  if Result then begin
+    if assigned(FChannelA) then Task.RegisterComm(FChannelA);
+    if assigned(FChannelB) then Task.RegisterComm(FChannelB);
+  end;
+end;
+
+procedure TRegisterCommWorker.HandleMsgA(var msg: TOmniMessage);
+begin
+  FCounter.IncA;
+  FSynchronizer.Signal('A');
+end;
+
+procedure TRegisterCommWorker.HandleMsgB(var msg: TOmniMessage);
+begin
+  FCounter.IncB;
+  FSynchronizer.Signal('B');
+end;
+
+procedure TRegisterCommWorker.UnregisterChannelA;
+begin
+  if assigned(FChannelA) then begin
+    Task.UnregisterComm(FChannelA);
+    FChannelA := nil;
+  end;
+  FSynchronizer.Signal('unreg-done');
+end;
+
+function WaitForCountAtLeast(counter: TCommCounter; readA: boolean;
+  target: integer; timeout_ms: cardinal): boolean;
+var
+  sw: TStopwatch;
+
+  function Current: integer;
+  begin
+    if readA then Result := counter.CountA else Result := counter.CountB;
+  end;
+
+begin
+  sw := TStopwatch.StartNew;
+  while (Current < target) and (sw.ElapsedMilliseconds < timeout_ms) do
+    Sleep(5);
+  Result := Current >= target;
+end;
+
+procedure TestITaskControl.TestRegisterCommDispatchesMessages;
+const
+  CMsgCount = 10;
+var
+  chan   : IOmniTwoWayChannel;
+  counter: TCommCounter;
+  i      : integer;
+  task   : IOmniTaskControl;
+begin
+  chan := CreateTwoWayChannel(CMsgCount + 2, nil);
+  counter := TCommCounter.Create;
+  try
+    task := CreateTask(
+      TRegisterCommWorker.Create(Synchronizer, chan.Endpoint1, nil, counter),
+      'RegisterComm-dispatch').Run;
+    try
+      for i := 1 to CMsgCount do
+        chan.Endpoint2.Send(MSG_EXT_A, i);
+
+      Assert.IsTrue(WaitForCountAtLeast(counter, true, CMsgCount, 5000),
+        Format('Only %d of %d messages dispatched via registered comm',
+          [counter.CountA, CMsgCount]));
+      Assert.AreEqual(CMsgCount, counter.CountA,
+        'CountA mismatch after dispatch');
+      Assert.AreEqual(0, counter.CountB, 'CountB must be 0 — no channel B');
+    finally
+      task.Terminate;
+      task := nil;
+    end;
+  finally FreeAndNil(counter); end;
+end;
+
+procedure TestITaskControl.TestUnregisterCommStopsDispatch;
+var
+  chan   : IOmniTwoWayChannel;
+  counter: TCommCounter;
+  task   : IOmniTaskControl;
+begin
+  chan := CreateTwoWayChannel(8, nil);
+  counter := TCommCounter.Create;
+  try
+    task := CreateTask(
+      TRegisterCommWorker.Create(Synchronizer, chan.Endpoint1, nil, counter),
+      'RegisterComm-unregister').Run;
+    try
+      chan.Endpoint2.Send(MSG_EXT_A, 1);
+      Assert.IsTrue(Synchronizer.WaitFor('A', 3000),
+        'First dispatch never fired');
+      Assert.AreEqual(1, counter.CountA, 'Expected exactly one dispatch pre-unregister');
+
+      task.Invoke('UnregisterChannelA');
+      Assert.IsTrue(Synchronizer.WaitFor('unreg-done', 3000),
+        'UnregisterChannelA did not complete');
+
+      chan.Endpoint2.Send(MSG_EXT_A, 2);
+      chan.Endpoint2.Send(MSG_EXT_A, 3);
+      Sleep(200);
+      Assert.AreEqual(1, counter.CountA,
+        'Messages after UnregisterComm must NOT dispatch');
+    finally
+      task.Terminate;
+      task := nil;
+    end;
+  finally FreeAndNil(counter); end;
+end;
+
+procedure TestITaskControl.TestMultipleAdditionalComms;
+const
+  CCountA = 4;
+  CCountB = 3;
+var
+  chanA  : IOmniTwoWayChannel;
+  chanB  : IOmniTwoWayChannel;
+  counter: TCommCounter;
+  i      : integer;
+  task   : IOmniTaskControl;
+begin
+  chanA := CreateTwoWayChannel(8, nil);
+  chanB := CreateTwoWayChannel(8, nil);
+  counter := TCommCounter.Create;
+  try
+    task := CreateTask(
+      TRegisterCommWorker.Create(Synchronizer,
+        chanA.Endpoint1, chanB.Endpoint1, counter),
+      'RegisterComm-multi').Run;
+    try
+      for i := 1 to CCountA do
+        chanA.Endpoint2.Send(MSG_EXT_A, i);
+      for i := 1 to CCountB do
+        chanB.Endpoint2.Send(MSG_EXT_B, i);
+
+      Assert.IsTrue(WaitForCountAtLeast(counter, true, CCountA, 5000),
+        Format('Channel A: only %d of %d dispatched',
+          [counter.CountA, CCountA]));
+      Assert.IsTrue(WaitForCountAtLeast(counter, false, CCountB, 5000),
+        Format('Channel B: only %d of %d dispatched',
+          [counter.CountB, CCountB]));
+      Assert.AreEqual(CCountA, counter.CountA, 'CountA final');
+      Assert.AreEqual(CCountB, counter.CountB, 'CountB final');
+    finally
+      task.Terminate;
+      task := nil;
+    end;
+  finally FreeAndNil(counter); end;
 end;
 
 end.

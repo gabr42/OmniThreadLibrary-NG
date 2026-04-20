@@ -155,7 +155,20 @@ while the limitation is documented.
       On Win32/Win64/Linux64 the DUnitX runner executes on the main
       thread, so this is the only non-main-thread-owner coverage; on
       Android64 the whole suite already runs on a worker thread
-- [ ] Message filtering / `RegisterComm` / multiple comm channels
+- [x] Message filtering / `RegisterComm` / multiple comm channels —
+      three tests added to `TestTask.TestITaskControl` covering the
+      task-level comm-registration path (previously exercised only
+      indirectly via `TThreadPool.Comm`):
+      `TestRegisterCommDispatchesMessages` (10 messages on a registered
+      external channel dispatch to the `message MSG_EXT_A` handler),
+      `TestUnregisterCommStopsDispatch` (dispatch one, Invoke
+      `UnregisterChannelA`, send two more → count stays at 1),
+      `TestMultipleAdditionalComms` (two extra channels, independent
+      counters; 4+3 messages). Worker is a `TSynchronizedOmniWorker`
+      subclass that calls `Task.RegisterComm` / `Task.UnregisterComm`
+      from `Initialize` and an `Invoke`-callable method. Counter
+      updates use `TInterlocked`; poll helper `WaitForCountAtLeast`
+      avoids CheckSynchronize dependence
 - [ ] Exception-in-worker propagation via `FatalException`
 - [ ] `Invoke` with varying argument counts / types
 - [ ] Group affinity / `SetProcessorGroupAffinity` paths
