@@ -4070,16 +4070,23 @@ begin
   Result := CreateTask(
     procedure (const task: IOmniTask)
     begin
-      if assigned(FInitializerDelegate) then
-        FInitializerDelegate(task, taskIndex, FPartition[taskIndex].LowBound, FPartition[taskIndex].HighBound);
-      taskDelegate(task, taskIndex);
-      if assigned(FFinalizerDelegate) then
-        FFinalizerDelegate(task, taskIndex, FPartition[taskIndex].LowBound, FPartition[taskIndex].HighBound);
-      if FCountStopped.Allocate = 1 then begin
-        if FNoWait then
-          if assigned(FOnStop) then
-            FOnStop(task);
-        FCountStopped.Allocate;
+      // The finally block must run even if the user's init / task / finalizer
+      // delegate raises — TOmniParallelSimpleLoop.InternalExecute blocks on
+      // FCountStopped.Synchro.WaitFor(INFINITE), so skipping Allocate would
+      // deadlock the whole loop. Mirrors the try/finally in TOmniParallelJoin.
+      try
+        if assigned(FInitializerDelegate) then
+          FInitializerDelegate(task, taskIndex, FPartition[taskIndex].LowBound, FPartition[taskIndex].HighBound);
+        taskDelegate(task, taskIndex);
+        if assigned(FFinalizerDelegate) then
+          FFinalizerDelegate(task, taskIndex, FPartition[taskIndex].LowBound, FPartition[taskIndex].HighBound);
+      finally
+        if FCountStopped.Allocate = 1 then begin
+          if FNoWait then
+            if assigned(FOnStop) then
+              FOnStop(task);
+          FCountStopped.Allocate;
+        end;
       end;
     end,
     'Parallel.For worker #' + IntToStr(taskIndex));
