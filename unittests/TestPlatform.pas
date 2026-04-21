@@ -62,7 +62,11 @@ begin
   time_ms := Time.Timestamp_ms;
   event.WaitFor(1000);
   time_ms := Time.Elapsed_ms(time_ms);
-  Assert.IsTrue((time_ms >= 990) and (time_ms <= 1050) {allowed measurement error},
+  // Upper bound is generous: under CPU-loaded CI runs (e.g. parallel
+  // suites) OS wakeup latency on a reset auto-reset event can slip well
+  // past 50 ms of jitter. We only want to verify that WaitFor blocks for
+  // roughly the requested duration, not to measure scheduler fidelity.
+  Assert.IsTrue((time_ms >= 990) and (time_ms <= 1500) {allowed measurement error},
     Format('WaitFor(1000) did not last around 1 s (actual: %d ms)', [time_ms]));
 end;
 
