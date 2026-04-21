@@ -81,3 +81,5 @@ thmm
 *.o
 
 .claude/
+
+unittests/ARM64EC/Debug/
