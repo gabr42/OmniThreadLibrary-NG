@@ -407,12 +407,6 @@ var
   i      : integer;
 begin
   SkipIfNotMainThread;
-  {$IFNDEF MSWINDOWS}
-  // TOmniThreadPool.MonitorWith is guarded by {$IFDEF MSWINDOWS} in
-  // OtlThreadPool.pas — pool monitoring is Windows-only for now. The test
-  // would silently time out (no notifications ever arrive) on other targets.
-  Assert.Pass('TOmniThreadPool.MonitorWith is MSWINDOWS-only');
-  {$ENDIF}
   monitor := TOmniEventMonitor.Create(nil);
   try
     monitor.OnPoolThreadCreated := HandlePoolThreadCreated;

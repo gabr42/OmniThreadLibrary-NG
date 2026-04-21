@@ -1750,9 +1750,7 @@ end; { TGpThreadPool.Log }
 
 function TOmniThreadPool.MonitorWith(const monitor: IOmniThreadPoolMonitor): IOmniThreadPool;
 begin
-  {$IFDEF MSWINDOWS}
   monitor.Monitor(Self);
-  {$ENDIF MSWINDOWS}
   Result := Self;
 end; { TOmniThreadPool.MonitorWith }
 
