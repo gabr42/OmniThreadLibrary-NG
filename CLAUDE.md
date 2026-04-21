@@ -126,26 +126,41 @@ they compile cleanly but has no test logic.
 
 OTL-NG sometimes sends information from worker threads to the main thread (e.g., task termination notifications via `TThread.Queue`/`TThread.ForceQueue`). This is a fundamental design fact that will not change. The thread owner must occasionally allow this information to be processed. For main threads, this means processing the queue used by `TThread.Queue`. Console applications must call `CheckSynchronize` at appropriate points to drain this queue.
 
-## Known bug: Unit test hangs with thread pool
+## Pool-manager hang (resolved 2026-04-17)
 
-### Summary
+Earlier builds had intermittent full-suite hangs (~4% on Win32/Win64)
+in thread-pool tests. Three fixes landed:
 
-Unit tests (Win32 and Win64) hang intermittently (~4% of full suite runs). The hang occurs in tests that use the thread pool.
+1. **Unobserved redesign** (commit 153001d): Eliminated
+   `CreateInternalMonitor` / `ForceQueue` dependency; `SharedInfo` now
+   self-references during cleanup.
 
-### What has been fixed
+2. **Gate-leak in TWaitFor** (commit ac3f364, OtlSync.pas v3.02):
+   `PerformObservableAction` acquired a gate via `EnterGate`, but
+   `TWaitFor.Destroy` running concurrently could nil `FController`
+   via `Deref`, making `GetGate` return nil and the finally block
+   skip the release. Fix: `EnterGate` saves the gate reference to
+   `FAcquiredGate` before acquiring, so `GetGate` / `LeaveGate` work
+   regardless of `FController` state.
 
-1. **Unobserved redesign** (commit 153001d): Eliminated `CreateInternalMonitor`/`ForceQueue` dependency.
-2. **Gate-leak race in TWaitFor** (OtlSync.pas v3.02): Fixed race where `PerformObservableAction` acquired a gate via `EnterGate`, but `TWaitFor.Destroy` ran concurrently and nilled `FController` via `Deref`, causing `GetGate` to return nil and the finally block to skip releasing the lock. Fix: `EnterGate` now saves the gate reference to `FAcquiredGate` before acquiring, so `GetGate` returns it regardless of `FController` state.
+3. **UAF in TOmniContainerSubject.Notify** (commit 0f801d0): `Notify`
+   took a snapshot of observers under the read lock, then released the
+   lock before invoking them (introduced by c5ccd38 to avoid re-entrant
+   Attach/Detach deadlock). Between snapshot and invocation another
+   thread could `Detach + FreeAndNil` an observer, producing AVs in the
+   thread-pool manager. Fix: observers are now `IInterface`-refcounted
+   (`TOmniContainerObserver` descends from `TInterfacedObject` implementing
+   `IOmniContainerObserver`); `Notify` / `NotifyOnce` snapshot
+   `TArray<IOmniContainerObserver>`, so refcounts keep observers alive
+   through dispatch while the read lock is released. Preserves c5ccd38
+   lock semantics.
 
-### Current hang rates (post gate-leak fix)
+Verified post-0f801d0: 50/50 clean full-suite runs, plus subsequent
+regression sweeps with no hang reproduced.
 
-| Configuration | Hang rate |
-|---|---|
-| `TestTask.TestStartTask` only | 0/30 |
-| Full test suite (242 tests) | ~2/50 |
-
-### Files involved
+### Historical files involved
 
 - `OtlSync.pas`: `TSynchroClient.EnterGate`, `GetGate`, `LeaveGate`, `PerformObservableAction`
-- `OtlThreadPool.pas`: `TOTPWorker` (pool manager task), `TOTPWorkerThread.ExecuteWorkItem`
+- `OtlContainers.pas`: `TOmniContainerSubject.Notify` / `NotifyOnce` / `Attach` / `Detach`
+- `OtlThreadPool.pas`: `TOTPWorker` (pool-manager task), `TOTPWorkerThread.ExecuteWorkItem`
 - `OtlParallel.pas`: `TOmniParallelSimpleLoop.InternalExecute`, `Parallel.Start`
