@@ -7,10 +7,14 @@ uses
   System.SysUtils,
   System.Classes,
   System.IOUtils,
+  System.StrUtils,
   FMX.Forms,
   FMX.Types,
   Androidapi.Log,
   Androidapi.IOUtils,
+  Androidapi.Helpers,
+  Androidapi.JNI.JavaTypes,
+  Androidapi.JNI.GraphicsContentViewText,
   DUnitX.TestFramework,
   DUnitX.FilterBuilder,
   DUNitX.Loggers.MobileGUI in 'DUNitX.Loggers.MobileGUI.pas' {MobileGUITestRunner}
@@ -158,6 +162,89 @@ begin
   LogBacktrace;
 end;
 
+function ReadIntentFilterExtra: string;
+var
+  intent: JIntent;
+  extra : JString;
+begin
+  Result := '';
+  try
+    if not assigned(TAndroidHelper.Activity) then
+      exit;
+    intent := TAndroidHelper.Activity.getIntent;
+    if not assigned(intent) then
+      exit;
+    extra := intent.getStringExtra(StringToJString('dunitx_filter'));
+    if not assigned(extra) then
+      exit;
+    Result := JStringToString(extra);
+  except
+    on E: Exception do
+      ALog('ReadIntentFilterExtra: ' + E.ClassName + ': ' + E.Message);
+  end;
+end;
+
+procedure ApplyFilterToken(const token: string);
+const
+  CIncludePrefix = '--include:';
+  CExcludePrefix = '--exclude:';
+var
+  value: string;
+begin
+  if StartsText(CIncludePrefix, token) then begin
+    value := Copy(token, Length(CIncludePrefix) + 1, MaxInt);
+    if TDUnitX.Options.Include = '' then
+      TDUnitX.Options.Include := value
+    else
+      TDUnitX.Options.Include := TDUnitX.Options.Include + ',' + value;
+  end
+  else if StartsText(CExcludePrefix, token) then begin
+    value := Copy(token, Length(CExcludePrefix) + 1, MaxInt);
+    if TDUnitX.Options.Exclude = '' then
+      TDUnitX.Options.Exclude := value
+    else
+      TDUnitX.Options.Exclude := TDUnitX.Options.Exclude + ',' + value;
+  end
+  else
+    ALog('ApplyFilterToken: ignoring unknown token "' + token + '"');
+end;
+
+procedure ConfigureDUnitXFilter;
+var
+  filterStr: string;
+  token    : string;
+  rest     : string;
+begin
+  TDUnitX.Options.Include := '';
+  TDUnitX.Options.Exclude := 'Stress';
+
+  filterStr := Trim(ReadIntentFilterExtra);
+  if filterStr <> '' then begin
+    ALog('DUnitX intent filter: ' + filterStr);
+    // An explicit filter override clears the defaults.
+    TDUnitX.Options.Include := '';
+    TDUnitX.Options.Exclude := '';
+    rest := filterStr;
+    while rest <> '' do begin
+      var idx := Pos(' ', rest);
+      if idx = 0 then begin
+        token := rest;
+        rest := '';
+      end
+      else begin
+        token := Copy(rest, 1, idx - 1);
+        rest := Trim(Copy(rest, idx + 1, MaxInt));
+      end;
+      if token <> '' then
+        ApplyFilterToken(token);
+    end;
+  end;
+
+  ALog(Format('DUnitX filter Include="%s" Exclude="%s"',
+    [TDUnitX.Options.Include, TDUnitX.Options.Exclude]));
+  TDUnitX.Filter := TDUnitXFilterBuilder.BuildFilter(TDUnitX.Options);
+end;
+
 begin
   GSavedExitProc := System.ExitProc;
   System.ExitProc := @OnExit;
@@ -166,18 +253,16 @@ begin
   System.RaiseExceptObjProc := @DiagRaiseExceptObjProc;
   ALog('ALog address=' + IntToHex(NativeUInt(@ALog), 16));
 
-  // Default-exclude the Stress category — Android has no CLI so these
-  // multi-minute stress tests would otherwise block the auto-run.
-  // The MobileGUI runner never calls CheckCommandLine, so Options.Exclude
-  // alone has no effect — the filter must be built and assigned manually.
-  TDUnitX.Options.Exclude := 'Stress';
-  TDUnitX.Filter := TDUnitXFilterBuilder.BuildFilter(TDUnitX.Options);
-
   ALog('main begin');
   try
     ALog('before Application.Initialize');
     Application.Initialize;
     ALog('after Application.Initialize');
+    // Default-exclude Stress; an optional "dunitx_filter" intent extra
+    // (see build_test_all.bat -> adb shell am start --es dunitx_filter ...)
+    // can override with whitespace-separated --include:X / --exclude:X tokens.
+    // Configured after Application.Initialize so TAndroidHelper.Activity is live.
+    ConfigureDUnitXFilter;
     ALog('before CreateForm');
     Application.CreateForm(TMobileGUITestRunner, MobileGUITestRunner);
     ALog('after CreateForm');

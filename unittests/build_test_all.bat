@@ -8,6 +8,23 @@ rem
 rem  Stages run sequentially. A failure in one stage does not abort
 rem  the script -- all stages run and a summary is printed at the
 rem  end. Script exits with code 1 if any stage failed.
+rem
+rem  Stress tests
+rem  ------------
+rem  Tests tagged [Category('Stress')] are EXCLUDED by default (they
+rem  run for minutes and would dominate the cross-platform sweep).
+rem  Arguments passed to this script are forwarded verbatim to each
+rem  runner -- Win32/Win64/Linux64 get them via %* on the command line,
+rem  Android64 gets them as a "dunitx_filter" intent string extra that
+rem  OtlAndroidTests.dpr / ConfigureDUnitXFilter parses -- so:
+rem
+rem    build_test_all.bat --include:Stress
+rem    build_test_all.bat --run:TestTask.TestStartTask
+rem
+rem  work on every runtime target. See ConsoleTestRunner.dpr's
+rem  HasAnyDUnitXFilterSwitch for the flags that bypass the default
+rem  Stress exclusion on the console targets; the FMX runner accepts
+rem  whitespace-separated --include:X / --exclude:X tokens.
 rem ============================================================
 
 cd /d "%~dp0" || exit /b 1
@@ -36,7 +53,7 @@ if errorlevel 1 (
   set "WIN32_RC=compile-fail"
   goto :after_win32
 )
-".\Win32\Debug\ConsoleTestRunner.exe"
+".\Win32\Debug\ConsoleTestRunner.exe" %*
 set "WIN32_RC=!errorlevel!"
 :after_win32
 
@@ -48,7 +65,7 @@ if errorlevel 1 (
   set "WIN64_RC=compile-fail"
   goto :after_win64
 )
-".\Win64\Debug\ConsoleTestRunner.exe"
+".\Win64\Debug\ConsoleTestRunner.exe" %*
 set "WIN64_RC=!errorlevel!"
 :after_win64
 
@@ -78,7 +95,7 @@ if errorlevel 1 (
   set "LINUX_RC=link-fail"
   goto :after_linux
 )
-wsl /mnt/c/tmp_otl_link/Linux64/Debug/ConsoleTestRunner
+wsl /mnt/c/tmp_otl_link/Linux64/Debug/ConsoleTestRunner %*
 set "LINUX_RC=!errorlevel!"
 :after_linux
 
@@ -111,7 +128,13 @@ if errorlevel 1 (
 )
 "%ADB%" shell am force-stop com.embarcadero.OtlAndroidTests
 "%ADB%" logcat -c
-"%ADB%" shell am start -a android.intent.action.MAIN -n com.embarcadero.OtlAndroidTests/com.embarcadero.firemonkey.FMXNativeActivity
+rem Forward %* as a string extra so OtlAndroidTests.dpr / ConfigureDUnitXFilter
+rem can parse the same --include:/--exclude: tokens the console runners do.
+if "%~1"=="" (
+  "%ADB%" shell am start -a android.intent.action.MAIN -n com.embarcadero.OtlAndroidTests/com.embarcadero.firemonkey.FMXNativeActivity
+) else (
+  "%ADB%" shell am start -a android.intent.action.MAIN -n com.embarcadero.OtlAndroidTests/com.embarcadero.firemonkey.FMXNativeActivity --es dunitx_filter "%*"
+)
 echo     waiting up to 5 minutes for OTL_DIAG: AutoRun: TestCount=...
 rem Use absolute path for ping.exe so the poll-loop sleep works reliably
 rem even when PATH is inherited from MSYS/Git-bash (where `timeout` would
