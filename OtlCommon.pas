@@ -833,77 +833,19 @@ type
     property Affinity: IOmniAffinity read GetAffinity;
   end; { IOmniSystemEnvironment }
 
-  TOmniGroupAffinity = record
-  private
-    FAffinity: IOmniIntegerSet;
-    FGroup   : integer;
-    function GetAffinity: IOmniIntegerSet;
-  public
-    constructor Create(groupNumber: integer; const affinity: IOmniIntegerSet); overload;
-    constructor Create(groupNumber: integer; const affinityMask: uint64); overload;
-    property Group: integer read FGroup write FGroup;
-    property Affinity: IOmniIntegerSet read GetAffinity;
-  end; { TOmniGroupAffinity }
-
   IOmniThreadEnvironment = interface ['{5C11FEC7-9FBE-423F-B30E-543C8240E3A3}']
     function  GetAffinity: IOmniAffinity;
-    function  GetGroupAffinity: TOmniGroupAffinity;
     function  GetID: TThreadId;
-    procedure SetGroupAffinity(const value: TOmniGroupAffinity);
   //
     property Affinity: IOmniAffinity read GetAffinity;
-    property GroupAffinity: TOmniGroupAffinity read GetGroupAffinity write SetGroupAffinity;
     property ID: TThreadId read GetID;
   end; { IOmniThreadEnvironment }
 
-  IOmniNUMANode = interface ['{8D3B415F-8B13-4BFF-B7C7-2D0BC1705217}']
-    function  GetAffinity: IOmniIntegerSet;
-    function  GetGroupNumber: integer;
-    function  GetNodeNumber: integer;
-  //
-    property NodeNumber: integer read GetNodeNumber;
-    property GroupNumber: integer read GetGroupNumber;
-    property Affinity: IOmniIntegerSet read GetAffinity;
-  end; { IOmniNUMANode }
-
-  IOmniNUMANodes = interface ['{4407E795-ED35-4DD1-9EC6-D59758BAF581}']
-    function  GetItem(idx: integer): IOmniNUMANode;
-  //
-    function  All: IOmniIntegerSet;
-    function  Count: integer;
-    function  Distance(fromNode, toNode: integer): integer;
-    function  FindNode(nodeNumber: integer): IOmniNUMANode;
-    function  GetEnumerator: TList<IOmniNUMANode>.TEnumerator;
-    property Item[idx: integer]: IOmniNUMANode read GetItem; default;
-  end; { IOmniNUMANodes }
-
-  IOmniProcessorGroup = interface ['{BCFB0AE8-A378-4A4B-AD73-EF9B59218B55}']
-    function  GetAffinity: IOmniIntegerSet;
-    function  GetGroupNumber: integer;
-    //
-    property GroupNumber: integer read GetGroupNumber;
-    property Affinity: IOmniIntegerSet read GetAffinity;
-  end; { IOmniProcessorGroup }
-
-  IOmniProcessorGroups = interface ['{B4C871C0-CF61-4BC9-98DE-87F720F51853}']
-    function  GetItem(idx: integer): IOmniProcessorGroup;
-  //
-    function  All: IOmniIntegerSet;
-    function  Count: integer;
-    function  FindGroup(groupNumber: integer): IOmniProcessorGroup;
-    function  GetEnumerator: TList<IOmniProcessorGroup>.TEnumerator;
-    property Item[idx: integer]: IOmniProcessorGroup read GetItem; default;
-  end; { IOmniProcessorGroups }
-
   IOmniEnvironment = interface ['{4F9594E2-8B88-483C-9616-85B50493406D}']
-    function  GetNUMANodes: IOmniNUMANodes;
-    function  GetProcessorGroups: IOmniProcessorGroups;
     function  GetProcess: IOmniProcessEnvironment;
     function  GetSystem: IOmniSystemEnvironment;
     function  GetThread: IOmniThreadEnvironment;
   //
-    property NUMANodes: IOmniNUMANodes read GetNUMANodes;
-    property ProcessorGroups: IOmniProcessorGroups read GetProcessorGroups;
     property Process: IOmniProcessEnvironment read GetProcess;
     property System: IOmniSystemEnvironment read GetSystem;
     property Thread: IOmniThreadEnvironment read GetThread;
@@ -1238,113 +1180,24 @@ type
     oteThreadID: TThreadID;
   protected
     function  GetAffinity: IOmniAffinity;
-    function  GetGroupAffinity: TOmniGroupAffinity;
     function  GetID: TThreadID;
-    procedure SetGroupAffinity(const value: TOmniGroupAffinity);
   public
     constructor Create;
     property Affinity: IOmniAffinity read GetAffinity;
-    property GroupAffinity: TOmniGroupAffinity read GetGroupAffinity write SetGroupAffinity;
     property ID: TThreadID read GetID;
   end; { TOmniThreadEnvironment }
-
-  TOmniNUMANode = class(TInterfacedObject, IOmniNUMANode)
-  private
-    FAffinity   : IOmniIntegerSet;
-    FGroupNumber: integer;
-    FNodeNumber : integer;
-  protected
-    function GetAffinity: IOmniIntegerSet;
-    function GetGroupNumber: integer;
-    function GetNodeNumber: integer;
-  public
-    constructor Create(nodeNumber, groupNumber: integer; affinity: NativeUInt);
-    property Affinity: IOmniIntegerSet read GetAffinity;
-    property GroupNumber: integer read GetGroupNumber;
-    property NodeNumber: integer read GetNodeNumber;
-  end; { TOmniNUMANode }
-
-  IOmniNUMANodesInternal = interface ['{080E0660-4D9C-4F47-994E-9D0337AABB2B}']
-    procedure Add(const node: IOmniNUMANode);
-    procedure Sort;
-  end; { IOmniNUMANodesInternal }
-
-  TOmniNUMANodes = class(TInterfacedObject, IOmniNUMANodes,
-                                            IOmniNUMANodesInternal)
-  private
-    FNodes               : TList<IOmniNUMANode>;
-    FProximityInitialized: boolean;
-    FProximity           : array of array of integer;
-  protected
-    function  GetItem(idx: integer): IOmniNUMANode; inline;
-    procedure InitializeProximity;
-  public
-    constructor Create;
-    destructor  Destroy; override;
-    procedure Add(const node: IOmniNUMANode); inline;
-    function  All: IOmniIntegerSet;
-    function  Count: integer; inline;
-    function  Distance(fromNode, toNode: integer): integer;
-    function  FindNode(nodeNumber: integer): IOmniNUMANode;
-    function  GetEnumerator: TList<IOmniNUMANode>.TEnumerator; inline;
-    procedure Sort;
-    property Item[idx: integer]: IOmniNUMANode read GetItem; default;
-  end; { TOmniNUMANodes }
-
-  TOmniProcessorGroup = class(TInterfacedObject, IOmniProcessorGroup)
-  private
-    FAffinity   : IOmniIntegerSet;
-    FGroupNumber: integer;
-  protected
-    function GetAffinity: IOmniIntegerSet;
-    function GetGroupNumber: integer;
-  public
-    constructor Create(groupNumber: integer; affinity: NativeUInt);
-    property Affinity: IOmniIntegerSet read GetAffinity;
-    property GroupNumber: integer read GetGroupNumber;
-  end; { TOmniProcessorGroup }
-
-  IOmniProcessorGroupsInternal = interface ['{E9A146BC-C1CF-4D2B-8764-2041AC24D424}']
-    procedure Add(const group: IOmniProcessorGroup);
-  end; { IOmniProcessorGroupsInternal }
-
-  TOmniProcessorGroups = class(TInterfacedObject, IOmniProcessorGroups,
-                                                  IOmniProcessorGroupsInternal)
-  private
-    FGroups: TList<IOmniProcessorGroup>;
-  protected
-    function  GetItem(idx: integer): IOmniProcessorGroup; inline;
-  public
-    constructor Create;
-    destructor Destroy; override;
-    procedure Add(const group: IOmniProcessorGroup); inline;
-    function  All: IOmniIntegerSet;
-    function  Count: integer; inline;
-    function  FindGroup(groupNumber: integer): IOmniProcessorGroup;
-    function  GetEnumerator: TList<IOmniProcessorGroup>.TEnumerator; inline;
-    property Item[idx: integer]: IOmniProcessorGroup read GetItem; default;
-  end; { IOmniProcessorGroups }
 
   TOmniEnvironment = class(TInterfacedObject, IOmniEnvironment)
   strict private
     oeProcessEnv: IOmniProcessEnvironment;
     oeSystemEnv : IOmniSystemEnvironment;
-    oeNUMANodes      : IOmniNUMANodes;
-    oeProcessorGroups: IOmniProcessorGroups;
-  strict protected
-    procedure CreateFakeNUMAInfo;
-    procedure LoadNUMAInfo;
   protected
-    function  GetNUMANodes: IOmniNUMANodes;
-    function  GetProcessorGroups: IOmniProcessorGroups;
     function  GetProcess: IOmniProcessEnvironment;
     function  GetSystem: IOmniSystemEnvironment;
     function  GetThread: IOmniThreadEnvironment;
   public
     constructor Create;
     destructor  Destroy; override;
-    property NUMANodes: IOmniNUMANodes read GetNUMANodes;
-    property ProcessorGroups: IOmniProcessorGroups read GetProcessorGroups;
     property Process: IOmniProcessEnvironment read GetProcess;
     property System: IOmniSystemEnvironment read GetSystem;
     property Thread: IOmniThreadEnvironment read GetThread;
@@ -3644,307 +3497,10 @@ begin
   Result := oteAffinity;
 end; { TOmniThreadEnvironment.GetAffinity }
 
-function TOmniThreadEnvironment.GetGroupAffinity: TOmniGroupAffinity;
-{$IFDEF MSWINDOWS}
-var
-  groupAffinity: TGroupAffinity;
-  lastErr      : cardinal;
-{$ENDIF MSWINDOWS}
-begin
-  {$IFDEF MSWINDOWS}
-  if GetThreadGroupAffinity(GetCurrentThread, groupAffinity) then begin
-    Result.Group := groupAffinity.Group;
-    Result.Affinity.AsMask := groupAffinity.Mask;
-  end
-  else begin
-    lastErr := Winapi.Windows.GetLastError;
-    if lastErr <> ERROR_NOT_SUPPORTED then
-      raise Exception.CreateFmt('TOmniThreadEnvironment.GetGroupAffinity: GetThreadGroupAffinity failed with [%d] %s',
-        [lastErr, SysErrorMessage(lastErr)]);
-    Result.Group := 0;
-    Result.Affinity.AsMask := Affinity.Mask;
-  end;
-  {$ELSE}
-  Result.Group := 0;
-  Result.Affinity.AsMask := Affinity.Mask;
-  {$ENDIF MSWINDOWS}
-end; { TOmniThreadEnvironment.GetGroupAffinity }
-
 function TOmniThreadEnvironment.GetID: TThreadId;
 begin
   Result := oteThreadID;
 end; { TOmniThreadEnvironment.GetID }
-
-procedure TOmniThreadEnvironment.SetGroupAffinity(const value: TOmniGroupAffinity);
-{$IFDEF MSWINDOWS}
-var
-  groupAffinity: TGroupAffinity;
-{$ENDIF MSWINDOWS}
-begin
-  {$IFDEF MSWINDOWS}
-  FillChar(groupAffinity, SizeOf(groupAffinity), 0);
-  groupAffinity.Group := value.Group;
-  groupAffinity.Mask := value.Affinity.AsMask;
-  SetThreadGroupAffinity(GetCurrentThread, groupAffinity, nil);
-  {$ELSE}
-  if value.Group <> 0 then
-    raise Exception.Create('TOmniThreadEnvironment.SetGroupAffinity: Processor group must be 0');
-  Affinity.Mask := value.Affinity.AsMask;
-  {$ENDIF ~MSWINDOWS}
-end; { TOmniThreadEnvironment.SetGroupAffinity }
-
-{ TOmniNUMANode }
-
-constructor TOmniNUMANode.Create(nodeNumber, groupNumber: integer; affinity: NativeUInt);
-begin
-  inherited Create;
-  FAffinity := TOmniIntegerSet.Create;
-  FAffinity.AsMask := affinity;
-  FGroupNumber := groupNumber;
-  FNodeNumber := nodeNumber;
-end; { TOmniNUMANode.Create }
-
-function TOmniNUMANode.GetAffinity: IOmniIntegerSet;
-begin
-  Result := FAffinity;
-end; { TOmniNUMANode.GetAffinity }
-
-function TOmniNUMANode.GetGroupNumber: integer;
-begin
-  Result := FGroupNumber;
-end; { TOmniNUMANode.GetGroupNumber }
-
-function TOmniNUMANode.GetNodeNumber: integer;
-begin
-  Result := FNodeNumber;
-end; { TOmniNUMANode.GetNodeNumber }
-
-{ TOmniNUMANodes }
-
-constructor TOmniNUMANodes.Create;
-begin
-  inherited Create;
-  FNodes := TList<IOmniNUMANode>.Create;
-end; { TOmniNUMANodes.Create }
-
-destructor TOmniNUMANodes.Destroy;
-begin
-  FreeAndNil(FNodes);
-  inherited;
-end; { TOmniNUMANodes.Destroy }
-
-procedure TOmniNUMANodes.Add(const node: IOmniNUMANode);
-begin
-  FNodes.Add(node);
-end; { TOmniNUMANodes.Add }
-
-function TOmniNUMANodes.All: IOmniIntegerSet;
-var
-  i    : integer;
-  nodes: TIntegerDynArray;
-begin
-  SetLength(nodes, Count);
-  for i := 0 to Count - 1 do
-    nodes[i] := Item[i].NodeNumber;
-  Result := TOmniIntegerSet.Create;
-  Result.AsIntArray := nodes;
-end; { TOmniNUMANodes.All }
-
-function TOmniNUMANodes.Count: integer;
-begin
-  Result := FNodes.Count;
-end; { TOmniNUMANodes.Count }
-
-function TOmniNUMANodes.Distance(fromNode, toNode: integer): integer;
-begin
-  if not FProximityInitialized then
-    InitializeProximity;
-  Result := FProximity[fromNode, toNode];
-end; { TOmniNUMANodes.Distance }
-
-function TOmniNUMANodes.FindNode(nodeNumber: integer): IOmniNUMANode;
-var
-  node: IOmniNUMANode;
-begin
-  Result := nil;
-  for node in Environment.NUMANodes do
-    if node.NodeNumber = nodeNumber then
-      Exit(node);
-end; { TOmniNUMANodes.FindNode }
-
-function TOmniNUMANodes.GetEnumerator: TList<IOmniNUMANode>.TEnumerator;
-begin
-  Result := FNodes.GetEnumerator;
-end; { TOmniNUMANodes.GetEnumerator }
-
-function TOmniNUMANodes.GetItem(idx: integer): IOmniNUMANode;
-begin
-  Result := FNodes[idx];
-end; { TOmniNUMANodes.GetItem }
-
-procedure TOmniNUMANodes.InitializeProximity;
-{$IFDEF MSWINDOWS}
-type
-  TGetSystemFirmwareTable = function(FirmwareTableProviderSignature: DWORD;
-    FirmwareTableID: DWORD; pFirmwareTableBuffer: Pointer;
-    BufferSize: DWORD): UINT; stdcall;
-
-  function MakeDWORD(const name: AnsiString): DWORD;
-  begin
-    Result := (Ord(name[1]) SHL 24)
-           OR (Ord(name[2]) SHL 16)
-           OR (Ord(name[3]) SHL  8)
-           OR (Ord(name[4])       );
-  end; { MakeDWORD }
-
-var
-  getSystemFirmwareTable: TGetSystemFirmwareTable;
-  highestNuma           : ULONG;
-  i                     : integer;
-  j                     : integer;
-  node                  : word;
-  nodeFrom              : integer;
-  nodeTo                : integer;
-  numLocalities         : integer;
-  p                     : pointer;
-  proximityToNuma       : array of integer;
-  q                     : PByte;
-  size                  : integer;
-{$ENDIF MSWINDOWS}
-begin { TOmniNUMANodes.InitializeProximity }
-{$IFNDEF MSWINDOWS}
-  SetLength(FProximity, 1);
-  SetLength(FProximity[0], 1);
-  FProximity[0,0] := 10;
-{$ELSE}
-  if not GetNumaHighestNodeNumber(highestNuma) then
-    raise Exception.Create('TOmniNUMANodes.InitializeProximity: Failed to read highest NUMA node number');
-
-  SetLength(FProximity, highestNuma+1);
-  for i := 0 to highestNuma do begin
-    Setlength(FProximity[i], highestNuma + 1);
-    for j := 0 to highestNuma do
-      FProximity[i,j] := 10;
-  end;
-
-  getSystemFirmwareTable := GetProcAddress(GetModuleHandle('kernel32.dll'), 'GetSystemFirmwareTable');
-  if assigned(getSystemFirmwareTable) then begin
-    size := getSystemFirmwareTable(MakeDWORD('ACPI'), MakeDWORD('TILS'), nil, 0);
-    if size > 44 then begin
-      GetMem(p, size);
-      try
-        getSystemFirmwareTable(MakeDWORD('ACPI'), MakeDWORD('TILS'), p, size);
-        q := PByte(NativeUInt(p) + 36);
-        numLocalities := PInt64(q)^;
-        Inc(q, 8);
-
-        SetLength(proximityToNuma, numLocalities);
-        for i := 0 to numLocalities - 1 do
-          if GetNumaProximityNodeEx(i, @node) then
-            proximityToNuma[i] := node
-          else
-            proximityToNuma[i] := -1;
-
-        for i := 0 to numLocalities - 1 do begin
-          nodeFrom := proximityToNuma[i];
-          for j := 0 to numLocalities - 1 do begin
-            nodeTo := proximityToNuma[j];
-            if (nodeFrom >= 0) and (nodeTo >= 0) then
-              FProximity[nodeFrom, nodeTo] := q^;
-            Inc(q);
-          end;
-        end;
-      finally FreeMem(p); end;
-    end; // if size > 44
-  end; // if assigned(getSystemFirmwareTable)
-{$ENDIF MSWINDOWS}
-  FProximityInitialized := true;
-end; { TOmniNUMANodes.InitializeProximity }
-
-procedure TOmniNUMANodes.Sort;
-begin
-  FNodes.Sort(TComparer<IOmniNUMANode>.Construct(
-    function (const N1, N2: IOmniNUMANode): integer
-    begin
-      Result := N1.NodeNumber - N2.NodeNumber;
-    end));
-end; { TOmniNUMANodes.Sort }
-
-{ TOmniProcessorGroup }
-
-constructor TOmniProcessorGroup.Create(groupNumber: integer; affinity: NativeUInt);
-begin
-  inherited Create;
-  FAffinity := TOmniIntegerSet.Create;
-  FAffinity.AsMask := affinity;
-  FGroupNumber := groupNumber;
-end; { TOmniProcessorGroup.Create }
-
-function TOmniProcessorGroup.GetAffinity: IOmniIntegerSet;
-begin
-  Result := FAffinity;
-end; { TOmniProcessorGroup.GetAffinity }
-
-function TOmniProcessorGroup.GetGroupNumber: integer;
-begin
-  Result := FGroupNumber;
-end; { TOmniProcessorGroup.GetGroupNumber }
-
-{ TOmniProcessorGroups }
-
-constructor TOmniProcessorGroups.Create;
-begin
-  inherited Create;
-  FGroups := TList<IOmniProcessorGroup>.Create;
-end; { TOmniProcessorGroups.Create }
-
-destructor TOmniProcessorGroups.Destroy;
-begin
-  FreeAndNil(FGroups);
-  inherited;
-end; { TOmniProcessorGroups.Destroy }
-
-procedure TOmniProcessorGroups.Add(const group: IOmniProcessorGroup);
-begin
-  FGroups.Add(group);
-end; { TOmniProcessorGroups.Add }
-
-function TOmniProcessorGroups.All: IOmniIntegerSet;
-var
-  i    : integer;
-  nodes: TIntegerDynArray;
-begin
-  SetLength(nodes, Count);
-  for i := 0 to Count - 1 do
-    nodes[i] := Item[i].GroupNumber;
-  Result := TOmniIntegerSet.Create;
-  Result.AsIntArray := nodes;
-end; { TOmniProcessorGroups.All }
-
-function TOmniProcessorGroups.Count: integer;
-begin
-  Result := FGroups.Count;
-end; { TOmniProcessorGroups.Count }
-
-function TOmniProcessorGroups.FindGroup(groupNumber: integer): IOmniProcessorGroup;
-var
-  group: IOmniProcessorGroup;
-begin
-  Result := nil;
-  for group in Environment.ProcessorGroups do
-    if group.GroupNumber = groupNumber then
-      Exit(group);
-end; { TOmniProcessorGroups.FindGroup }
-
-function TOmniProcessorGroups.GetEnumerator: TList<IOmniProcessorGroup>.TEnumerator;
-begin
-  Result := FGroups.GetEnumerator;
-end; { TOmniProcessorGroups.GetEnumerator }
-
-function TOmniProcessorGroups.GetItem(idx: integer): IOmniProcessorGroup;
-begin
-  Result := FGroups[idx];
-end; { TOmniProcessorGroups.GetItem }
 
 { TOmniEnvironment }
 
@@ -3953,39 +3509,12 @@ begin
   inherited Create;
   oeProcessEnv := TOmniProcessEnvironment.Create;
   oeSystemEnv := TOmniSystemEnvironment.Create;
-  oeNUMANodes       := TOmniNUMANodes.Create;
-  oeProcessorGroups := TOmniProcessorGroups.Create;
-  LoadNUMAInfo;
 end; { TOmniEnvironment.Create }
 
 destructor TOmniEnvironment.Destroy;
 begin
-  oeNUMANodes := nil;
-  oeProcessorGroups := nil;
   inherited;
 end; { TOmniEnvironment.Destroy }
-
-procedure TOmniEnvironment.CreateFakeNUMAInfo;
-var
-  i   : integer;
-  mask: NativeUInt;
-begin
-  mask := 0;
-  for i := 1 to System.Affinity.Count do
-    mask := (mask shl 1) OR 1;
-  (oeProcessorGroups as IOmniProcessorGroupsInternal).Add(TOmniProcessorGroup.Create(0, mask));
-  (oeNUMANodes as IOmniNUMANodesInternal).Add(TOmniNUMANode.Create(0, 0, mask));
-end; { TOmniEnvironment.CreateFakeNUMAInfo }
-
-function TOmniEnvironment.GetNUMANodes: IOmniNUMANodes;
-begin
-  Result := oeNUMANodes;
-end; { TOmniEnvironment.GetNUMANodes }
-
-function TOmniEnvironment.GetProcessorGroups: IOmniProcessorGroups;
-begin
-  Result := oeProcessorGroups;
-end; { TOmniEnvironment.GetProcessorGroups }
 
 function TOmniEnvironment.GetProcess: IOmniProcessEnvironment;
 begin
@@ -4001,65 +3530,6 @@ function TOmniEnvironment.GetThread: IOmniThreadEnvironment;
 begin
   Result := TOmniThreadEnvironment.Create;
 end; { TOmniEnvironment.GetThread }
-
-procedure TOmniEnvironment.LoadNUMAInfo;
-{$IFDEF MSWINDOWS}
-var
-  buffer                 : PByte;
-  bufSize                : DWORD;
-  iGroup                 : integer;
-  numaNodesInternal      : IOmniNUMANodesInternal;
-  offset                 : DWORD;
-  pGroupInfo             : PPROCESSOR_GROUP_INFO;
-  pInfo                  : PSystemLogicalProcessorInformationEx;
-  processorGroupsInternal: IOmniProcessorGroupsInternal;
-{$ENDIF MSWINDOWS}
-begin
-  {$IFNDEF MSWINDOWS}
-  CreateFakeNUMAInfo;
-  {$ELSE}
-  bufSize := 0;
-  GetLogicalProcessorInformationEx(RelationAll, PSYSTEM_LOGICAL_PROCESSOR_INFORMATION(nil), bufSize);
-  var lastErr := Winapi.Windows.GetLastError;
-  if lastErr = ERROR_NOT_SUPPORTED then begin
-    CreateFakeNUMAInfo;
-    Exit;
-  end;
-  if lastErr <> ERROR_INSUFFICIENT_BUFFER then begin
-    CreateFakeNUMAInfo;
-    Exit;
-  end;
-
-  GetMem(buffer, bufSize);
-  try
-    if not GetLogicalProcessorInformationEx(RelationAll, PSYSTEM_LOGICAL_PROCESSOR_INFORMATION(buffer), bufSize) then begin
-      CreateFakeNUMAInfo;
-      Exit;
-    end;
-
-    numaNodesInternal := (oeNUMANodes as IOmniNUMANodesInternal);
-    processorGroupsInternal := (oeProcessorGroups as IOmniProcessorGroupsInternal);
-
-    offset := 0;
-    while offset < bufSize do begin
-      pInfo := PSystemLogicalProcessorInformationEx(buffer + offset);
-      if pInfo.Relationship = RelationNumaNode then
-        numaNodesInternal.Add(TOmniNUMANode.Create(pInfo.NumaNode.NodeNumber,
-          pInfo.NumaNode.GroupMask.Group, pInfo.NumaNode.GroupMask.Mask))
-      else if pInfo.Relationship = RelationGroup then begin
-        pGroupInfo := @pInfo.Group.GroupInfo;
-        for iGroup := 0 to pInfo.Group.ActiveGroupCount - 1 do begin
-          processorGroupsInternal.Add(TOmniProcessorGroup.Create(iGroup, pGroupInfo^.ActiveProcessorMask));
-          Inc(pGroupInfo);
-        end;
-      end;
-      Inc(offset, pInfo.Size);
-    end;
-
-    numaNodesInternal.Sort;
-  finally FreeMem(buffer); end;
-  {$ENDIF MSWINDOWS}
-end; { TOmniEnvironment.LoadNUMAInfo }
 
 { TOmniExecutable }
 
@@ -4716,32 +4186,6 @@ procedure TOmniIntegerSet.SetOnChange(const value: TOmniIntegerSetChangedEvent);
 begin
   FOnChange := value;
 end; { TOmniIntegerSet.SetOnChange }
-
-{ TOmniGroupAffinity }
-
-constructor TOmniGroupAffinity.Create(groupNumber: integer; const affinity: IOmniIntegerSet);
-begin
-  Create(groupNumber, affinity.AsMask);
-end; { TOmniGroupAffinity.Create }
-
-constructor TOmniGroupAffinity.Create(groupNumber: integer; const affinityMask: uint64);
-begin
-  FGroup := groupNumber;
-  FAffinity := TOmniIntegerSet.Create;
-  FAffinity.AsMask := affinityMask;
-end; { TOmniGroupAffinity.Create }
-
-function TOmniGroupAffinity.GetAffinity: IOmniIntegerSet;
-var
-  syncMask: IOmniIntegerSet;
-begin
-  if not assigned(FAffinity) then begin
-    syncMask := TOmniIntegerSet.Create;
-    if TInterlocked.CompareExchange(pointer(FAffinity), pointer(syncMask), nil) = nil then
-      pointer(syncMask) := nil;
-  end;
-  Result := FAffinity;
-end; { TOmniGroupAffinity.GetAffinity }
 
 initialization
   Assert(SizeOf(TObject) = SizeOf(pointer)); //in VarToObj

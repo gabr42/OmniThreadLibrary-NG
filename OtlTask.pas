@@ -158,8 +158,6 @@ type
     procedure RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod);
     procedure SetException(exceptionObject: pointer);
     procedure SetExitStatus(exitCode: integer; const exitMessage: string);
-    procedure SetProcessorGroup(procGroupNumber: integer);
-    procedure SetNUMANode(numaNodeNumber: integer);
     procedure SetTimer(interval_ms: cardinal); overload; deprecated 'use three-parameter version';
     procedure SetTimer(interval_ms: cardinal; const timerMessage: TOmniMessageID); overload; deprecated 'use three-parameter version';
     procedure SetTimer(timerID: integer; interval_ms: cardinal; const timerMessage: TOmniMessageID); overload;

@@ -66,11 +66,22 @@ Parallel.Join([
 ]).Execute;
 ```
 
-### NUMA Support
+### NUMA and Processor Groups
 
-NUMA-related APIs (`Environment.NUMANodes`, `Environment.AffinitiesToNUMANodes`,
-affinity/NUMA helpers in `DSiWin32`) have been removed. Thread affinity is still
-available on Windows via `TPlatform.ThreadAffinity` in `OtlPlatform.pas`.
+All NUMA and Windows processor-group APIs have been removed:
+
+- `IOmniNUMANode` / `IOmniNUMANodes`, `Environment.NUMANodes`
+- `IOmniProcessorGroup` / `IOmniProcessorGroups`, `Environment.ProcessorGroups`
+- `TOmniGroupAffinity`, `IOmniThreadEnvironment.GroupAffinity`
+- `IOmniTaskControl.NUMANode(n)`, `IOmniTaskControl.ProcessorGroup(n)`
+- `IOmniThreadPool.NUMANodes`, `IOmniThreadPool.ProcessorGroups`, and the
+  underlying `TOTPWorkerScheduler` cluster dispatcher
+
+OTL NG worker threads now inherit the process default affinity. If you need
+to restrict a task's CPUs on Windows, set single-group affinity directly via
+`Winapi.Windows.SetThreadAffinityMask` from inside the task body, or — for
+cross-platform scoping — keep using the process-wide `Affinity` mask.
+Multi-group (>64-CPU) scheduling is no longer supported by the library.
 
 ### Design-Time Packages
 
@@ -388,7 +399,7 @@ All `DSiWin32` calls replaced with direct RTL / WinAPI equivalents:
 | `DSiTimeGetTime64` | `TStopwatch.ElapsedMilliseconds` |
 | `DSiWaitForTwoObjects` | `TWaitFor.WaitAny` |
 | `DSiAllocateHWnd` | Removed (no hidden windows) |
-| `DSiGetThreadGroupAffinity` | `TPlatform.ThreadAffinity` |
+| `DSiGetThreadGroupAffinity` | Removed (no multi-group affinity); use `TPlatform.ThreadAffinity` for single-group |
 | `IFF(cond, a, b)` | `IfThen(cond, a, b)` from `System.Math` |
 
 Remove `DSiWin32` from your uses clauses if it was only there for OTL.

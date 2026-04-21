@@ -29,10 +29,9 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Set `develop` as the default branch
 
 ### 0.4 CI & PR review setup
-- [ ] GitHub Actions workflow for Delphi compilation on Windows (Win32 + Win64) — deferred, needs self-hosted runner
-- [ ] GitHub Actions workflow for Linux cross-compilation (when supported) — deferred
 - [x] Claude Code PR review via GitHub Action (claude-code-review.yml + claude.yml)
-- [x] Branch protection on `main`: require PR (CI checks to be added when runner is available)
+- [x] Branch protection on `main`: require PR
+- [x] Compilation & test gate: local Win32/Win64/Linux64/Android64/ARM64EC sweeps (Linux64 runs cross-compiled via Delphi → WSL link → native execution). Hosted GitHub Actions runner for Delphi is not viable (licensing); self-hosted runner deferred indefinitely. The Linux64 leg exercises non-Windows code paths that a Windows-only hosted runner could not cover anyway.
 
 ### 0.5 Submodule setup
 - [x] Add `GpDelphiUnits` as a git submodule (same as current setup)
@@ -136,7 +135,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Keep `TOmniContainerEventObserver` (IOmniEvent-based) as the universal observer
 - [x] Keep `TOmniContainerPlatformObserver` for monitor-based notification
 - [x] All 61 unit tests pass (including previously-deadlocking `TestBlockingCollection1`)
-- **Deferred to Phase 2**: Remove `TOmniContainerWindowsMessageObserver` and `TOmniContainerWindowsEventObserver` — still used by `OtlComm.pas` (Step 2.1) and `OtlParallel.pas` (Step 3.1)
+- [x] Removed `TOmniContainerWindowsMessageObserver` and `TOmniContainerWindowsEventObserver` (completed in Step 5.1 after `OtlComm.pas` and `OtlParallel.pas` were migrated off them)
 
 ### 1.6 OtlPlatform.pas — Platform utilities
 **Files**: `OtlPlatform.pas`
@@ -146,7 +145,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] `TPlatform.ThreadID`: Already cross-platform via `TThread.CurrentThread.ThreadID`
 - [x] Removed DSiWin32 dependency
 - [x] All 61 unit tests pass
-- **Deferred to Phase 2**: Drop NUMA support (`NUMANode`, `ProcessorGroup`) — these are in `OtlCommon.pas` and `OtlTaskControl.pas`
+- [x] Dropped NUMA / processor-group support. Removed `IOmniNUMANode(s)`, `IOmniProcessorGroup(s)`, `TOmniGroupAffinity`, `IOmniThreadEnvironment.GroupAffinity`, `IOmniTaskControl.NUMANode`/`.ProcessorGroup`, `IOmniThreadPool.NUMANodes`/`.ProcessorGroups` and the `TOTPWorkerScheduler` cluster dispatcher. Worker threads now inherit the process default affinity; single-group `SetThreadAffinityMask` remains for `.ProcessorGroups`-free affinity scoping.
 
 ### 1.7 Remove GpLists dependency
 - [x] Replaced all GpLists types in 6 files with standard `System.Generics.Collections`:
@@ -560,10 +559,10 @@ No existing tests. All new:
 - [x] `Notify` callback delivery — call Notify, verify callback fires on target thread (Windows: via `SleepEx(0, True)` APC drain; test from same thread for simplicity)
 - [x] Notification coalescing — multiple Notify calls before drain result in single callback invocation
 
-### 5.6 CI pipeline
-- [ ] GitHub Actions: Windows (Win32 + Win64) build and test
-- [ ] GitHub Actions: Linux64 build (when Delphi Linux compiler available in CI)
-- [ ] Claude Code automated PR review
+### 5.6 CI pipeline ✅
+- [x] Claude Code automated PR review (`claude-code-review.yml`, `claude.yml`)
+- [x] Local cross-platform build+test sweep covers Win32, Win64, Linux64 (WSL-linked), Android64 (device), ARM64EC (compile-only smoke) via `unittests/build_test_all.bat` and `run_sweep.sh`
+- [x] Hosted GitHub Actions build/test deferred indefinitely — no Delphi-enabled runner available; Linux64 leg provides the cross-platform regression signal a Windows-only hosted runner would miss
 
 ### 5.7 Migration guide ✅
 - [x] Document all API changes from OTL v3 to OTL NG
@@ -658,11 +657,13 @@ Phase 5: Cleanup & testing (ongoing, but final push here)
 - Verify `Parallel.ForEach`, `Parallel.Future`, `Parallel.Pipeline` work correctly
 - Stress tests pass without deadlocks or race conditions
 
-### Platform matrix (initial)
-| Platform | Build | Test | Status |
-|----------|-------|------|--------|
-| Windows Win32 | CI | CI | Primary |
-| Windows Win64 | CI | CI | Primary |
-| Linux64 | CI | CI | Secondary |
-| macOS ARM64 | Manual | Manual | Deferred |
-| iOS/Android | Manual | Manual | Deferred |
+### Platform matrix
+| Platform | Build | Test | Status | Notes |
+|----------|-------|------|--------|-------|
+| Windows Win32 | Local | Local (ConsoleTestRunner) | Primary | 242/242 passing |
+| Windows Win64 | Local | Local (ConsoleTestRunner) | Primary | 242/242 passing |
+| Linux64 | Local (WSL-linked) | Local (WSL) | Secondary | 235/235 passing + 3 ignored |
+| Android64 | Local (`build_android.bat`) | Device (Samsung, ARM64) | Secondary | 169/169 passing; FMX GUI runner (`OtlAndroidTests.dpr`) |
+| Windows ARM64EC | Local (compile-only smoke) | — | Smoke | No runtime on dev box; `CompileAllUnits` + `ConsoleTestRunner` compile cleanly |
+| macOS ARM64 | — | — | Deferred | |
+| iOS | — | — | Deferred | |

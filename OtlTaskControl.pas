@@ -300,7 +300,6 @@ type
     function  Leave(const group: IOmniTaskGroup): IOmniTaskControl;
     function  MonitorWith(const monitor: IOmniTaskControlMonitor): IOmniTaskControl;
     function  MsgWait: IOmniTaskControl; deprecated 'No longer needed - task loop uses CV-based waiting';
-    function  NUMANode(numaNodeNumber: integer): IOmniTaskControl;
     function  OnMessage(eventDispatcher: TObject): IOmniTaskControl; overload;
     function  OnMessage(eventHandler: TOmniTaskMessageEvent): IOmniTaskControl; overload;
     function  OnMessage(msgID: word; eventHandler: TOmniTaskMessageEvent): IOmniTaskControl; overload;
@@ -310,7 +309,6 @@ type
     function  OnTerminated(eventHandler: TOmniOnTerminatedFunction): IOmniTaskControl; overload;
     function  OnTerminated(eventHandler: TOmniOnTerminatedFunctionSimple): IOmniTaskControl; overload;
     function  OnTerminated(eventHandler: TOmniTaskTerminatedEvent): IOmniTaskControl; overload;
-    function  ProcessorGroup(procGroupNumber: integer): IOmniTaskControl;
     function  RemoveMonitor: IOmniTaskControl;
     function  Run: IOmniTaskControl; overload;
     function  Run(const msgMethod: pointer): IOmniTaskControl; overload;
@@ -429,8 +427,6 @@ type
     ostiLock              : TSynchroObject;
     ostiMonitor           : IOmniContainerPlatformObserver;
     ostiMonitorLock       : TOmniCS;
-    ostiNUMANode          : integer;
-    ostiProcessorGroup    : integer;
     [Volatile]
     ostiStopped           : boolean;
     ostiTaskName          : string;
@@ -445,7 +441,6 @@ type
   protected
     procedure SetCancellationToken(const token: IOmniCancellationToken);
   public
-    constructor Create;
     function  ReleaseUnobservedRef: IOmniTaskControl;
     property BackgroundObserver: Pointer read ostiBackgroundObserver write ostiBackgroundObserver;
     property CancellationToken: IOmniCancellationToken read GetCancellationToken;
@@ -456,8 +451,6 @@ type
     property Lock: TSynchroObject read ostiLock write ostiLock;
     property Monitor: IOmniContainerPlatformObserver read ostiMonitor write ostiMonitor;
     property MonitorLock: TOmniCS read ostiMonitorLock;
-    property NUMANode: integer read ostiNUMANode write ostiNUMANode;
-    property ProcessorGroup: integer read ostiProcessorGroup write ostiProcessorGroup;
     property Stopped: boolean read ostiStopped write ostiStopped;
     property TaskName: string read ostiTaskName write ostiTaskName;
     property TerminatedEvent: IOmniEvent read ostiTerminatedEvent write ostiTerminatedEvent;
@@ -684,16 +677,12 @@ type
     procedure Asy_RegisterComm(const comm: IOmniCommunicationEndpoint);
     procedure Asy_RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod);
     procedure Asy_SetExitStatus(exitCode: integer; const exitMessage: string);
-    procedure SetProcessorGroup(procGroupNumber: integer);
-    procedure SetNUMANode(numaNodeNumber: integer);
     procedure Asy_SetTimer(timerID: integer; interval_ms: cardinal; const timerMessage:
       TOmniMessageID); overload;
     procedure Asy_UnregisterComm(const comm: IOmniCommunicationEndpoint);
     procedure Asy_UnregisterWaitObject(waitObject: IOmniEvent);
     procedure EmptyMessageQueues(const task: IOmniTask);
     procedure TerminateWhen(handle: IOmniEvent); overload;
-    class function VerifyNUMANode(numaNodeNumber: integer): IOmniNUMANode;
-    class procedure VerifyProcessorGroup(procGroupNumber: integer);
     function  WaitForInit: boolean;
     property ExitCode: integer read GetExitCode;
     property ExitMessage: string read GetExitMessage;
@@ -744,8 +733,6 @@ type
     procedure RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod);
     procedure SetException(exceptionObject: pointer);
     procedure SetExitStatus(exitCode: integer; const exitMessage: string);
-    procedure SetProcessorGroup(procGroupNumber: integer);
-    procedure SetNUMANode(numaNodeNumber: integer);
     procedure SetTimer(interval_ms: cardinal); overload;
     procedure SetTimer(interval_ms: cardinal; const timerMessage: TOmniMessageID); overload;
     procedure SetTimer(timerID: integer; interval_ms: cardinal; const timerMessage: TOmniMessageID); overload;
@@ -897,7 +884,6 @@ type
     function  Leave(const group: IOmniTaskGroup): IOmniTaskControl;
     function  MonitorWith(const monitor: IOmniTaskControlMonitor): IOmniTaskControl;
     function  MsgWait: IOmniTaskControl; deprecated 'No longer needed - task loop uses CV-based waiting';
-    function  NUMANode(numaNodeNumber: integer): IOmniTaskControl;
     function  OnMessage(eventDispatcher: TObject): IOmniTaskControl; overload;
     function  OnMessage(eventHandler: TOmniTaskMessageEvent): IOmniTaskControl; overload;
     function  OnMessage(msgID: word; eventHandler: TOmniTaskMessageEvent): IOmniTaskControl; overload;
@@ -907,7 +893,6 @@ type
     function  OnTerminated(eventHandler: TOmniOnTerminatedFunction): IOmniTaskControl; overload;
     function  OnTerminated(eventHandler: TOmniOnTerminatedFunctionSimple): IOmniTaskControl; overload;
     function  OnTerminated(eventHandler: TOmniTaskTerminatedEvent): IOmniTaskControl; overload;
-    function  ProcessorGroup(procGroupNumber: integer): IOmniTaskControl;
     function  RemoveMonitor: IOmniTaskControl;
     function  Run: IOmniTaskControl; overload;
     function  Run(const msgMethod: pointer): IOmniTaskControl; overload;
@@ -1407,10 +1392,6 @@ begin
         SetThreadName(otSharedInfo_ref.TaskName);
         if (tcoForceExecution in otExecutor_ref.Options) or (not Terminated) then
         try
-          if otSharedInfo_ref.ProcessorGroup >= 0 then
-            otExecutor_ref.SetProcessorGroup(otSharedInfo_ref.ProcessorGroup);
-          if otSharedInfo_ref.NUMANode >= 0 then
-            otExecutor_ref.SetNUMANode(otSharedInfo_ref.NUMANode);
           otExecutor_ref.Asy_Execute(Self);
         except
           on E: Exception do begin
@@ -1512,16 +1493,6 @@ procedure TOmniTask.SetExitStatus(exitCode: integer; const exitMessage: string);
 begin
   otExecutor_ref.Asy_SetExitStatus(exitCode, exitMessage);
 end; { TOmniTask.SetExitStatus }
-
-procedure TOmniTask.SetNUMANode(numaNodeNumber: integer);
-begin
-  otExecutor_ref.SetNUMANode(numaNodeNumber);
-end; { TOmniTask.SetNUMANode }
-
-procedure TOmniTask.SetProcessorGroup(procGroupNumber: integer);
-begin
-  otExecutor_ref.SetProcessorGroup(procGroupNumber);
-end; { TOmniTask.SetProcessorGroup }
 
 procedure TOmniTask.SetThreadData(const value: IInterface);
 begin
@@ -2619,37 +2590,6 @@ begin
   finally oteOptionsLock.Release; end;
 end; { TOmniTaskExecutor.SetOptions }
 
-procedure TOmniTaskExecutor.SetNUMANode(numaNodeNumber: integer);
-var
-  node         : IOmniNUMANode;
-{$IFDEF MSWindows}
-  groupAffinity: TGroupAffinity;
-{$ENDIF MSWindows}
-begin
-  node := VerifyNUMANode(numaNodeNumber);
-  {$IFDEF MSWindows}
-  FillChar(groupAffinity, SizeOf(groupAffinity), 0);
-  groupAffinity.Group := node.GroupNumber;
-  groupAffinity.Mask := node.Affinity.AsMask;
-  SetThreadGroupAffinity(GetCurrentThread, groupAffinity, nil);
-  {$ENDIF MSWindows}
-end; { TOmniTaskExecutor.SetNUMANode }
-
-procedure TOmniTaskExecutor.SetProcessorGroup(procGroupNumber: integer);
-{$IFDEF MSWindows}
-var
-  groupAffinity: TGroupAffinity;
-{$ENDIF MSWindows}
-begin
-  VerifyProcessorGroup(procGroupNumber);
-  {$IFDEF MSWindows}
-  FillChar(groupAffinity, SizeOf(groupAffinity), 0);
-  groupAffinity.Group := procGroupNumber;
-  groupAffinity.Mask := Environment.ProcessorGroups[procGroupNumber].Affinity.AsMask;
-  SetThreadGroupAffinity(GetCurrentThread, groupAffinity, nil);
-  {$ENDIF MSWindows}
-end; { TOmniTaskExecutor.SetProcessorGroup }
-
 procedure TOmniTaskExecutor.SetTimer(timerID: integer; interval_ms: cardinal;
   const timerMessage: TOmniMessageID);
 var
@@ -2714,24 +2654,6 @@ begin
     end;
   finally oteTimerLock.Release; end;
 end; { TOmniTaskExecutor.TimeUntilNextTimer_ms }
-
-class function TOmniTaskExecutor.VerifyNUMANode(numaNodeNumber: integer): IOmniNUMANode;
-begin
-  Result := Environment.NUMANodes.FindNode(numaNodeNumber);
-  if not assigned(Result) then
-    raise Exception.CreateFmt('NUMA node %d not found', [numaNodeNumber]);
-end; { TOmniTaskExecutor.VerifyNUMANode }
-
-class procedure TOmniTaskExecutor.VerifyProcessorGroup(procGroupNumber: integer);
-var
-  procGroups: IOmniProcessorGroups;
-begin
-  procGroups := Environment.ProcessorGroups;
-  if (procGroupNumber < 0) or (procGroupNumber >= procGroups.Count) then
-    raise Exception.CreateFmt(
-            'Processor group number (%d) is out of range [0..%d]',
-            [procGroupNumber, procGroups.Count - 1]);
-end; { TOmniTaskExecutor.VerifyProcessorGroup }
 
 function TOmniTaskExecutor.WaitForInit: boolean;
 begin
@@ -3202,13 +3124,6 @@ begin
   Result := Self;
 end; { TOmniTaskControl.MsgWait }
 
-function TOmniTaskControl.NUMANode(numaNodeNumber: integer): IOmniTaskControl;
-begin
-  TOmniTaskExecutor.VerifyNUMANode(numaNodeNumber);
-  otcSharedInfo.NUMANode := numaNodeNumber;
-  Result := Self;
-end; { TOmniTaskControl.NUMANode }
-
 function TOmniTaskControl.OnMessage(eventDispatcher: TObject): IOmniTaskControl;
 begin
   otcOnMessageList.Add(TPair<integer, TObject>.Create(COtlReservedMsgID, TOmniMessageExec.Create(eventDispatcher)));
@@ -3329,13 +3244,6 @@ begin
   if assigned(otcSharedInfo) and otcSharedInfo.Stopped then
     ForwardTaskTerminated;
 end; { TOmniTaskControl.ProcessMessages }
-
-function TOmniTaskControl.ProcessorGroup(procGroupNumber: integer): IOmniTaskControl;
-begin
-  TOmniTaskExecutor.VerifyProcessorGroup(procGroupNumber);
-  otcSharedInfo.ProcessorGroup := procGroupNumber;
-  Result := Self;
-end; { TOmniTaskControl.ProcessorGroup }
 
 function TOmniTaskControl.Run: IOmniTaskControl;
 begin
@@ -4124,13 +4032,6 @@ begin
 end; { TOmniUnobservedCleanupThread.ScheduleRelease }
 
 { TOmniSharedTaskInfo }
-
-constructor TOmniSharedTaskInfo.Create;
-begin
-  inherited;
-  ostiNUMANode := -1; //any
-  ostiProcessorGroup := -1; //any
-end; { TOmniSharedTaskInfo.Create }
 
 function TOmniSharedTaskInfo.GetCancellationToken: IOmniCancellationToken;
 var
