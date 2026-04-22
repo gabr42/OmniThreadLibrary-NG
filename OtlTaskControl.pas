@@ -2738,6 +2738,20 @@ begin
     otcDispatcher := nil;
   end;
   if assigned(otcBackgroundObserver) then begin
+    // If Terminate was short-circuited by otcInEventHandler (task freed
+    // from inside its own OnTerminated callback — otcDelayedTerminate is
+    // never consumed on the background-observer path), the wait-set
+    // unregister was skipped. Do it here, before Self is freed, so the
+    // owner's MainMessageLoop cannot dispatch a now-dangling method pointer
+    // the next time the event handle reports signaled. The same
+    // same-thread-as-owner guard as Terminate applies; outside that
+    // context, otcOwnerExecutor_ref may be dangling.
+    if assigned(otcBgNotifyEvent) and assigned(otcOwnerExecutor_ref)
+       and (otcOwnerExecutor_ref = _CurrentOmniTaskExecutor)
+    then
+      TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_UnregisterWaitObject(otcBgNotifyEvent);
+    otcBgNotifyEvent := nil;
+    otcOwnerExecutor_ref := nil;
     if assigned(otcSharedInfo) then
       otcSharedInfo.BackgroundObserver := nil;
     otcBackgroundObserver := nil;
@@ -2783,8 +2797,20 @@ begin
 end; { TOmniTaskControl.EnsureCommChannel }
 
 procedure TOmniTaskControl.HandleBackgroundNotification;
+var
+  selfRef: IOmniTaskControl;
 begin
-  ProcessMessages;
+  // Pin Self across ProcessMessages. User callbacks invoked from
+  // ForwardTaskMessage / ForwardTaskTerminated (OnMessage, OnTerminated)
+  // may drop the last external reference to this TaskControl
+  // (e.g. the test case nils FCalc in the Future's OnTerminated). Without
+  // this pin, refcount would hit 0 mid-call, Destroy would free Self, and
+  // subsequent stack unwind in ForwardTaskTerminated's finally, in
+  // ProcessMessages' tail, and in this method would access freed memory.
+  selfRef := Self;
+  try
+    ProcessMessages;
+  finally selfRef := nil; end;
 end; { TOmniTaskControl.HandleBackgroundNotification }
 
 function TOmniTaskControl.Alertable: IOmniTaskControl;
