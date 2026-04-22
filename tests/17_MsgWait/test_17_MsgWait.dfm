@@ -10,8 +10,6 @@ object frmTestMsgWait: TfrmTestMsgWait
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
-  OldCreateOrder = False
-  PixelsPerInch = 96
   TextHeight = 13
   object btnStart: TButton
     Left = 8

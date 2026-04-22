@@ -11,13 +11,11 @@ object frmTestOtlContainers: TfrmTestOtlContainers
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
-  OldCreateOrder = False
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   DesignSize = (
     740
     620)
-  PixelsPerInch = 96
   TextHeight = 13
   object lbLog: TListBox
     Left = 208

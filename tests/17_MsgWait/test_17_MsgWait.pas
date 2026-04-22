@@ -8,7 +8,7 @@ uses
   OtlComm,
   OtlTask,
   OtlTaskControl,
-  OtlEventMonitor;
+  OtlEventMonitor, System.Actions;
 
 type
   TfrmTestMsgWait = class(TForm)

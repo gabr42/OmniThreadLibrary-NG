@@ -4,7 +4,7 @@ interface
 
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Dialogs, StdCtrls, ActnList,
+  Dialogs, StdCtrls, ActnList, System.Actions,
   OtlCommon,
   OtlComm,
   OtlTask,

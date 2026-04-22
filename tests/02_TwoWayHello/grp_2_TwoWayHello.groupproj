@@ -3,10 +3,10 @@
         <ProjectGuid>{69ACAE0E-5F70-48D8-83DD-A43B93941498}</ProjectGuid>
     </PropertyGroup>
     <ItemGroup>
-        <Projects Include="app_2_TwoWayHello_FMX.dproj">
+        <Projects Include="app_2_TwoWayHello.dproj">
             <Dependencies/>
         </Projects>
-        <Projects Include="app_2_TwoWayHello.10_2Tokyo.dproj">
+        <Projects Include="app_2_TwoWayHello_FMX.dproj">
             <Dependencies/>
         </Projects>
     </ItemGroup>
@@ -17,6 +17,15 @@
             <Default.Personality/>
         </BorlandProject>
     </ProjectExtensions>
+    <Target Name="app_2_TwoWayHello">
+        <MSBuild Projects="app_2_TwoWayHello.dproj"/>
+    </Target>
+    <Target Name="app_2_TwoWayHello:Clean">
+        <MSBuild Projects="app_2_TwoWayHello.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="app_2_TwoWayHello:Make">
+        <MSBuild Projects="app_2_TwoWayHello.dproj" Targets="Make"/>
+    </Target>
     <Target Name="app_2_TwoWayHello_FMX">
         <MSBuild Projects="app_2_TwoWayHello_FMX.dproj"/>
     </Target>
@@ -26,23 +35,14 @@
     <Target Name="app_2_TwoWayHello_FMX:Make">
         <MSBuild Projects="app_2_TwoWayHello_FMX.dproj" Targets="Make"/>
     </Target>
-    <Target Name="app_2_TwoWayHello_10_2Tokyo">
-        <MSBuild Projects="app_2_TwoWayHello.10_2Tokyo.dproj"/>
-    </Target>
-    <Target Name="app_2_TwoWayHello_10_2Tokyo:Clean">
-        <MSBuild Projects="app_2_TwoWayHello.10_2Tokyo.dproj" Targets="Clean"/>
-    </Target>
-    <Target Name="app_2_TwoWayHello_10_2Tokyo:Make">
-        <MSBuild Projects="app_2_TwoWayHello.10_2Tokyo.dproj" Targets="Make"/>
-    </Target>
     <Target Name="Build">
-        <CallTarget Targets="app_2_TwoWayHello_FMX;app_2_TwoWayHello_10_2Tokyo"/>
+        <CallTarget Targets="app_2_TwoWayHello;app_2_TwoWayHello_FMX"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="app_2_TwoWayHello_FMX:Clean;app_2_TwoWayHello_10_2Tokyo:Clean"/>
+        <CallTarget Targets="app_2_TwoWayHello:Clean;app_2_TwoWayHello_FMX:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="app_2_TwoWayHello_FMX:Make;app_2_TwoWayHello_10_2Tokyo:Make"/>
+        <CallTarget Targets="app_2_TwoWayHello:Make;app_2_TwoWayHello_FMX:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>

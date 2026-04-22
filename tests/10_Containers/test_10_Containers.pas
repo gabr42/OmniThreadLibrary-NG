@@ -12,7 +12,7 @@ uses
   OtlTask,
   OtlTaskControl,
   OtlContainers,
-  OtlEventMonitor;
+  OtlEventMonitor, Vcl.Mask;
 
 type
   TfrmTestOtlContainers = class(TForm)

@@ -5,12 +5,7 @@ program app_2_TwoWayHello.XE3;
 uses
   FastMM4,
   Forms,
-  test_2_TwoWayHello in 'test_2_TwoWayHello.pas' {frmTestTwoWayHello},
-  OtlCommon in '..\..\OtlCommon.pas',
-  OtlTask in '..\..\OtlTask.pas',
-  OtlThreadPool in '..\..\OtlThreadPool.pas',
-  OtlComm in '..\..\OtlComm.pas',
-  OtlEventMonitor in '..\..\OtlEventMonitor.pas';
+  test_2_TwoWayHello in 'test_2_TwoWayHello.pas' {frmTestTwoWayHello};
 
 begin
   Application.Initialize;

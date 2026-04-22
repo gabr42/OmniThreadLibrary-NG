@@ -104,7 +104,7 @@ begin
   ctTestSuite := tsDump;
   ctTestRepetition := 1;
   RunDumpTest;
-end; 
+end;
 
 procedure TCommTester.InitiateMessageExchangeTest;
 begin

@@ -1,6 +1,4 @@
-program app_33_BlockingCollection.XE3;
-
-{$R 'MainIcon.res' '..\..\res\MainIcon.rc'}
+program app_33_BlockingCollection;
 
 uses
 //  FastMM4,

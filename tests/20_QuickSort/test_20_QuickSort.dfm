@@ -10,8 +10,6 @@ object frmQuickSortDemo: TfrmQuickSortDemo
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
-  OldCreateOrder = False
-  PixelsPerInch = 96
   TextHeight = 13
   object btnSortOnOne: TButton
     Left = 8
@@ -43,7 +41,7 @@ object frmQuickSortDemo: TfrmQuickSortDemo
   end
   object OtlEventMonitor1: TOmniEventMonitor
     OnTaskMessage = OtlEventMonitor1TaskMessage
-    Left = 8
-    Top = 248
+    Left = 40
+    Top = 208
   end
 end

@@ -1,4 +1,4 @@
-program app_18_StringMsgDispatch.XE3;
+program app_18_StringMsgDisp_tch;
 
 {$R 'MainIcon.res' '..\..\res\MainIcon.rc'}
 

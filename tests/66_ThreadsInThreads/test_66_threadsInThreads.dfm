@@ -10,16 +10,14 @@ object frmThreadInThreads: TfrmThreadInThreads
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
-  OldCreateOrder = False
   DesignSize = (
     635
     299)
-  PixelsPerInch = 96
   TextHeight = 13
   object btnOTLFromTask: TButton
     Left = 16
     Top = 16
-    Width = 137
+    Width = 161
     Height = 25
     Caption = 'OTL from a OTL task'
     TabOrder = 0
@@ -28,7 +26,7 @@ object frmThreadInThreads: TfrmThreadInThreads
   object btnOTLFromThread: TButton
     Left = 16
     Top = 55
-    Width = 137
+    Width = 161
     Height = 25
     Caption = 'OTL from a TThread'
     TabOrder = 1
@@ -37,16 +35,16 @@ object frmThreadInThreads: TfrmThreadInThreads
   object btnOTLFromThreadDrain: TButton
     Left = 16
     Top = 94
-    Width = 137
+    Width = 161
     Height = 25
     Caption = 'OTL from a TThread (drain)'
     TabOrder = 2
     OnClick = btnOTLFromThreadDrainClick
   end
   object lbLog: TListBox
-    Left = 176
+    Left = 200
     Top = 16
-    Width = 441
+    Width = 417
     Height = 265
     Anchors = [akLeft, akTop, akRight, akBottom]
     ItemHeight = 13

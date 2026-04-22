@@ -10,9 +10,7 @@ object frmTestStringMsgDispatch: TfrmTestStringMsgDispatch
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
-  OldCreateOrder = False
   OnCloseQuery = FormCloseQuery
-  PixelsPerInch = 96
   TextHeight = 13
   object lbLog: TListBox
     Left = 120
@@ -84,7 +82,7 @@ object frmTestStringMsgDispatch: TfrmTestStringMsgDispatch
   object OmniEventMonitor1: TOmniEventMonitor
     OnTaskMessage = OmniEventMonitor1TaskMessage
     OnTaskTerminated = OmniEventMonitor1TaskTerminated
-    Left = 8
-    Top = 248
+    Left = 48
+    Top = 224
   end
 end

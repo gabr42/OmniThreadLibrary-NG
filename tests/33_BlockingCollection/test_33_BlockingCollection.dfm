@@ -10,13 +10,11 @@ object frmTestOmniBlockingCollection: TfrmTestOmniBlockingCollection
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
-  OldCreateOrder = False
   OnCloseQuery = FormCloseQuery
   OnCreate = FormCreate
   DesignSize = (
     630
     494)
-  PixelsPerInch = 96
   TextHeight = 13
   object lblNumCPU: TLabel
     Left = 9
@@ -153,7 +151,7 @@ object frmTestOmniBlockingCollection: TfrmTestOmniBlockingCollection
     MaxValue = 0
     MinValue = 1
     TabOrder = 12
-    Value = 1
+    Value = 0
     OnChange = inpNumCPUChange
   end
   object cbTestFinalized: TCheckBox

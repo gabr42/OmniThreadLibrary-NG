@@ -10,10 +10,8 @@ object frmTestRegisterComm: TfrmTestRegisterComm
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
-  OldCreateOrder = False
   OnCreate = FormCreate
   OnDestroy = FormDestroy
-  PixelsPerInch = 96
   TextHeight = 13
   object lbLog: TListBox
     Left = 103
@@ -98,7 +96,7 @@ object frmTestRegisterComm: TfrmTestRegisterComm
   end
   object OmniTED: TOmniEventMonitor
     OnTaskMessage = OmniTEDTaskMessage
-    Left = 8
-    Top = 248
+    Left = 136
+    Top = 64
   end
 end
