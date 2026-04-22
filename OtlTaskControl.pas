@@ -35,9 +35,23 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
 ///   Last modification : 2026-04-22
-///   Version           : 3.04
+///   Version           : 3.05
 ///</para><para>
 ///   History:
+///     3.05: 2026-04-22
+///       - Closed remaining UAF in the non-main-thread-owner path of
+///         HandleBackgroundNotification. Commit 099d9ca only unregistered
+///         the wait-set entry from Destroy when Destroy happened to run
+///         on the owner's executor thread; when the last external
+///         IOmniTaskControl reference is dropped elsewhere (e.g. the
+///         main thread clearing a TWorker field, the Unobserved cleanup
+///         thread, another pool task), the stale TMethod is left in the
+///         owner's oteWaitObjectList and subsequently dispatched against
+///         freed memory. Fix: HandleBackgroundNotification now also
+///         unregisters itself on the owner's thread once the child task
+///         has stopped — that is the one context in which
+///         otcOwnerExecutor_ref is guaranteed valid, so the wait-set
+///         entry is gone well before Destroy can run on any thread.
 ///     3.04: 2026-04-22
 ///       - Reinstated Windows-only THandle overloads of
 ///         RegisterWaitObject/UnregisterWaitObject. The overload wraps the
@@ -3038,6 +3052,22 @@ begin
   selfRef := Self;
   try
     ProcessMessages;
+    // Once the task has stopped and ForwardTaskTerminated has fired, the
+    // owner's executor must never dispatch us again — any future dispatch
+    // will UAF the moment Destroy runs on a thread other than the owner's
+    // (Destroy's same-thread unregister guard at the otcOwnerExecutor_ref
+    // site fails there, so a stale TMethod is left in the wait set).
+    // We are ON the owner executor's thread right now, so this is the
+    // only moment where we can safely remove the wait-set entry without
+    // racing the owner's message loop. Runs at most once per task because
+    // ForwardTaskTerminated sets otcTerminatedForwarded before returning.
+    if assigned(otcBgNotifyEvent) and assigned(otcOwnerExecutor_ref)
+       and assigned(otcSharedInfo) and otcSharedInfo.Stopped
+    then begin
+      TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_UnregisterWaitObject(otcBgNotifyEvent);
+      otcBgNotifyEvent := nil;
+      otcOwnerExecutor_ref := nil;
+    end;
   finally selfRef := nil; end;
 end; { TOmniTaskControl.HandleBackgroundNotification }
 
