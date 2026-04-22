@@ -35,10 +35,15 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Claude AI
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-04-14
-///   Version           : 3.01
+///   Last modification : 2026-04-22
+///   Version           : 3.02
 ///</para><para>
 ///   History:
+///     3.02: 2026-04-22
+///       - Reinstated Windows-only THandle overloads of
+///         RegisterWaitObject/UnregisterWaitObject. Internally bridge via
+///         Win32 RegisterWaitForSingleObject to an auto-reset proxy
+///         IOmniEvent that plugs into the existing CV-based task waiter.
 ///     3.01: 2026-04-14
 ///       - Replaced TOmniTransitionEvent with IOmniEvent.
 ///     3.0: 2026-04-12 [OTL-NG]
@@ -155,7 +160,10 @@ type
     procedure InvokeOnSelf(remoteFunc: TOmniTaskInvokeFunction);
 //    procedure Invoke(remoteFunc: TOmniTaskInvokeFunctionEx); overload;
     procedure RegisterComm(const comm: IOmniCommunicationEndpoint);
-    procedure RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod);
+    procedure RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod); overload;
+    {$IFDEF MSWINDOWS}
+    procedure RegisterWaitObject(waitHandle: THandle; responseHandler: TOmniWaitObjectMethod); overload;
+    {$ENDIF MSWINDOWS}
     procedure SetException(exceptionObject: pointer);
     procedure SetExitStatus(exitCode: integer; const exitMessage: string);
     procedure SetTimer(interval_ms: cardinal); overload; deprecated 'use three-parameter version';
@@ -168,7 +176,10 @@ type
     function  Terminated: boolean;
     function  Stopped: boolean;
     procedure UnregisterComm(const comm: IOmniCommunicationEndpoint);
-    procedure UnregisterWaitObject(waitObject: IOmniEvent);
+    procedure UnregisterWaitObject(waitObject: IOmniEvent); overload;
+    {$IFDEF MSWINDOWS}
+    procedure UnregisterWaitObject(waitHandle: THandle); overload;
+    {$ENDIF MSWINDOWS}
     property CancellationToken: IOmniCancellationToken read GetCancellationToken;
     property Comm: IOmniCommunicationEndpoint read GetComm;
     property Counter: IOmniCounter read GetCounter;

@@ -21,6 +21,10 @@ type
     [Test] procedure TestTerminateWhen;
     [Test] procedure TestWorkerInitialized;
     [Test] procedure TestRegisterWaitObject;
+    {$IFDEF MSWINDOWS}
+    [Test] procedure TestRegisterWaitObjectHandle;
+    [Test] procedure TestRegisterWaitObjectHandleUnregisterInHandler;
+    {$ENDIF MSWINDOWS}
     [Test] procedure TestInvoke;
     [Test] procedure TestInvokeByPointerOverloads;
     [Test] procedure TestInvokeArrayOfConstPacking;
@@ -40,6 +44,9 @@ implementation
 
 uses
   System.Classes, System.SysUtils, System.SyncObjs, System.Diagnostics,
+  {$IFDEF MSWINDOWS}
+  Winapi.Windows,
+  {$ENDIF MSWINDOWS}
   OtlTask, OtlTaskControl, OtlCommon, OtlSync, OtlComm;
 
 type
@@ -490,6 +497,156 @@ begin
   Assert.IsTrue(sw.ElapsedMilliseconds < 500, 'Task took long time to terminate');
   Sleep(0);
 end;
+
+{$IFDEF MSWINDOWS}
+type
+  TRegisterWaitObjectHandleTask = class(TSynchronizedOmniWorker)
+  strict private
+    FHandle1          : THandle;
+    FHandle2          : THandle;
+    FUnregisterInEvent: boolean;
+  strict protected
+    procedure RespondToEvent1;
+    procedure RespondToEvent2;
+  protected
+    function Initialize: boolean; override;
+    procedure Cleanup; override;
+  public
+    constructor Create(Synchronizer: IOmniSynchronizer<string>;
+      handle1, handle2: THandle; unregisterInEvent: boolean = false);
+  end;
+
+constructor TRegisterWaitObjectHandleTask.Create(
+  Synchronizer: IOmniSynchronizer<string>; handle1, handle2: THandle;
+  unregisterInEvent: boolean);
+begin
+  inherited Create(Synchronizer);
+  FHandle1 := handle1;
+  FHandle2 := handle2;
+  FUnregisterInEvent := unregisterInEvent;
+end;
+
+function TRegisterWaitObjectHandleTask.Initialize: boolean;
+begin
+  Result := inherited Initialize;
+  if Result then begin
+    Task.RegisterWaitObject(FHandle1, RespondToEvent1);
+    Task.RegisterWaitObject(FHandle2, RespondToEvent2);
+  end;
+end;
+
+procedure TRegisterWaitObjectHandleTask.Cleanup;
+begin
+  // Leave unregistration to executor teardown; exercises that path too.
+  inherited Cleanup;
+end;
+
+procedure TRegisterWaitObjectHandleTask.RespondToEvent1;
+begin
+  FSynchronizer.Signal('handle1');
+  if FUnregisterInEvent then
+    Task.UnregisterWaitObject(FHandle1);
+end;
+
+procedure TRegisterWaitObjectHandleTask.RespondToEvent2;
+begin
+  FSynchronizer.Signal('handle2');
+end;
+
+procedure TestITaskControl.TestRegisterWaitObjectHandle;
+var
+  handle1: THandle;
+  handle2: THandle;
+  sw     : TStopwatch;
+  task   : IOmniTaskControl;
+begin
+  // Auto-reset kernel events, externally signalled via Win32 SetEvent.
+  // Verifies the pool-callback bridge wakes the CV-based task waiter.
+  handle1 := Winapi.Windows.CreateEvent(nil, false, false, nil);
+  handle2 := Winapi.Windows.CreateEvent(nil, false, false, nil);
+  Assert.AreNotEqual(THandle(0), handle1, 'Failed to create handle1');
+  Assert.AreNotEqual(THandle(0), handle2, 'Failed to create handle2');
+  try
+    task := CreateTask(TRegisterWaitObjectHandleTask.Create(Synchronizer, handle1, handle2),
+      'TestRegisterWaitObjectHandle');
+    task.Run;
+
+    Winapi.Windows.SetEvent(handle1);
+    Winapi.Windows.SetEvent(handle2);
+    Assert.IsTrue(Synchronizer.WaitFor('handle1', 3000), 'Handle 1 callback was not triggered');
+    Assert.IsTrue(Synchronizer.WaitFor('handle2', 3000), 'Handle 2 callback was not triggered');
+
+    // Synchronizer uses manual-reset TEvent; reset so WaitFor below actually
+    // blocks on a fresh Signal, otherwise the prior set state makes the
+    // re-fire assertion pass vacuously.
+    Synchronizer.Reset('handle1');
+
+    // Signal handle1 again — auto-reset kernel events should re-fire the callback.
+    Winapi.Windows.SetEvent(handle1);
+    Assert.IsTrue(Synchronizer.WaitFor('handle1', 3000),
+      'Handle 1 callback did not re-fire on second signal');
+
+    sw := TStopwatch.StartNew;
+    task.Terminate;
+    Assert.IsTrue(sw.ElapsedMilliseconds < 500,
+      'Task took too long to terminate after HANDLE registrations');
+    task := nil;
+  finally
+    Winapi.Windows.CloseHandle(handle1);
+    Winapi.Windows.CloseHandle(handle2);
+  end;
+end;
+
+procedure TestITaskControl.TestRegisterWaitObjectHandleUnregisterInHandler;
+var
+  handle1: THandle;
+  handle2: THandle;
+  sw     : TStopwatch;
+  task   : IOmniTaskControl;
+begin
+  // Handler unregisters its own handle. After that, further signals on
+  // handle1 must NOT re-trigger the handler. handle2 remains live.
+  handle1 := Winapi.Windows.CreateEvent(nil, true, false, nil); // manual-reset
+  handle2 := Winapi.Windows.CreateEvent(nil, false, false, nil);
+  Assert.AreNotEqual(THandle(0), handle1, 'Failed to create handle1');
+  Assert.AreNotEqual(THandle(0), handle2, 'Failed to create handle2');
+  try
+    task := CreateTask(
+      TRegisterWaitObjectHandleTask.Create(Synchronizer, handle1, handle2,
+        {unregisterInEvent=} true),
+      'TestRegisterWaitObjectHandleUnregisterInHandler');
+    task.Run;
+
+    Winapi.Windows.SetEvent(handle1);
+    Assert.IsTrue(Synchronizer.WaitFor('handle1', 3000),
+      'Handle 1 callback was not triggered on first signal');
+
+    // Synchronizer uses manual-reset TEvent internally; reset so the next
+    // WaitFor blocks until a new Signal(handle1) actually arrives.
+    Synchronizer.Reset('handle1');
+
+    // Handler unregistered handle1 — the manual-reset kernel HANDLE is
+    // still signalled but the task must no longer receive any new
+    // 'handle1' signal from the response handler.
+    Assert.IsFalse(Synchronizer.WaitFor('handle1', 200),
+      'Handle 1 callback fired after UnregisterWaitObject');
+
+    // handle2 must still work.
+    Winapi.Windows.SetEvent(handle2);
+    Assert.IsTrue(Synchronizer.WaitFor('handle2', 3000),
+      'Handle 2 callback was not triggered after handle1 unregister');
+
+    sw := TStopwatch.StartNew;
+    task.Terminate;
+    Assert.IsTrue(sw.ElapsedMilliseconds < 500,
+      'Task took too long to terminate after handler-driven unregister');
+    task := nil;
+  finally
+    Winapi.Windows.CloseHandle(handle1);
+    Winapi.Windows.CloseHandle(handle2);
+  end;
+end;
+{$ENDIF MSWINDOWS}
 
 { TSynchronizedOmniWorker }
 

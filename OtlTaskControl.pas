@@ -34,10 +34,18 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
-///   Last modification : 2026-04-19
-///   Version           : 3.03
+///   Last modification : 2026-04-22
+///   Version           : 3.04
 ///</para><para>
 ///   History:
+///     3.04: 2026-04-22
+///       - Reinstated Windows-only THandle overloads of
+///         RegisterWaitObject/UnregisterWaitObject. The overload wraps the
+///         HANDLE with Win32 RegisterWaitForSingleObject; the pool callback
+///         signals an internal auto-reset proxy IOmniEvent, which plugs into
+///         the existing CV-based task waiter via the observer chain. Paths
+///         that do not use the THandle overload are unaffected (no extra
+///         thread, no extra allocation).
 ///     3.03: 2026-04-19
 ///       - Fixed OnTerminated not firing for non-main-thread task owners
 ///         when the task body never sends a comm message. The background
@@ -577,6 +585,28 @@ type
     property TimerID: integer read ottiTimerID write ottiTimerID;
   end; { TOmniTaskTimerInfo }
 
+  {$IFDEF MSWINDOWS}
+  ///<summary>Bridges a raw Win32 HANDLE into the task's CV-based waiter.
+  ///   Owns an auto-reset proxy IOmniEvent that the Win32 thread-pool
+  ///   callback signals whenever the HANDLE becomes signalled. The task
+  ///   waiter observes the proxy through the standard IOmniSynchro
+  ///   observer chain.</summary>
+  THandleBridgeEntry = class
+  strict private
+    FKernelHandle: THandle;   // user-owned HANDLE, not closed by this class
+    FProxyEvent  : IOmniEvent;
+    FWaitHandle  : THandle;   // returned by RegisterWaitForSingleObject
+  public
+    constructor Create(kernelHandle: THandle);
+    destructor  Destroy; override;
+    procedure RegisterCallback;
+    procedure SignalProxy; inline;
+    procedure UnregisterCallback;
+    property KernelHandle: THandle read FKernelHandle;
+    property ProxyEvent: IOmniEvent read FProxyEvent;
+  end; { THandleBridgeEntry }
+  {$ENDIF MSWINDOWS}
+
   {$WARN SYMBOL_DEPRECATED OFF}
   // TOmniTaskControl implements IOmniTaskControl including methods marked
   // deprecated (Alertable, MsgWait). The compiler reports W1000 at the
@@ -631,6 +661,9 @@ type
     oteTimers            : TList<TPair<int64, TOmniTaskTimerInfo>>;
     oteWaitHandlesGen    : int64;
     oteWaitObjectList    : TOmniWaitObjectList;
+    {$IFDEF MSWINDOWS}
+    oteHandleBridges     : TObjectList<THandleBridgeEntry>;
+    {$ENDIF MSWINDOWS}
     oteWorkerInitialized : IOmniEvent;
     oteWorkerInitOK      : boolean;
     oteWorkerIntf        : IOmniWorker;
@@ -682,12 +715,18 @@ type
     destructor  Destroy; override;
     procedure Asy_Execute(const task: IOmniTask);
     procedure Asy_RegisterComm(const comm: IOmniCommunicationEndpoint);
-    procedure Asy_RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod);
+    procedure Asy_RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod); overload;
+    {$IFDEF MSWINDOWS}
+    procedure Asy_RegisterWaitObject(waitHandle: THandle; responseHandler: TOmniWaitObjectMethod); overload;
+    {$ENDIF MSWINDOWS}
     procedure Asy_SetExitStatus(exitCode: integer; const exitMessage: string);
     procedure Asy_SetTimer(timerID: integer; interval_ms: cardinal; const timerMessage:
       TOmniMessageID); overload;
     procedure Asy_UnregisterComm(const comm: IOmniCommunicationEndpoint);
-    procedure Asy_UnregisterWaitObject(waitObject: IOmniEvent);
+    procedure Asy_UnregisterWaitObject(waitObject: IOmniEvent); overload;
+    {$IFDEF MSWINDOWS}
+    procedure Asy_UnregisterWaitObject(waitHandle: THandle); overload;
+    {$ENDIF MSWINDOWS}
     procedure EmptyMessageQueues(const task: IOmniTask);
     procedure TerminateWhen(handle: IOmniEvent); overload;
     function  WaitForInit: boolean;
@@ -737,7 +776,10 @@ type
     procedure Invoke(remoteFunc: TOmniTaskInvokeFunction);
     procedure InvokeOnSelf(remoteFunc: TOmniTaskInvokeFunction);
     procedure RegisterComm(const comm: IOmniCommunicationEndpoint);
-    procedure RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod);
+    procedure RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod); overload;
+    {$IFDEF MSWINDOWS}
+    procedure RegisterWaitObject(waitHandle: THandle; responseHandler: TOmniWaitObjectMethod); overload;
+    {$ENDIF MSWINDOWS}
     procedure SetException(exceptionObject: pointer);
     procedure SetExitStatus(exitCode: integer; const exitMessage: string);
     procedure SetTimer(interval_ms: cardinal); overload;
@@ -749,7 +791,10 @@ type
     procedure StopTimer;
     function  Terminated: boolean;
     procedure UnregisterComm(const comm: IOmniCommunicationEndpoint);
-    procedure UnregisterWaitObject(waitObject: IOmniEvent);
+    procedure UnregisterWaitObject(waitObject: IOmniEvent); overload;
+    {$IFDEF MSWINDOWS}
+    procedure UnregisterWaitObject(waitHandle: THandle); overload;
+    {$ENDIF MSWINDOWS}
     property CancellationToken: IOmniCancellationToken read GetCancellationToken;
     property Comm: IOmniCommunicationEndpoint read GetComm;
     property Counter: IOmniCounter read GetCounter;
@@ -1489,6 +1534,14 @@ begin
   otExecutor_ref.Asy_RegisterWaitObject(waitObject, responseHandler);
 end; { TOmniTask.RegisterWaitObject }
 
+{$IFDEF MSWINDOWS}
+procedure TOmniTask.RegisterWaitObject(waitHandle: THandle;
+  responseHandler: TOmniWaitObjectMethod);
+begin
+  otExecutor_ref.Asy_RegisterWaitObject(waitHandle, responseHandler);
+end; { TOmniTask.RegisterWaitObject }
+{$ENDIF MSWINDOWS}
+
 procedure TOmniTask.SetException(exceptionObject: pointer);
 var
   oldException: pointer;
@@ -1581,6 +1634,13 @@ procedure TOmniTask.UnregisterWaitObject(waitObject: IOmniEvent);
 begin
   otExecutor_ref.Asy_UnregisterWaitObject(waitObject);
 end; { TOmniTask.UnregisterWaitObject }
+
+{$IFDEF MSWINDOWS}
+procedure TOmniTask.UnregisterWaitObject(waitHandle: THandle);
+begin
+  otExecutor_ref.Asy_UnregisterWaitObject(waitHandle);
+end; { TOmniTask.UnregisterWaitObject }
+{$ENDIF MSWINDOWS}
 
 { TOmniWorker }
 
@@ -1713,6 +1773,64 @@ begin
   end
 end; { TOmniTaskExecutor.TOmniMessageInfo.GetSynchroIndex }
 
+{$IFDEF MSWINDOWS}
+{ THandleBridgeEntry }
+
+procedure HandleBridgeWaitCallback(Context: Pointer; Success: Boolean); stdcall;
+begin
+  try
+    THandleBridgeEntry(Context).SignalProxy;
+  except
+    // callback executes on a Win32 thread-pool thread; never let an
+    // exception escape into the OS thread-pool runtime
+  end;
+end; { HandleBridgeWaitCallback }
+
+constructor THandleBridgeEntry.Create(kernelHandle: THandle);
+begin
+  inherited Create;
+  FKernelHandle := kernelHandle;
+  FWaitHandle   := 0;
+  FProxyEvent   := CreateOmniEvent(false, false); // auto-reset, initially not signalled
+end; { THandleBridgeEntry.Create }
+
+destructor THandleBridgeEntry.Destroy;
+begin
+  // UnregisterCallback must have been called before destruction.
+  FProxyEvent := nil;
+  inherited;
+end; { THandleBridgeEntry.Destroy }
+
+procedure THandleBridgeEntry.RegisterCallback;
+var
+  lastErr: cardinal;
+begin
+  if not Winapi.Windows.RegisterWaitForSingleObject(FWaitHandle, FKernelHandle,
+           HandleBridgeWaitCallback, Pointer(Self), INFINITE, WT_EXECUTEDEFAULT)
+  then begin
+    lastErr := Winapi.Windows.GetLastError;
+    raise Exception.CreateFmt(
+      'THandleBridgeEntry.RegisterCallback: RegisterWaitForSingleObject failed with error %d: %s',
+      [lastErr, SysErrorMessage(lastErr)]);
+  end;
+end; { THandleBridgeEntry.RegisterCallback }
+
+procedure THandleBridgeEntry.SignalProxy;
+begin
+  if assigned(FProxyEvent) then
+    FProxyEvent.SetEvent;
+end; { THandleBridgeEntry.SignalProxy }
+
+procedure THandleBridgeEntry.UnregisterCallback;
+begin
+  if FWaitHandle <> 0 then begin
+    // INVALID_HANDLE_VALUE blocks until all in-flight callbacks complete.
+    Winapi.Windows.UnregisterWaitEx(FWaitHandle, INVALID_HANDLE_VALUE);
+    FWaitHandle := 0;
+  end;
+end; { THandleBridgeEntry.UnregisterCallback }
+{$ENDIF MSWINDOWS}
+
 { TOmniTaskExecutor }
 
 constructor TOmniTaskExecutor.Create(owner_ref: TOmniTaskControl; const workerIntf: IOmniWorker);
@@ -1749,7 +1867,22 @@ begin
 end; { TOmniTaskExecutor.Create }
 
 destructor TOmniTaskExecutor.Destroy;
+{$IFDEF MSWINDOWS}
+var
+  bridge: THandleBridgeEntry;
+{$ENDIF MSWINDOWS}
 begin
+  {$IFDEF MSWINDOWS}
+  // Must tear down HANDLE bridges before the proxy IOmniEvents are released.
+  // UnregisterCallback blocks until in-flight pool callbacks drain, so
+  // SignalProxy can no longer be invoked on a freed proxy. Done outside
+  // oteInternalLock because UnregisterWaitEx is a blocking call.
+  if assigned(oteHandleBridges) then begin
+    for bridge in oteHandleBridges do
+      bridge.UnregisterCallback;
+    FreeAndNil(oteHandleBridges);
+  end;
+  {$ENDIF MSWINDOWS}
   oteInternalLock.Acquire;
   try
     Cleanup;
@@ -1868,6 +2001,68 @@ begin
   finally oteInternalLock.Release; end;
 end; { TOmniTaskExecutor.Asy_RegisterWaitObject }
 
+{$IFDEF MSWINDOWS}
+{:Bridges a raw Win32 HANDLE into the task's CV-based waiter.
+  The HANDLE's signalled transitions are relayed to an internal auto-reset
+  proxy IOmniEvent via the Win32 thread pool's RegisterWaitForSingleObject.
+  The proxy plugs into the existing IOmniEvent-based wait-object path, so
+  the task's response handler runs on the task thread exactly as for the
+  IOmniEvent overload.
+
+  The caller retains ownership of the HANDLE; this method does not close it.
+  The HANDLE must remain valid until UnregisterWaitObject is called (or the
+  task terminates). For auto-reset kernel events this behaves as the old
+  OTL RegisterWaitObject did; for manual-reset HANDLEs that stay signalled
+  (e.g. process handles) the callback will re-fire in a tight loop — the
+  caller should either reset the HANDLE in the response handler or
+  unregister from within it.
+}
+procedure TOmniTaskExecutor.Asy_RegisterWaitObject(waitHandle: THandle;
+  responseHandler: TOmniWaitObjectMethod);
+var
+  bridge       : THandleBridgeEntry;
+  cleanupBridge: boolean;
+  i            : integer;
+begin
+  if oteExecutorType <> etWorker then
+    raise Exception.Create('TOmniTaskExecutor.Asy_RegisterWaitObject: ' +
+      'WaitObject support is only available when working with an IOmniWorker');
+  if (waitHandle = 0) or (waitHandle = INVALID_HANDLE_VALUE) then
+    raise Exception.Create('TOmniTaskExecutor.Asy_RegisterWaitObject: Invalid handle');
+
+  bridge := THandleBridgeEntry.Create(waitHandle);
+  cleanupBridge := true;
+  try
+    bridge.RegisterCallback; // may raise
+    oteInternalLock.Acquire;
+    try
+      if not assigned(oteHandleBridges) then
+        oteHandleBridges := TObjectList<THandleBridgeEntry>.Create(true);
+      for i := 0 to oteHandleBridges.Count - 1 do
+        if oteHandleBridges[i].KernelHandle = waitHandle then
+          raise Exception.Create('TOmniTaskExecutor.Asy_RegisterWaitObject: ' +
+            'Handle is already registered');
+      oteHandleBridges.Add(bridge);
+      cleanupBridge := false;
+      try
+        Asy_RegisterWaitObject(bridge.ProxyEvent, responseHandler);
+      except
+        // Inner registration failed — pull the bridge back out and let the
+        // outer cleanup unregister it. Extract does not free the entry.
+        oteHandleBridges.Extract(bridge);
+        cleanupBridge := true;
+        raise;
+      end;
+    finally oteInternalLock.Release; end;
+  finally
+    if cleanupBridge then begin
+      bridge.UnregisterCallback;
+      bridge.Free;
+    end;
+  end;
+end; { TOmniTaskExecutor.Asy_RegisterWaitObject }
+{$ENDIF MSWINDOWS}
+
 procedure TOmniTaskExecutor.Asy_SetExitStatus(exitCode: integer;
   const exitMessage: string);
 begin
@@ -1924,6 +2119,39 @@ begin
     oteCommRebuildHandles.SetEvent;
   finally oteInternalLock.Release; end;
 end; { TOmniTaskExecutor.Asy_UnregisterWaitObject }
+
+{$IFDEF MSWINDOWS}
+procedure TOmniTaskExecutor.Asy_UnregisterWaitObject(waitHandle: THandle);
+var
+  bridge: THandleBridgeEntry;
+  i     : integer;
+begin
+  if oteExecutorType <> etWorker then
+    raise Exception.Create('TOmniTaskExecutor.Asy_UnregisterWaitObject: ' +
+      'WaitObject support is only available when working with an IOmniWorker');
+  bridge := nil;
+  oteInternalLock.Acquire;
+  try
+    if assigned(oteHandleBridges) then
+      for i := 0 to oteHandleBridges.Count - 1 do
+        if oteHandleBridges[i].KernelHandle = waitHandle then begin
+          bridge := oteHandleBridges.Extract(oteHandleBridges[i]);
+          break; //for
+        end;
+    if not assigned(bridge) then
+      raise Exception.Create('TOmniTaskExecutor.Asy_UnregisterWaitObject: ' +
+        'Handle is not registered');
+    // Remove proxy from wait-object list under the same lock so the main
+    // loop's next rebuild drops it. Re-entrant acquire is safe.
+    Asy_UnregisterWaitObject(bridge.ProxyEvent);
+  finally oteInternalLock.Release; end;
+  // Drain in-flight pool callbacks OUTSIDE the lock — UnregisterWaitEx
+  // with INVALID_HANDLE_VALUE blocks.
+  try
+    bridge.UnregisterCallback;
+  finally bridge.Free; end;
+end; { TOmniTaskExecutor.Asy_UnregisterWaitObject }
+{$ENDIF MSWINDOWS}
 
 procedure TOmniTaskExecutor.CallOmniTimer;
 var

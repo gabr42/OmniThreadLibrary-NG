@@ -60,6 +60,7 @@ uses
 type
   IOmniSynchronizer<T> = interface ['{631B2859-8268-464C-8A36-EB5847BE44A5}']
     function  Count: integer;
+    procedure Reset(const name: T);
     procedure Signal(const name: T);
     function  WaitFor(const name: T; timeout: cardinal = INFINITE): boolean;
   end; { IOmniSynchronizer<T> }
