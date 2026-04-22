@@ -48,6 +48,7 @@ uses
   , TestStressOtlSync1 in 'TestStressOtlSync1.pas'
   , TestStressBackgroundObserver1 in 'TestStressBackgroundObserver1.pas'
   , TestStressContainerObserver1 in 'TestStressContainerObserver1.pas'
+  , TestStressFutureInOmniTask in 'TestStressFutureInOmniTask.pas'
   , TestOtlLogger in 'TestOtlLogger.pas';
 
 {$R *.res}
