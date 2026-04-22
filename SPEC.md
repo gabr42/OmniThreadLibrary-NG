@@ -559,6 +559,22 @@ No existing tests. All new:
 - [x] `Notify` callback delivery — call Notify, verify callback fires on target thread (Windows: via `SleepEx(0, True)` APC drain; test from same thread for simplicity)
 - [x] Notification coalescing — multiple Notify calls before drain result in single callback invocation
 
+#### 5.5.10 Test compilation hygiene
+- [ ] All test units compile cleanly across Win32 / Win64 / Linux64 / Android64 / ARM64EC — no hints, no warnings. Currently `TestStressBackgroundObserver1.pas` and `TestStressContainerObserver1.pas` emit `H2443 Inline function 'TTimeSource.Timestamp_ms' has not been expanded because unit 'System.Diagnostics' is not specified in USES list` on Win32/Win64.
+
+#### 5.5.11 Demos for new Parallel abstractions ✅
+- [x] Write demos for `Parallel.Channel` → `tests/68_Channel` (basic send/receive, cross-thread producer/consumer, bounded TrySend)
+- [x] Write demos for `Parallel.Select` → `tests/69_Select` (multi-channel multiplex at different rates, `SelectCase.Default`, `Wait(timeout)`)
+- [x] Write demos for `Parallel.Merge` → `tests/70_Merge` (fan-in from two producers; also covers `Parallel.Race` / `Parallel.TryRace`)
+
+#### 5.5.12 Message-drain audit for demos (migration) ✅
+- [x] Audited all demos under `tests/` for message-drain requirements exposed by the CV-based task loop. Delivery mechanism varies by owner thread:
+  - **Main-thread owner** (console or VCL): `CreateInternalMonitor` allocates a `TOmniEventMonitor`, which dispatches via `TThread.ForceQueue` → drained by `WakeMainThread` / `CheckSynchronize` hooked into the main message loop. VCL demos are safe (TApplication pumps). Console demo `tests/62_Console` uses a manual `PeekMessage`/`DispatchMessage` loop, which Delphi's default `WakeMainThread` cooperates with — **verified working by running the binary**.
+  - **OTL worker-task owner**: `CreateInternalMonitor` creates a `TOmniContainerBackgroundObserver` and registers its notify event with the owner task's wait set — callbacks fire on the worker thread inside the task loop automatically. `tests/66_ThreadsInThreads` OTL-task path is safe by construction.
+  - **Plain `TThread` owner on Windows**: the background observer falls back to `QueueUserAPC`, so the owning thread must enter an alertable wait for callbacks to fire. `tests/66_ThreadsInThreads` TThread path was waiting with `MsgWaitForMultipleObjects` (non-alertable) — fixed to use `MsgWaitForMultipleObjectsEx(..., MWMO_ALERTABLE)` so APC-delivered `OnMessage`/`OnTerminated` from the nested `Parallel.Future` are drained.
+  - **Main-thread blocking waits** (`task.WaitFor(INFINITE)` / `Terminate(timeout)` / `future.WaitFor(...)` / `pipeline.WaitFor(...)` inside button handlers): all reviewed demos are scoped to a single handler invocation — VCL pumps `CheckSynchronize` after the handler returns and picks up any queued callbacks. No user-visible dropouts. Demos with an explicit wait-loop (`while not task.WaitFor(100) do Application.ProcessMessages`) are already correct.
+  - **Migration risk summary**: only `tests/66_ThreadsInThreads` required a fix. All other demos are either safe by default (VCL pump, main-thread owner, OTL worker wait-set) or already drive `Application.ProcessMessages` inside their wait loops.
+
 ### 5.6 CI pipeline ✅
 - [x] Claude Code automated PR review (`claude-code-review.yml`, `claude.yml`)
 - [x] Local cross-platform build+test sweep covers Win32, Win64, Linux64 (WSL-linked), Android64 (device), ARM64EC (compile-only smoke) via `unittests/build_test_all.bat` and `run_sweep.sh`

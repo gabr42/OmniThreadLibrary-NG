@@ -577,7 +577,14 @@ type
     property TimerID: integer read ottiTimerID write ottiTimerID;
   end; { TOmniTaskTimerInfo }
 
+  {$WARN SYMBOL_DEPRECATED OFF}
+  // TOmniTaskControl implements IOmniTaskControl including methods marked
+  // deprecated (Alertable, MsgWait). The compiler reports W1000 at the
+  // forward declaration and at the implementation boundary when resolving
+  // interface-to-class matching. Silence locally; callers still see the
+  // deprecation warning at their own call sites.
   TOmniTaskControl = class;
+  {$WARN SYMBOL_DEPRECATED DEFAULT}
 
   TOmniTaskExecutor = class
   strict private type
@@ -1013,7 +1020,9 @@ type
     property Tasks: IOmniTaskControlList read GetTasks;
   end; { TOmniTaskGroup }
 
+{$WARN SYMBOL_DEPRECATED OFF}
 implementation
+{$WARN SYMBOL_DEPRECATED DEFAULT}
 
 uses
   {$IFDEF MSWINDOWS}
