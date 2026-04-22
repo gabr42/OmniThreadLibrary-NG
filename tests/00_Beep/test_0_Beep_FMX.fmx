@@ -2,7 +2,7 @@ object frmTestSimple: TfrmTestSimple
   Left = 0
   Top = 0
   Caption = 'Simple test'
-  ClientHeight = 127
+  ClientHeight = 128
   ClientWidth = 364
   FormFactor.Width = 320
   FormFactor.Height = 480

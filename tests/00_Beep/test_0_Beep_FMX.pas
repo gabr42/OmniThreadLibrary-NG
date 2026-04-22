@@ -29,7 +29,7 @@ uses
 
 procedure TfrmTestSimple.Button1Click(Sender: TObject);
 begin
-  CreateTask(Beep, 'Beep').Run;
+  CreateTask(Beep, 'Beep').Unobserved.Run;
 end;
 
 procedure TfrmTestSimple.Beep(const task: IOmniTask);

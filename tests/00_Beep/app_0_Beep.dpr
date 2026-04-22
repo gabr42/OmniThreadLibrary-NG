@@ -5,11 +5,7 @@ program app_0_Beep.XE3;
 uses
   FastMM4,
   Forms,
-  test_0_Beep in 'test_0_Beep.pas' {frmTestSimple},
-  OtlCommon in '..\..\OtlCommon.pas',
-  OtlTask in '..\..\OtlTask.pas',
-  OtlThreadPool in '..\..\OtlThreadPool.pas',
-  OtlComm in '..\..\OtlComm.pas';
+  test_0_Beep in 'test_0_Beep.pas' {frmTestSimple};
 
 begin
   Application.Initialize;
