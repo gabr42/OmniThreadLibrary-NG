@@ -95,7 +95,9 @@ retained.
 removed from `OtlContainerObserver.pas`.
 
 **Replaced by:** Cross-platform observers:
-- Main thread: `TThread.Queue`-based notification
+- Main thread: `CreateContainerMainThreadObserver()` from
+  `OtlContainerObserver.pas` (dispatches a `TProc` callback via
+  `TThread.ForceQueue`; multiple notifications coalesce into one)
 - Background threads: `CreateContainerBackgroundObserver()` from
   `OtlBackgroundObserver.pas` (APC on Windows, CV-based on POSIX)
 
@@ -513,18 +515,33 @@ begin
   observer := CreateContainerWindowsMessageObserver(Handle, WM_USER + 1, 0, 0);
   collection.ContainerSubject.Attach(observer, cycNotify);
 
-// OTL NG (cross-platform)
+// OTL NG (cross-platform, main-thread owner)
+uses OtlContainerObserver;
+var
+  observer: IOmniContainerMainThreadObserver;
+begin
+  observer := CreateContainerMainThreadObserver(
+    procedure begin DrainQueue; end);
+  collection.ContainerSubject.Attach(observer, coiNotifyOnAllInserts);
+  // ...before tearing down anything the callback touches:
+  observer.Shutdown;
+  collection.ContainerSubject.Detach(observer, coiNotifyOnAllInserts);
+
+// OTL NG (cross-platform, background-thread owner)
 uses OtlBackgroundObserver;
 var
-  observer: TObject;
+  observer: IOmniContainerBackgroundObserver;
 begin
   observer := CreateContainerBackgroundObserver(
     TThread.Current.ThreadID,
-    procedure begin ProcessNewItems; end
-  );
-  collection.ContainerSubject.Attach(
-    TOmniContainerObserver(observer), cycNotify);
+    procedure begin ProcessNewItems; end);
+  collection.ContainerSubject.Attach(observer, coiNotifyOnAllInserts);
 ```
+
+See `examples/TThread communication/tthreadCommMain.pas` for a complete
+main-thread-observer example: a plain `TThread` worker delivers results to
+its owning form via a `TOmniMessageQueue` whose inserts trigger a drain
+on the main thread.
 
 ---
 
@@ -535,7 +552,7 @@ begin
 | `OtlSync.pas` | Removed inline assembly; unified `TOmniTransitionEvent` to `IOmniEvent`; removed `IOmniHandleObject`; added `TWaitFor` |
 | `OtlContainers.pas` | Replaced asm pause with `TThread.SpinWait`; lock-free fallback on non-x86 |
 | `OtlCollections.pas` | Replaced `WaitForMultipleObjects` with `TWaitFor.WaitAny` |
-| `OtlContainerObserver.pas` | Removed Windows message/event observers; `IOmniEvent`-only |
+| `OtlContainerObserver.pas` | Removed Windows message/event observers; `IOmniEvent`-only; added `CreateContainerMainThreadObserver` (TThread.Queue dispatch with coalescing + Shutdown gate) |
 | `OtlPlatform.pas` | New platform abstraction: `TTimeSource`, `TPlatform.ThreadAffinity` |
 | `OtlCommon.pas` | Removed GpStringHash/DSiWin32 dependencies |
 | `OtlComm.pas` | Removed hidden window; switched to `IOmniEvent` observers |

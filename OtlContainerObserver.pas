@@ -36,10 +36,17 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin, Claude AI
 ///   Creation date     : 2009-02-19
-///   Last modification : 2026-04-17
-///   Version           : 2.06
+///   Last modification : 2026-04-22
+///   Version           : 2.07
 ///</para><para>
 ///   History:
+///     2.07: 2026-04-22
+///       - Added IOmniContainerMainThreadObserver + TOmniContainerMainThreadObserver +
+///         CreateContainerMainThreadObserver factory: cross-platform observer that
+///         dispatches a TProc callback to the main thread via TThread.ForceQueue on
+///         each container notification. Multiple notifications coalesce into a
+///         single main-thread call. Shutdown method lets the owner gate callback
+///         execution before its referenced state is torn down.
 ///     2.06: 2026-04-17
 ///       - Fixed use-after-free race in Notify/NotifyOnce: observers are now
 ///         IInterface-refcounted. Snapshot holds interface refs, keeping
@@ -99,6 +106,7 @@ interface
 uses
   System.Classes,
   System.SyncObjs,
+  System.SysUtils,
   System.Generics.Collections,
   OtlSync,
   OtlCommon,
@@ -159,6 +167,20 @@ type
     property MonitorNotify: IOmniEventMonitorNotify read GetMonitorNotify;
   end; { TOmniContainerPlatformObserver }
 
+  ///<summary>Container observer that dispatches a plain TProc callback to the
+  ///   main thread via TThread.ForceQueue. Multiple Notify calls coalesce into
+  ///   a single main-thread invocation. The owner must call Shutdown before
+  ///   tearing down any state referenced by the callback.</summary>
+  IOmniContainerMainThreadObserver = interface(IOmniContainerObserver)
+    ['{B2E7F1A3-4D6C-5B8E-A9F0-1C2D3E4F5061}']
+    procedure Shutdown;
+  end; { IOmniContainerMainThreadObserver }
+
+  TOmniContainerMainThreadObserver = class(TOmniContainerObserver, IOmniContainerMainThreadObserver)
+  public
+    procedure Shutdown; virtual; abstract;
+  end; { TOmniContainerMainThreadObserver }
+
   TOmniContainerSubject = class
   strict private
     csListLocks    : array [TOmniContainerObserverInterest] of TOmniMREW;
@@ -181,11 +203,24 @@ type
   function CreateContainerPlatformObserver(notify: IOmniEventMonitorNotify;
     objectID: int64): IOmniContainerPlatformObserver;
 
+  {:Creates an observer that dispatches aOnNotify to the main thread via
+    TThread.ForceQueue. Multiple container notifications arriving before the
+    main-thread callback runs are coalesced into a single invocation; the
+    callback typically drains the queue in a loop.
+    Owners must call Shutdown on the returned observer before destroying any
+    state the callback touches, so stale notifications queued on the main
+    thread become no-ops.
+    @param   aOnNotify Callback invoked on the main thread.
+    @returns Main-thread observer interface. Lifetime is reference-counted.
+    @since   2026-04-22
+  }
+  function CreateContainerMainThreadObserver(const aOnNotify: TProc):
+    IOmniContainerMainThreadObserver;
+
 implementation
 
 uses
-  System.Types,
-  System.SysUtils;
+  System.Types;
 
 type
   TOmniContainerEventObserverImpl = class(TOmniContainerEventObserver)
@@ -208,6 +243,17 @@ type
     procedure Notify; override;
   end; { TOmniContainerPlatformObserverImpl }
 
+  TOmniContainerMainThreadObserverImpl = class(TOmniContainerMainThreadObserver)
+  strict private
+    FIsActive: TOmniAlignedInt32;
+    FOnNotify: TProc;
+    FPending : TOmniAlignedInt32;
+  public
+    constructor Create(const aOnNotify: TProc);
+    procedure Notify; override;
+    procedure Shutdown; override;
+  end; { TOmniContainerMainThreadObserverImpl }
+
 { exports }
 
 function CreateContainerEventObserver(const externalEvent: IOmniEvent = nil):
@@ -221,6 +267,12 @@ function CreateContainerPlatformObserver(notify: IOmniEventMonitorNotify;
 begin
   Result := TOmniContainerPlatformObserverImpl.Create(notify, objectID);
 end; { CreateContainerPlatformObserver }
+
+function CreateContainerMainThreadObserver(const aOnNotify: TProc):
+  IOmniContainerMainThreadObserver;
+begin
+  Result := TOmniContainerMainThreadObserverImpl.Create(aOnNotify);
+end; { CreateContainerMainThreadObserver }
 
 { TOmniContainerObserver }
 
@@ -384,6 +436,39 @@ procedure TOmniContainerPlatformObserverImpl.Notify;
 begin
   FNotify.NotifyMessage(FObjectID);
 end; { TOmniContainerPlatformObserverImpl.Notify }
+
+{ TOmniContainerMainThreadObserverImpl }
+
+constructor TOmniContainerMainThreadObserverImpl.Create(const aOnNotify: TProc);
+begin
+  inherited Create;
+  FOnNotify := aOnNotify;
+  FIsActive.Value := 1;
+end; { TOmniContainerMainThreadObserverImpl.Create }
+
+procedure TOmniContainerMainThreadObserverImpl.Notify;
+var
+  keepAlive: IOmniContainerObserver;
+begin
+  if FIsActive.Value = 0 then
+    Exit;
+  if not FPending.CAS(0, 1) then
+    Exit; // another dispatch already queued; coalesce
+  keepAlive := Self; // interface ref keeps observer alive until closure runs
+  TThread.ForceQueue(nil,
+    procedure
+    begin
+      FPending.Value := 0;
+      if FIsActive.Value = 1 then
+        FOnNotify();
+      keepAlive := nil;
+    end);
+end; { TOmniContainerMainThreadObserverImpl.Notify }
+
+procedure TOmniContainerMainThreadObserverImpl.Shutdown;
+begin
+  FIsActive.Value := 0;
+end; { TOmniContainerMainThreadObserverImpl.Shutdown }
 
 end.
 
