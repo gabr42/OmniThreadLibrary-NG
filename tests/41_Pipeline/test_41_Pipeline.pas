@@ -39,7 +39,7 @@ var
 implementation
 
 uses
-  DSiWin32;
+  System.Diagnostics;
 
 const
   CNumStressTests = 100;
@@ -168,11 +168,11 @@ end;
 
 procedure TfrmPipelineDemo.btnExtended2Click(Sender: TObject);
 var
-  outValue: TOmniValue;
-  pipeline: IOmniPipeline;
-  t1      : int64;
-  t2      : int64;
-  t3      : int64;
+  outValue  : TOmniValue;
+  pipeline  : IOmniPipeline;
+  sw        : TStopwatch;
+  waitTime  : int64;
+  nextTime  : int64;
 begin
   pipeline := Parallel
     .Pipeline
@@ -187,13 +187,13 @@ begin
       .NumTasks(2)
     .Stage(StageSum)
     .Run;
-  t1 := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   pipeline.WaitFor(INFINITE); // just for test
-  t2 := DSiTimeGetTime64;
+  waitTime := sw.ElapsedMilliseconds;
   outValue := pipeline.Output.Next;
-  t3 := DSiTimeGetTime64;
+  nextTime := sw.ElapsedMilliseconds - waitTime;
   lbLog.Items.Add(Format('Pipeline result: %d; time in Wait: %d ms; time in Next: %d ms',
-    [outValue.AsInteger, t2-t1, t3-t2]));
+    [outValue.AsInteger, waitTime, nextTime]));
 end;
 
 procedure TfrmPipelineDemo.btnExtendedClick(Sender: TObject);

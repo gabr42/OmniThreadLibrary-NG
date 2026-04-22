@@ -5,6 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics,
   Controls, Forms, Dialogs, StdCtrls,
+  System.Diagnostics,
   OtlSync;
 
 const
@@ -45,8 +46,6 @@ var
 implementation
 
 uses
-  DSiWin32,
-  GpStuff,
   OtlCommon,
   OtlParallel;
 
@@ -81,14 +80,14 @@ begin
     procedure
     var
       slot: integer;
-      startTime: int64;
+      sw  : TStopwatch;
     begin
-      startTime := DSiTimeGetTime64;
-      while not DSiHasElapsed64(startTime, CTestDuration_sec*1000) do begin
+      sw := TStopwatch.StartNew;
+      while sw.ElapsedMilliseconds < CTestDuration_sec*1000 do begin
         slot := Random(CHighSlot) + 1;
         if System.TMonitor.Enter(FLocks[slot], CTestDuration_sec*1000) then try
           FValues[slot] := FValues[slot] + 1;
-          DSiYield;
+          TThread.Yield;
           FValues[slot] := FValues[slot] - 1;
         finally System.TMonitor.Exit(FLocks[slot]); end;
         cnt.Increment;
@@ -111,14 +110,14 @@ begin
       procedure
       var
         slot: integer;
-        startTime: int64;
+        sw  : TStopwatch;
       begin
         slot := taskNums.Increment;
-        startTime := DSiTimeGetTime64;
-        while not DSiHasElapsed64(startTime, CTestDuration_sec*1000) do begin
+        sw := TStopwatch.StartNew;
+        while sw.ElapsedMilliseconds < CTestDuration_sec*1000 do begin
           if lockManager.Lock(slot, CTestDuration_sec*1000) then try
             FValues[slot] := FValues[slot] + 1;
-            DSiYield;
+            TThread.Yield;
             FValues[slot] := FValues[slot] - 1;
             cnt.Increment;
           finally lockManager.Unlock(slot); end;
@@ -139,14 +138,14 @@ begin
     procedure
     var
       slot: integer;
-      startTime: int64;
+      sw  : TStopwatch;
     begin
       slot := taskNums.Increment;
-      startTime := DSiTimeGetTime64;
-      while not DSiHasElapsed64(startTime, CTestDuration_sec*1000) do begin
+      sw := TStopwatch.StartNew;
+      while sw.ElapsedMilliseconds < CTestDuration_sec*1000 do begin
         if System.TMonitor.Enter(FLocks[slot], CTestDuration_sec*1000) then try
           FValues[slot] := FValues[slot] + 1;
-          DSiYield;
+          TThread.Yield;
           FValues[slot] := FValues[slot] - 1;
         finally System.TMonitor.Exit(FLocks[slot]); end;
         cnt.Increment;
@@ -168,17 +167,17 @@ begin
       procedure
       var
         slot: integer;
-        startTime: int64;
+        sw  : TStopwatch;
       begin
-        startTime := DSiTimeGetTime64;
-        while not DSiHasElapsed64(startTime, CTestDuration_sec*1000) do begin
+        sw := TStopwatch.StartNew;
+        while sw.ElapsedMilliseconds < CTestDuration_sec*1000 do begin
           slot := Random(CHighSlot) + 1;
           if lockManager.Lock(slot, CTestDuration_sec*1000) then try
             if not lockManager.Lock(slot, 0) then
               raise Exception.Create('Not reentrant!')
             else try
               FValues[slot] := FValues[slot] + 1;
-              DSiYield;
+              TThread.Yield;
               FValues[slot] := FValues[slot] - 1;
               cnt.Increment;
             finally lockManager.Unlock(slot); end;
@@ -199,13 +198,13 @@ begin
     procedure
     var
       slot: integer;
-      startTime: int64;
+      sw  : TStopwatch;
     begin
-      startTime := DSiTimeGetTime64;
-      while not DSiHasElapsed64(startTime, CTestDuration_sec*1000) do begin
+      sw := TStopwatch.StartNew;
+      while sw.ElapsedMilliseconds < CTestDuration_sec*1000 do begin
         slot := Random(CHighSlot) + 1;
         FValues[slot] := FValues[slot] + 1;
-        DSiYield;
+        TThread.Yield;
         FValues[slot] := FValues[slot] - 1;
         cnt.Increment;
       end;
@@ -231,14 +230,14 @@ begin
       procedure
       var
         slot: integer;
-        startTime: int64;
+        sw  : TStopwatch;
       begin
-        startTime := DSiTimeGetTime64;
-        while not DSiHasElapsed64(startTime, CTestDuration_sec*1000) do begin
+        sw := TStopwatch.StartNew;
+        while sw.ElapsedMilliseconds < CTestDuration_sec*1000 do begin
           slot := Random(CHighSlot) + 1;
           if lockManager.Lock(slot, CTestDuration_sec*1000) then try
             FValues[slot] := FValues[slot] + 1;
-            DSiYield;
+            TThread.Yield;
             FValues[slot] := FValues[slot] - 1;
             cnt.Increment;
           finally lockManager.Unlock(slot); end;

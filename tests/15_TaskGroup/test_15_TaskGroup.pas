@@ -34,8 +34,7 @@ var
 implementation
 
 uses
-  SyncObjs,
-  DSiWin32;
+  SyncObjs;
 
 {$R *.dfm}
 

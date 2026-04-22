@@ -5,7 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics,
   Controls, Forms, Dialogs, StdCtrls,
-  GpStuff, OtlParallel, OtlCommon, OtlSync, OtlTask;
+  System.StrUtils, OtlParallel, OtlCommon, OtlSync, OtlTask;
 
 type
   TfrmParallelForDemo = class(TForm)
@@ -193,7 +193,7 @@ end;
 procedure TfrmParallelForDemo.Test(step, expected: integer);
 begin
   Log(Format('#%d: result = %d, expected = %d, %s', [step, FCounter.Value, expected,
-    IFF(FCounter.Value = expected, 'OK', '*** ERROR ***')]));
+    IfThen(FCounter.Value = expected, 'OK', '*** ERROR ***')]));
 end;
 
 end.

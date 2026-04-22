@@ -53,7 +53,7 @@ begin
   WaitForAll(2000, waTimeout, 'Waiting for all events, should fail in 2 seconds');
 
   for i := Low(FHandles) to High(FHandles) - 1 do
-    SetEvent(FHandles[i]);
+    Windows.SetEvent(FHandles[i]);
   Log('Signalled all events but one');
 
   WaitForAll(2000, waTimeout, 'Waiting for all events, should still fail in 2 seconds');
@@ -185,7 +185,9 @@ begin
   FreeAndNil(FWaiter);
   for i := Low(FHandles) to High(FHandles) do
     if FHandles[i] <> 0 then
+      {$WARN SYMBOL_PLATFORM OFF}
       Win32Check(CloseHandle(FHandles[i]));
+      {$WARN SYMBOL_PLATFORM DEFAULT}
 end;
 
 procedure TfrmTestTWaitFor.Log(const msg: string);
@@ -202,7 +204,7 @@ var
   i: integer;
 begin
   for i := Low(FHandles) to High(FHandles) do begin
-    SetEvent(FHandles[i]);
+    Windows.SetEvent(FHandles[i]);
     Sleep(3);
   end;
 end;
@@ -213,7 +215,7 @@ var
 begin
   Sleep(task.Param[0]);
   ov := task.Param[1];
-  SetEvent(FHandles[ov.AsInteger]);
+  Windows.SetEvent(FHandles[ov.AsInteger]);
 end;
 
 procedure TfrmTestTWaitFor.SignalEventAsync(timeout_ms: cardinal; idx: integer);

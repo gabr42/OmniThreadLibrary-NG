@@ -36,7 +36,7 @@ var
 implementation
 
 uses
-  DSiWin32;
+  System.Diagnostics;
 
 const
   CSourceSize = 50;
@@ -79,18 +79,19 @@ end;
 procedure TfrmTestParallelMap.btnParallelClick(Sender: TObject);
 var
   output: TArray<integer>;
+  sw    : TStopwatch;
   time  : int64;
 begin
   PrepareTestData;
 
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   output := Parallel.Map<integer,integer>(FTestData,
     function (const source: integer; var target: integer): boolean
     begin
       Result := IsPrime(source);
       target := source;
     end);
-  time := DSiElapsedTime64(time);
+  time := sw.ElapsedMilliseconds;
 
   LogResult(output, time);
 end;
@@ -100,11 +101,12 @@ var
   data  : integer;
   outIdx: integer;
   output: TArray<integer>;
+  sw    : TStopwatch;
   time  : int64;
 begin
   PrepareTestData;
 
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   SetLength(output, Length(FTestData));
   outIdx := Low(output) - 1;
   for data in FTestData do
@@ -113,7 +115,7 @@ begin
       output[outIdx] := data;
     end;
   SetLength(output, outIdx + 1);
-  time := DSiElapsedTime64(time);
+  time := sw.ElapsedMilliseconds;
 
   LogResult(output, time);
 end;

@@ -114,7 +114,7 @@
         <DCC_RemoteDebug>false</DCC_RemoteDebug>
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <DCC_Define>OTL_PlatformIndependent;$(DCC_Define)</DCC_Define>
-        <DCC_UnitSearchPath>..\..;..\..\GpDelphiUnits\src;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\..;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
     </PropertyGroup>

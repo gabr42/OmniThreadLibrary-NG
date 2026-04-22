@@ -107,14 +107,14 @@
         <DCC_RemoteDebug>true</DCC_RemoteDebug>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Linux64)'!=''">
-        <DCC_UnitSearchPath>..\..;..\..\GpDelphiUnits\src;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\..;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <Debugger_Launcher>/usr/bin/gnome-terminal -- &quot;%debuggee%&quot;</Debugger_Launcher>
         <Manifest_File>(None)</Manifest_File>
         <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
         <DCC_RemoteDebug>false</DCC_RemoteDebug>
-        <DCC_UnitSearchPath>..\..;..\..\GpDelphiUnits\src;..\..\fastmm4;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\..;..\..\fastmm4;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <DCC_Define>FastMM4;OTL_PlatformIndependent;$(DCC_Define)</DCC_Define>

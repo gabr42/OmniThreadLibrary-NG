@@ -5,6 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Dialogs, StdCtrls, ActnList,
+  System.Diagnostics,
   OtlCommon,
   OtlComm,
   OtlTask,
@@ -37,7 +38,7 @@ type
     procedure btnSort(Sender: TObject);
     procedure OtlEventMonitor1TaskMessage(const task: IOmniTaskControl; const msg: TOmniMessage);
   strict private
-    FSortStart: int64;
+    FSortStopwatch: TStopwatch;
   private
     FCounter: IOmniCounter;
     FData   : TData;
@@ -49,9 +50,6 @@ var
   frmQuickSortDemo: TfrmQuickSortDemo;
 
 implementation
-
-uses
-  DSiWin32;
 
 {$R *.dfm}
 
@@ -66,7 +64,7 @@ begin
   GenerateData;
   FCounter := CreateCounter(1);
   lbLog.ItemIndex := lbLog.Items.Add('Sorting...');
-  FSortStart := DSiTimeGetTime64;
+  FSortStopwatch := TStopwatch.StartNew;
   CreateTask(TQuickSortTask.Create())
     .WithCounter(FCounter)
     .MonitorWith(OtlEventMonitor1)
@@ -93,8 +91,7 @@ var
   msgData1: TOmniValue;
 begin
   if msg.MsgID = WM_STOP then begin
-    FSortStart := DSiTimeGetTime64 - FSortStart;
-    lbLog.ItemIndex := lbLog.Items.Add(Format('Sorted, elapsed time = %d ms', [FSortStart]));
+    lbLog.ItemIndex := lbLog.Items.Add(Format('Sorted, elapsed time = %d ms', [FSortStopwatch.ElapsedMilliseconds]));
     VerifyData;
   end
   else if msg.MsgID = WM_SCHEDULE_SORTER then begin

@@ -5,7 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Dialogs, StdCtrls,
-  GpStuff;
+  OtlCommon;
 
 type
   TfrmTestParallelJoin = class(TForm)
@@ -20,8 +20,8 @@ type
     procedure btnJoinTProcClick(Sender: TObject);
     procedure btnNoWaitClick(Sender: TObject);
   protected
-    FJoinCount: TGp4AlignedInt;
-    FJoinCount2: TGp4AlignedInt;
+    FJoinCount: TOmniAlignedInt32;
+    FJoinCount2: TOmniAlignedInt32;
     procedure Log(const msg: string);
   end;
 
@@ -31,8 +31,7 @@ var
 implementation
 
 uses
-  DSiWin32,
-  OtlCommon,
+  System.Diagnostics,
   OtlTask,
   OtlParallel;
 
@@ -66,14 +65,14 @@ procedure TfrmTestParallelJoin.btnJoinAllClick(Sender: TObject);
 var
   expectedTime: integer;
   join        : IOmniParallelJoin;
-  startTime   : int64;
+  sw          : TStopwatch;
 begin
   if Sender = btnJoinOne then
     expectedTime := 5
   else
     expectedTime := 3;
   Log(Format('Starting two tasks, expected execution time is %d seconds', [expectedTime]));
-  startTime := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   join := Parallel.Join(
     procedure (const joinState: IOmniJoinState)
     begin
@@ -87,20 +86,20 @@ begin
     join.NumTasks(1);
   join.Execute;
   Log(Format('Tasks stopped, execution time was %s seconds',
-    [FormatDateTime('s.zzz', DSiElapsedTime64(startTime)/MSecsPerDay)]));
+    [FormatDateTime('s.zzz', sw.ElapsedMilliseconds/MSecsPerDay)]));
 end;
 
 procedure TfrmTestParallelJoin.btnJoinTProcClick(Sender: TObject);
 var
   expectedTime: integer;
-  startTime   : int64;
+  sw          : TStopwatch;
 begin
   if Environment.Process.Affinity.Count = 1 then
     expectedTime := 5
   else
     expectedTime := 3;
   Log(Format('Starting two tasks, expected execution time is %d seconds', [expectedTime]));
-  startTime := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   Parallel.Join(
     procedure
     begin
@@ -111,13 +110,13 @@ begin
       Sleep(2000);
     end).Execute;
   Log(Format('Tasks stopped, execution time was %s seconds',
-    [FormatDateTime('s.zzz', DSiElapsedTime64(startTime)/MSecsPerDay)]));
+    [FormatDateTime('s.zzz', sw.ElapsedMilliseconds/MSecsPerDay)]));
 end;
 
 procedure TfrmTestParallelJoin.btnNoWaitClick(Sender: TObject);
 var
   join: IOmniParallelJoin;
-  time: int64;
+  sw  : TStopwatch;
 begin
   FJoinCount.Value := 0;
   FJoinCount2.Value := 0;
@@ -146,9 +145,9 @@ begin
     end
   ).NoWait.Execute;
   Sleep(500);
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   join.Cancel.WaitFor(INFINITE);
-  Log(Format('Waited %d ms for joins to terminate', [DSiElapsedTime64(time)]));
+  Log(Format('Waited %d ms for joins to terminate', [sw.ElapsedMilliseconds]));
   Log(Format('Joins counted up to %d and %d', [FJoinCount.Value, FJoinCount2.Value]));
 end;
 

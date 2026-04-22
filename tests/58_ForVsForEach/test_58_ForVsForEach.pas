@@ -22,7 +22,7 @@ var
 implementation
 
 uses
-  DSiWin32,
+  System.Diagnostics,
   {$IF CompilerVersion >= 28}System.Threading,{$IFEND}
   OtlParallel;
 
@@ -78,20 +78,19 @@ end;
 
 procedure TfrmForVsForEach.Time(const name: string; proc: TProc);
 var
-  i: Integer;
-  startTime: int64;
-  s: string;
+  i : Integer;
+  sw: TStopwatch;
+  s : string;
 begin
   lbLog.ItemIndex := lbLog.Items.Add('Timing "' + name + '"');
   lbLog.Update;
   s := '';
   for i := 1 to 3 do begin
-    startTime := DSiTimeGetTime64;
+    sw := TStopwatch.StartNew;
     proc();
-    startTime := DSiElapsedTime64(startTime);
     if s <> '' then
       s := s + ', ';
-    s := s + IntToStr(startTime) + ' ms';
+    s := s + IntToStr(sw.ElapsedMilliseconds) + ' ms';
   end;
   lbLog.Items[lbLog.ItemIndex] := '"' + name + '" times: ' + s;
 end;

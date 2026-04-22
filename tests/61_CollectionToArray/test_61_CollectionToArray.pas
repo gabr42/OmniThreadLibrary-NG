@@ -31,8 +31,7 @@ implementation
 
 uses
   Generics.Collections,
-  DSiWin32,
-  GpStuff;
+  System.Diagnostics;
 
 {$R *.dfm}
 
@@ -105,8 +104,7 @@ begin
   arr := TOmniBlockingCollection.ToArray<integer>(coll);
   //convertor will only exit when collection is 'completed' (i.e. when Parallel.Async finishes its job)
 
-  if CPrimeCount > 0 then
-    Assert(Length(arr) = CPrimeCount);
+  Assert(Length(arr) = CPrimeCount);
   lbLog.Items.Add(Format('%d primes, first five are %d, %d, %d, %d, %d', [
     Length(arr), arr[0], arr[1], arr[2], arr[3], arr[4]]));
 end;
@@ -116,6 +114,7 @@ var
   arr : TArray<integer>;
   coll: IOmniBlockingCollection;
   i   : integer;
+  sw  : TStopwatch;
   time: int64;
 begin
   coll := TOmniBlockingCollection.Create;
@@ -123,9 +122,9 @@ begin
     coll.Add(i);
   coll.CompleteAdding;
 
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   arr := TOmniBlockingCollection.ToArray<integer>(coll);
-  time := DSiElapsedTime64(time);
+  time := sw.ElapsedMilliseconds;
 
   Assert(Length(arr) = CTestSize);
   for i := Low(arr) to High(arr) do
@@ -139,6 +138,7 @@ var
   coll: IOmniBlockingCollection;
   i   : integer;
   intf: ITestIntf;
+  sw  : TStopwatch;
   time: int64;
 begin
   coll := TOmniBlockingCollection.Create;
@@ -148,9 +148,9 @@ begin
   end;
   coll.CompleteAdding;
 
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   arr := TOmniBlockingCollection.ToArray<ITestIntf>(coll);
-  time := DSiElapsedTime64(time);
+  time := sw.ElapsedMilliseconds;
 
   Assert(Length(arr) = CTestSize);
   for i := Low(arr) to High(arr) do begin
@@ -165,6 +165,7 @@ var
   arr : TArray<TTestObj>;
   coll: IOmniBlockingCollection;
   i   : integer;
+  sw  : TStopwatch;
   time: int64;
 begin
   coll := TOmniBlockingCollection.Create;
@@ -172,9 +173,9 @@ begin
     coll.Add(TTestObj.Create(i, IntToStr(i)));
   coll.CompleteAdding;
 
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   arr := TOmniBlockingCollection.ToArray<TTestObj>(coll);
-  time := DSiElapsedTime64(time);
+  time := sw.ElapsedMilliseconds;
 
   Assert(Length(arr) = CTestSize);
   for i := Low(arr) to High(arr) do begin
@@ -190,6 +191,7 @@ var
   arr : TArray<TTestRec>;
   coll: IOmniBlockingCollection;
   i   : integer;
+  sw  : TStopwatch;
   time: int64;
 begin
   coll := TOmniBlockingCollection.Create;
@@ -197,9 +199,9 @@ begin
     coll.Add(TOmniValue.FromRecord<TTestRec>(TTestRec.Create(i, IntToStr(i))));
   coll.CompleteAdding;
 
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   arr := TOmniBlockingCollection.ToArray<TTestRec>(coll);
-  time := DSiElapsedTime64(time);
+  time := sw.ElapsedMilliseconds;
 
   Assert(Length(arr) = CTestSize);
   for i := Low(arr) to High(arr) do begin
@@ -214,6 +216,7 @@ var
   arr : TArray<string>;
   coll: IOmniBlockingCollection;
   i   : integer;
+  sw  : TStopwatch;
   time: int64;
 begin
   coll := TOmniBlockingCollection.Create;
@@ -221,9 +224,9 @@ begin
     coll.Add(IntToStr(i));
   coll.CompleteAdding;
 
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   arr := TOmniBlockingCollection.ToArray<string>(coll);
-  time := DSiElapsedTime64(time);
+  time := sw.ElapsedMilliseconds;
 
   Assert(Length(arr) = CTestSize);
   for i := Low(arr) to High(arr) do

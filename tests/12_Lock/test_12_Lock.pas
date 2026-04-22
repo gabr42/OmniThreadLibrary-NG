@@ -35,7 +35,6 @@ implementation
 
 uses
   SyncObjs,
-  DSiWin32,
   OtlCommon;
 
 {$R *.dfm}
@@ -77,7 +76,7 @@ var
   iRepeat: integer;
 begin
   for iRepeat := 1 to CTestRepetitions do begin
-    if WaitForSingleObject(task.TerminateEvent, 0) = WAIT_OBJECT_0 then
+    if WaitForSingleObject(task.TerminateEvent.Handle, 0) = WAIT_OBJECT_0 then
       break; //for
     if not OneTest(task.Lock) then
       task.Comm.Send(0, Format('Test failed at repetition %d', [iRepeat]));

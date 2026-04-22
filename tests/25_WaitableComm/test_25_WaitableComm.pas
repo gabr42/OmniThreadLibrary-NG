@@ -26,7 +26,6 @@ var
 implementation
 
 uses
-  DSiWin32,
   OtlCommon,
   OtlComm;
 
@@ -34,11 +33,9 @@ type
   TSendMsg = class
   strict private
     FMsgCount   : integer;
-    FPerfCounter: int64;
   public
     constructor Create(msgCount: integer);
     property MsgCount: integer read FMsgCount;
-    property PerfCounter: int64 read FPerfCounter;
  end;
 
 {$R *.dfm}
@@ -185,7 +182,6 @@ end;
 constructor TSendMsg.Create(msgCount: integer);
 begin
   FMsgCount := msgCount;
-  FPerfCounter := DSiQueryPerfCounterAsUS;
 end;
 
 end.

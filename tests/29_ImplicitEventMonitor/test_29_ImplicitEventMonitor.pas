@@ -39,9 +39,6 @@ var
 
 implementation
 
-uses
-  DSiWin32;
-
 {$R *.dfm}
 
 const
@@ -49,14 +46,17 @@ const
 
 procedure RunHello(const task: IOmniTask);
 var
+  handles: array[0..1] of THandle;
   msg    : string;
   msgData: TOmniValue;
   msgID  : word;
 begin
   msg := task.Param['Message'];
+  handles[0] := task.TerminateEvent.Handle;
+  handles[1] := task.Comm.NewMessageEvent.Handle;
   repeat
-    case DSiWaitForTwoObjects(task.TerminateEvent, task.Comm.NewMessageEvent, false, task.Param['Delay']) of
-      WAIT_OBJECT_1:
+    case WaitForMultipleObjects(2, @handles[0], false, task.Param['Delay']) of
+      WAIT_OBJECT_0 + 1:
         begin
           while task.Comm.Receive(msgID, msgData) do begin
             if msgID = MSG_CHANGE_MESSAGE then
@@ -69,7 +69,7 @@ begin
         break; //repeat
     end;
   until false;
-end; 
+end;
 
 { TfrmTestOTL }
 

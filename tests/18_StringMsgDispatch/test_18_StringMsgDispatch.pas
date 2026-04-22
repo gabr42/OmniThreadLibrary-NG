@@ -50,9 +50,6 @@ var
 
 implementation
 
-uses
-  DSiWin32;
-
 {$R *.dfm}
 
 { TfrmTestOTL }
@@ -87,9 +84,9 @@ begin
     SetParameter('Delay', 1000).
     SetParameter('Message', 'Hello');
   if cbStringMessages.Checked then
-    FHelloTask.SetTimer(1000, 'SendMessage')
+    FHelloTask.SetTimer(0, 1000, 'SendMessage')
   else
-    FHelloTask.SetTimer(1000, @TAsyncHello.SendMessage);
+    FHelloTask.SetTimer(0, 1000, @TAsyncHello.SendMessage);
   FHelloTask.Run;
   btnStartHello.Enabled := false;
   btnChangeMessage.Enabled := true;

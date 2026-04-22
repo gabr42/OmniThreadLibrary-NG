@@ -34,6 +34,15 @@ object frmThreadInThreads: TfrmThreadInThreads
     TabOrder = 1
     OnClick = btnOTLFromThreadClick
   end
+  object btnOTLFromThreadDrain: TButton
+    Left = 16
+    Top = 94
+    Width = 137
+    Height = 25
+    Caption = 'OTL from a TThread (drain)'
+    TabOrder = 2
+    OnClick = btnOTLFromThreadDrainClick
+  end
   object lbLog: TListBox
     Left = 176
     Top = 16
@@ -41,6 +50,6 @@ object frmThreadInThreads: TfrmThreadInThreads
     Height = 265
     Anchors = [akLeft, akTop, akRight, akBottom]
     ItemHeight = 13
-    TabOrder = 2
+    TabOrder = 3
   end
 end

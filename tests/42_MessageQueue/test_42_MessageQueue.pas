@@ -5,7 +5,8 @@ interface
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Dialogs, StdCtrls, ExtCtrls, Contnrs,
-  GpLists,
+  System.Diagnostics,
+  System.Generics.Collections,
   OtlCommon,
   OtlComm,
   OtlTask,
@@ -39,17 +40,17 @@ type
     procedure FormDestroy(Sender: TObject);
     procedure OmniEventMonitor1TaskMessage(const task: IOmniTaskControl; msg: TOmniMessage);
   private
-    FAllTestsStart   : int64;
-    FCounter         : IOmniCounter;
-    FNumReaders      : integer;
-    FNumWriters      : integer;
-    FMessageQueue    : TOmniMessageQueue;
-    FQueuedTests     : TGpIntegerObjectList;
-    FReaders         : array [1..4] of IOmniTaskControl;
-    FReaderThroughput: integer;
-    FTestName        : string;
-    FWriters         : array [1..4] of IOmniTaskControl;
-    FWriterThroughput: integer;
+    FAllTestsStopwatch: TStopwatch;
+    FCounter          : IOmniCounter;
+    FNumReaders       : integer;
+    FNumWriters       : integer;
+    FMessageQueue     : TOmniMessageQueue;
+    FQueuedTests      : TList<TPair<integer, TObject>>;
+    FReaders          : array [1..4] of IOmniTaskControl;
+    FReaderThroughput : integer;
+    FTestName         : string;
+    FWriters          : array [1..4] of IOmniTaskControl;
+    FWriterThroughput : integer;
     function  GetTestDuration_sec: integer;
     procedure Log(const msg: string);
     procedure ScheduleAllQueueTests;
@@ -63,10 +64,6 @@ var
   frmTestMessageQueue: TfrmTestMessageQueue;
 
 implementation
-
-uses
-  DSiWin32,
-  GpStuff;
 
 {$R *.dfm}
 
@@ -140,7 +137,7 @@ end;
 procedure TfrmTestMessageQueue.btnQueueAllClick(Sender: TObject);
 begin
   ScheduleAllQueueTests;
-  FAllTestsStart := DSiTimeGetTime64;
+  FAllTestsStopwatch := TStopwatch.StartNew;
   StartFirstTest;
 end;
 
@@ -169,7 +166,7 @@ procedure TfrmTestMessageQueue.FormCreate(Sender: TObject);
 begin
   FMessageQueue := TOmniMessageQueue.Create(CTestQueueLength);
   FCounter := CreateCounter;
-  FQueuedTests := TGpIntegerObjectList.Create(false);
+  FQueuedTests := TList<TPair<integer, TObject>>.Create;
   AllocateTasks(1, 1);
 end;
 
@@ -240,7 +237,7 @@ begin
           FQueuedTests.Delete(0);
           if FQueuedTests.Count = 0 then
             Log(Format('All tests completed. Total run time = %d seconds',
-              [Round((DSiTimeGetTime64 - FAllTestsStart)/1000)]))
+              [Round(FAllTestsStopwatch.ElapsedMilliseconds/1000)]))
           else
             StartFirstTest;
         end;
@@ -265,7 +262,7 @@ var
 begin
   for numWriters in [1, 2, 4] do
     for numReaders in [1, 2, 4] do
-      FQueuedTests.AddObject(10*numWriters + numReaders, btnQueueStressTest);
+      FQueuedTests.Add(TPair<integer, TObject>.Create(10*numWriters + numReaders, btnQueueStressTest));
 end;
 
 procedure TfrmTestMessageQueue.StartFirstTest;
@@ -273,9 +270,9 @@ var
   button: TButton;
   oldTag: integer;
 begin
-  button := (FQueuedTests.Objects[0] as TButton);
+  button := (FQueuedTests[0].Value as TButton);
   oldTag := button.Tag;
-  button.Tag := FQueuedTests[0];
+  button.Tag := FQueuedTests[0].Key;
   button.Click;
   button.Tag := oldTag;
 end;
@@ -318,17 +315,16 @@ end;
 procedure TCommWriter.OMStartQueueStressTest(var msg: TOmniMessage);
 var
   counter    : integer;
-  endTime    : int64;
+  endTime_ms : int64;
   numEnqueued: integer;
   numLoops   : word;
   numSkipped : integer;
-  startTime  : int64;
+  sw         : TStopwatch;
   throughput : integer;
-  time       : int64;
+  time_ms    : int64;
 begin
-  startTime := DSiTimeGetTime64;
-  time := startTime;
-  endTime := startTime + msg.MsgData.AsInt64 * 1000;
+  sw := TStopwatch.StartNew;
+  endTime_ms := msg.MsgData.AsInt64 * 1000;
   counter := 0;
   numEnqueued := 0;
   numSkipped := 0;
@@ -336,8 +332,8 @@ begin
   repeat
     {$Q-}Inc(numLoops);{$Q+}
     if numLoops = 0 then begin
-      time := DSiTimeGetTime64;
-      if time > endTime then
+      time_ms := sw.ElapsedMilliseconds;
+      if time_ms > endTime_ms then
         break; //repeat
     end;
     Inc(counter);
@@ -345,13 +341,13 @@ begin
       Inc(numEnqueued)
     else begin
       Inc(numSkipped);
-      DSiYield;
+      TThread.Yield;
     end;
   until false;
-  throughput := Round(numEnqueued/((time - startTime)/1000));
+  throughput := Round(numEnqueued/(time_ms/1000));
   Task.Comm.Send(MSG_TEST_END, Format(
     'Writer completed in %d ms; %d enqueued, %d skipped; %d msg/s',
-    [time - startTime, numEnqueued, numSkipped, throughput]));
+    [time_ms, numEnqueued, numSkipped, throughput]));
   Task.Comm.Send(MSG_WRITER_THROUGHPUT, throughput);
   if Task.Counter.Decrement = 0 then
     Task.Comm.Send(MSG_FULL_STOP, 'queue');
@@ -437,38 +433,37 @@ end;
 procedure TCommReader.OMStartQueueStressTest(var msg: TOmniMessage);
 var
   counter    : TOmniMessage;
-  endTime    : int64;
+  endTime_ms : int64;
   numDequeued: integer;
   numEmpty   : integer;
   numLoops   : word;
-  startTime  : int64;
+  sw         : TStopwatch;
   throughput : integer;
-  time       : int64;
+  time_ms    : int64;
 begin
-  startTime := DSiTimeGetTime64;
-  time := startTime;
-  endTime := startTime + msg.MsgData.AsInt64 * 1000;
+  sw := TStopwatch.StartNew;
+  endTime_ms := msg.MsgData.AsInt64 * 1000;
   numDequeued := 0;
   numEmpty := 0;
   numLoops := 0;
   repeat
     {$Q-}Inc(numLoops);{$Q+}
     if numLoops = 0 then begin
-      time := DSiTimeGetTime64;
-      if time > endTime then
+      time_ms := sw.ElapsedMilliseconds;
+      if time_ms > endTime_ms then
         break; //repeat
     end;
     if MQueue.TryDequeue(counter) then
       Inc(numDequeued)
     else begin
       Inc(numEmpty);
-      DSiYield;
+      TThread.Yield;
     end;
   until false;
-  throughput := Round(numDequeued/((time - startTime)/1000));
+  throughput := Round(numDequeued/(time_ms/1000));
   Task.Comm.Send(MSG_TEST_END, Format(
     'Reader completed in %d ms; %d dequeued, %d empty; %d msg/s',
-    [time - startTime, numDequeued, numEmpty, throughput]));
+    [time_ms, numDequeued, numEmpty, throughput]));
   Task.Comm.Send(MSG_READER_THROUGHPUT, throughput);
   if Task.Counter.Decrement = 0 then
     Task.Comm.Send(MSG_FULL_STOP, 'queue');

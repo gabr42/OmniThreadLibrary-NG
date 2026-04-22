@@ -33,7 +33,8 @@ var
 implementation
 
 uses
-  DSiWin32;
+  System.Diagnostics,
+  OtlCommon;
 
 {$R *.dfm}
 
@@ -61,7 +62,7 @@ type
     ctCommSize      : integer;
     ctExpectedValue : integer;
     ctTestRepetition: integer;
-    ctTestStart_ms  : int64;
+    ctStopwatch     : TStopwatch;
     ctTestSuite     : TTestSuite;
   private
     procedure InitiateMessageExchangeTest;
@@ -134,7 +135,7 @@ procedure TCommTester.OMEndTiming(var msg: TOmniMessage);
 var
   testDuration_ms: int64;
 begin
-  testDuration_ms := DSiTimeGetTime64 - ctTestStart_ms;
+  testDuration_ms := ctStopwatch.ElapsedMilliseconds;
   Task.Comm.Send(MSG_NOTIFY_TEST_END, testDuration_ms);
   ctComm.Send(MSG_NOTIFY_TEST_END, Ord(ctTestSuite));
 end;
@@ -173,7 +174,7 @@ end;
 
 procedure TCommTester.OMStartTiming(var msg: TOmniMessage);
 begin
-  ctTestStart_ms := DSiTimeGetTime64;
+  ctStopwatch := TStopwatch.StartNew;
   ctTestSuite := TTestSuite(msg.MsgData.AsInteger);
   ctExpectedValue := 1;
 end;

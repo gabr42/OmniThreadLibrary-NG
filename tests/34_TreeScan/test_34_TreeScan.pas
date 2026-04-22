@@ -51,8 +51,7 @@ implementation
 uses
   SyncObjs,
   Types,
-  DSiWin32,
-  GpStuff,
+  System.Diagnostics,
   OtlCommon,
   OtlContainers,
   OtlCollections,
@@ -193,16 +192,16 @@ end; { TfrmTreeScanDemo.Log }
 
 procedure TfrmTreeScanDemo.ParaFind(value: integer);
 var
-  node     : TNode;
-  startTime: integer;
+  node: TNode;
+  sw  : TStopwatch;
 begin
   Log('Searching for: %d', [value]);
-  startTime := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   node := ParaScan(FRootNode, value);
   if assigned(node) then
-    Log('Found in %d ms; node = %s', [DSiTimeGetTime64 - startTime, node.ToString])
+    Log('Found in %d ms; node = %s', [sw.ElapsedMilliseconds, node.ToString])
   else
-    Log('Not found in %d ms', [DSiTimeGetTime64 - startTime]);
+    Log('Not found in %d ms', [sw.ElapsedMilliseconds]);
 end; { TfrmTreeScanDemo.ParaFind }
 
 function TfrmTreeScanDemo.ParaScan(rootNode: TNode; value: integer): TNode;
@@ -298,16 +297,16 @@ end; { TfrmTreeScanDemo.RemoveEmptyLeaves }
 
 procedure TfrmTreeScanDemo.SeqFind(value: integer);
 var
-  node     : TNode;
-  startTime: integer;
+  node: TNode;
+  sw  : TStopwatch;
 begin
   Log('Searching for: %d', [value]);
-  startTime := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   node := SeqScan(FRootNode, value);
   if assigned(node) then
-    Log('Found in %d ms; node = %s', [DSiTimeGetTime64 - startTime, node.ToString])
+    Log('Found in %d ms; node = %s', [sw.ElapsedMilliseconds, node.ToString])
   else
-    Log('Not found in %d ms', [DSiTimeGetTime64 - startTime]);
+    Log('Not found in %d ms', [sw.ElapsedMilliseconds]);
 end; { TfrmTreeScanDemo.SeqFind }
 
 function TfrmTreeScanDemo.SeqScan(node: TNode; value: integer): TNode;

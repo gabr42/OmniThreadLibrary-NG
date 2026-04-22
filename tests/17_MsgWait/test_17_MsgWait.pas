@@ -34,7 +34,7 @@ var
 implementation
 
 uses
-  DSiWin32,
+  ExtCtrls,
   OtlCommon;
 
 {$R *.dfm}
@@ -42,7 +42,7 @@ uses
 type
   THelloWorld = class(TOmniWorker)
   private
-    FTimer: TDSiTimer;
+    FTimer: TTimer;
   protected
     procedure Cleanup; override;
     procedure DoTimer(sender: TObject);
@@ -53,7 +53,6 @@ procedure TfrmTestMsgWait.actStartExecute(Sender: TObject);
 begin
   FHelloWorld := CreateTask(THelloWorld.Create(), 'Hello, World!')
                  .MonitorWith(oeMonitor)
-                 .MsgWait
                  .Run;
 end;
 
@@ -93,7 +92,10 @@ end;
 
 function THelloWorld.Initialize: boolean;
 begin
-  FTimer := TDSiTimer.Create(true, 1000, DoTimer);
+  FTimer := TTimer.Create(nil);
+  FTimer.Interval := 1000;
+  FTimer.OnTimer := DoTimer;
+  FTimer.Enabled := true;
   Result := true;
 end;
 

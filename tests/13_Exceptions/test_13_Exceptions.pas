@@ -40,7 +40,6 @@ implementation
 
 uses
   SyncObjs,
-  DSiWin32,
   OtlCommon;
 
 {$R *.dfm}
@@ -95,8 +94,10 @@ end;
 
 procedure TfrmTestExceptions.FormCreate(Sender: TObject);
 begin
+  {$WARN SYMBOL_PLATFORM OFF}
   if DebugHook <> 0 then
     Log('Don''t run this program in the debugger!');
+  {$WARN SYMBOL_PLATFORM DEFAULT}
   GlobalOmniThreadPool.MonitorWith(OmniTED);
 end;
 
@@ -148,7 +149,7 @@ var
   i  : array [1..1] of integer;
   msg: TOmniMessage;
 begin
-  WaitForSingleObject(task.Comm.NewMessageEvent, INFINITE);
+  WaitForSingleObject(task.Comm.NewMessageEvent.Handle, INFINITE);
   task.Comm.Receive(msg);
   if msg.MsgID = EXC_AV then
     PChar(nil)^ := #0

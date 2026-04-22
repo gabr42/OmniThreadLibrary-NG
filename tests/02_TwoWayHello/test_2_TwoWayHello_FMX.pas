@@ -52,12 +52,14 @@ begin
   msg := task.Param['Message'];
   waiter := TWaitFor.Create([task.TerminateEvent, task.Comm.NewMessageEvent]);
 (*
+  handles[0] := task.TerminateEvent.Handle;
+  handles[1] := task.Comm.NewMessageEvent;
   repeat
 
 //    oteMsgInfo.Waiter := TWaitFor.Create({$IF not Defined(MSWINDOWS) or Defined(OTL_PlatformIndependent)}[]{$IFEND}); //TODO: Not implemented for non-Windows platforms.
 //    msgInfo.Waiter.SetHandles(msgInfo.WaitHandles);
-    case DSiWaitForTwoObjects(task.TerminateEvent.Handle, task.Comm.NewMessageEvent, false, task.Param['Delay']) of
-      WAIT_OBJECT_1:
+    case WaitForMultipleObjects(2, @handles[0], false, task.Param['Delay']) of
+      WAIT_OBJECT_0 + 1:
         begin
           while task.Comm.Receive(msgID, msgData) do begin
             if msgID = MSG_CHANGE_MESSAGE then

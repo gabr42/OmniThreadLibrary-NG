@@ -44,6 +44,7 @@ implementation
 {$R *.dfm}
 
 uses
+  OtlCommon,
   OtlTaskControl,
   OtlComm;
 

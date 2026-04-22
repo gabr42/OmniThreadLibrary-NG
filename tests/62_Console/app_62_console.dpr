@@ -3,26 +3,16 @@ program app_62_console;
 {$APPTYPE CONSOLE}
 
 uses
-  Windows,
-  Messages,
+  Classes,
   SysUtils,
+  OtlCommon,
   OtlComm,
   OtlTask,
   OtlTaskControl,
   OtlParallel;
 
 const
-  MSG_STATUS = WM_USER;
-
-  procedure ProcessMessages;
-  var
-    Msg: TMsg;
-  begin
-    while integer(PeekMessage(Msg, 0, 0, 0, PM_REMOVE)) <> 0 do begin
-      TranslateMessage(Msg);
-      DispatchMessage(Msg);
-    end;
-  end;
+  MSG_STATUS = 1;
 
   function DoTheCalculation(const task: IOmniTask): integer;
   var
@@ -48,12 +38,15 @@ begin
         end));
 
     Writeln('Background thread is calculating ...');
-    while not calc.IsDone do
-      ProcessMessages;
+    while not calc.IsDone do begin
+      CheckSynchronize(100);
+    end;
     Writeln('And the answer is: ', calc.Value);
 
+    {$WARN SYMBOL_PLATFORM OFF}
     if DebugHook <> 0 then
       Readln;
+    {$WARN SYMBOL_PLATFORM DEFAULT}
   except
     on E: Exception do
       Writeln(E.ClassName, ': ', E.Message);

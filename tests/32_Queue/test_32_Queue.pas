@@ -5,9 +5,8 @@ interface
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Dialogs, StdCtrls, ExtCtrls, Contnrs, Spin,
-  DSiWin32,
-  GpLists,
-  GpStuff,
+  System.Diagnostics,
+  System.Generics.Collections,
   OtlCommon,
   OtlComm,
   OtlTask,
@@ -53,7 +52,7 @@ type
     FNumWorkers    : TOmniAlignedInt32;
     FReaders       : array of IOmniTaskControl;
     FSrcCollection : TOmniBaseQueue;
-    FStartTime     : int64;
+    FStopwatch     : TStopwatch;
     procedure CheckResult;
     procedure DisplayParameters;
     procedure Log(const msg: string); overload;
@@ -170,10 +169,10 @@ var
   i    : integer;
   loop : integer;
   qi   : TOmniValue;
-  time : int64;
+  sw   : TStopwatch;
   value: TOmniValue;
 begin
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   coll := CreateCollection;
   try
     for loop := 1 to 10 do begin
@@ -188,8 +187,7 @@ begin
         raise Exception.Create('Collection is not empty at the end');
     end;
   finally FreeAndNil(coll); end;
-  time := DSiTimeGetTime64 - time;
-  Log('TOmniBaseQueue, 10x (%d enqueues and %0:d dequeues), %d ms', [CCountSingleTest, time]);
+  Log('TOmniBaseQueue, 10x (%d enqueues and %0:d dequeues), %d ms', [CCountSingleTest, sw.ElapsedMilliseconds]);
 end; { TfrmTestOtlCollections.btnTestClick }
 
 procedure TfrmTestOmniQueue.btnTestIntfClick(Sender: TObject);
@@ -198,10 +196,10 @@ var
   i    : integer;
   loop : integer;
   qi   : TOmniValue;
-  time : int64;
+  sw   : TStopwatch;
   value: TOmniValue;
 begin
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   coll := CreateCollection;
   try
     for loop := 1 to 10 do begin
@@ -216,24 +214,23 @@ begin
         raise Exception.Create('Collection is not empty at the end');
     end; //for loop
   finally FreeAndNil(coll); end;
-  time := DSiTimeGetTime64 - time;
-  Log('TOmniBaseQueue, 10x (%d enqueues and %0:d dequeues), %d ms', [CCountSingleTest, time]);
+  Log('TOmniBaseQueue, 10x (%d enqueues and %0:d dequeues), %d ms', [CCountSingleTest, sw.ElapsedMilliseconds]);
 end; { TfrmTestOtlCollections.btnTestIntfClick }
 
 procedure TfrmTestOmniQueue.CheckResult;
 var
   i: integer;
-  testList: TGpIntegerList;
+  testList: TList<integer>;
   value: TOmniValue;
 begin
   try
-    testList := TGpIntegerList.Create;
+    testList := TList<integer>.Create;
     try
       Assert(FSrcCollection.IsEmpty);
       Assert(not FDstCollection.IsEmpty);
       while FDstCollection.TryDequeue(value) do
         testList.Add(value.AsInteger);
-      testList.Sorted := true;
+      testList.Sort;
       Assert(FDstCollection.IsEmpty);
       if testList.Count <> CCountThreadedTest then
         raise Exception.CreateFmt('Expected %d items, got %d', [CCountThreadedTest, testList.Count]);
@@ -287,12 +284,9 @@ begin
 end;
 
 procedure TfrmTestOmniQueue.OtlMonitorTaskTerminated(const task: IOmniTaskControl);
-var
-  time: int64;
 begin
   if FNumWorkers.Decrement = 0 then begin
-    time := DSiTimeGetTime64 - FStartTime;
-    Log('All worker threads terminated, execution time = %d', [time]);
+    Log('All worker threads terminated, execution time = %d', [FStopwatch.ElapsedMilliseconds]);
     CheckResult;
     if cbRepeat.Checked then
       PostMessage(Handle, WM_USER, 0, 0);
@@ -356,8 +350,8 @@ begin
   PrepareReaders(numReaders);
   PrepareForwarders(numForwarders);
   while GStartedWorkers.Value < (numForwarders + numReaders) do
-    DSiYield;
-  FStartTime := DSiTimeGetTime64;
+    TThread.Yield;
+  FStopwatch := TStopwatch.StartNew;
   StartReaders;
   StartForwarders;
 end; { TfrmTestOtlCollections.PrepareTest }

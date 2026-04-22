@@ -38,7 +38,7 @@ var
 implementation
 
 uses
-  DSiWin32;
+  System.Diagnostics;
 
 {$R *.dfm}
 
@@ -52,19 +52,19 @@ var
   benchmarkTask: IOmniTaskControl;
   iMsg         : integer;
   msg          : TOmniMessage;
+  sw           : TStopwatch;
   timeElapsed  : int64;
-  timeStart    : int64;
 begin
   lbLog.ItemIndex := lbLog.Items.Add(
     Format('Benchmarking message ID dispatch; %d messages', [CNumMessages]));
   benchmarkTask := CreateTask(TBenchmarkClient.Create(), 'StringMsgBenchmark')
     .SetQueueSize(CNumMessages)
     .Run;
-  timeStart := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   for iMsg := 1 to CNumMessages do
     benchmarkTask.Comm.Send(WM_RECEIVE, iMsg-1);
   benchmarkTask.Comm.ReceiveWait(msg, INFINITE);
-  timeElapsed := DSiTimeGetTime64 - timeStart;
+  timeElapsed := sw.ElapsedMilliseconds;
   lbLog.ItemIndex := lbLog.Items.Add(Format('Elapsed time: %d ms', [timeElapsed]));
   if msg.MsgID <> WM_STOP then
     lbLog.ItemIndex := lbLog.Items.Add(Format(
@@ -76,11 +76,11 @@ begin
   benchmarkTask := CreateTask(TBenchmarkClient.Create(), 'StringMsgBenchmark')
     .SetQueueSize(CNumMessages)
     .Run;
-  timeStart := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   for iMsg := 1 to CNumMessages do
     benchmarkTask.Invoke('Receive', iMsg-1);
   benchmarkTask.Comm.ReceiveWait(msg, INFINITE);
-  timeElapsed := DSiTimeGetTime64 - timeStart;
+  timeElapsed := sw.ElapsedMilliseconds;
   lbLog.ItemIndex := lbLog.Items.Add(Format('Elapsed time: %d ms', [timeElapsed]));
   if msg.MsgID <> WM_STOP then
     lbLog.ItemIndex := lbLog.Items.Add(Format(
@@ -92,11 +92,11 @@ begin
   benchmarkTask := CreateTask(TBenchmarkClient.Create(), 'StringMsgBenchmark')
     .SetQueueSize(CNumMessages)
     .Run;
-  timeStart := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   for iMsg := 1 to CNumMessages do
     benchmarkTask.Invoke(@TBenchmarkClient.Receive, iMsg-1);
   benchmarkTask.Comm.ReceiveWait(msg, INFINITE);
-  timeElapsed := DSiTimeGetTime64 - timeStart;
+  timeElapsed := sw.ElapsedMilliseconds;
   lbLog.ItemIndex := lbLog.Items.Add(Format('Elapsed time: %d ms', [timeElapsed]));
   if msg.MsgID <> WM_STOP then
     lbLog.ItemIndex := lbLog.Items.Add(Format(

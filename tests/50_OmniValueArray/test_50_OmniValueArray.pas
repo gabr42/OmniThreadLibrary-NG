@@ -33,7 +33,7 @@ var
 implementation
 
 uses
-  DSiWin32;
+  System.SyncObjs;
 
 {$R *.dfm}
 {$I OtlOptions.inc}
@@ -55,6 +55,7 @@ type
 
 procedure Worker(const task: IOmniTask);
 var
+  handles: array[0..1] of THandle;
   i      : integer;
   msgData: TOmniValue;
   msgID  : word;
@@ -62,7 +63,9 @@ var
   rec    : TTestRecord;
   s      : string;
 begin
-  while DSiWaitForTwoObjects(task.TerminateEvent, task.Comm.NewMessageEvent, false, INFINITE) = WAIT_OBJECT_1 do
+  handles[0] := task.TerminateEvent.Handle;
+  handles[1] := task.Comm.NewMessageEvent.Handle;
+  while WaitForMultipleObjects(2, @handles[0], false, INFINITE) = WAIT_OBJECT_0 + 1 do
   begin
     task.Comm.Receive(msgID, msgData);
     case msgID of

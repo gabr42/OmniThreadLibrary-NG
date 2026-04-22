@@ -5,9 +5,8 @@ interface
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Dialogs, StdCtrls, ExtCtrls, Contnrs, Spin,
-  DSiWin32,
-  GpLists,
-  GpStuff,
+  System.Diagnostics,
+  System.Generics.Collections,
   OtlCommon,
   OtlComm,
   OtlTask,
@@ -56,7 +55,7 @@ type
     FNumWorkers    : TOmniAlignedInt32;
     FReaders       : array of IOmniTaskControl;
     FSrcCollection : TOmniBlockingCollection;
-    FStartTime     : int64;
+    FStopwatch     : TStopwatch;
     procedure CheckResult;
     procedure Log(const msg: string); overload;
     procedure Log(const msg: string; const params: array of const); overload;
@@ -108,7 +107,7 @@ var
         Exit;
       end
       else
-        DSiYield;
+        TThread.Yield;
     until false;
   end; { MyTake }
 
@@ -161,7 +160,7 @@ var
         Exit;
       end
       else
-        DSiYield;
+        TThread.Yield;
     until false;
   end; { MyTake }
 
@@ -237,10 +236,10 @@ var
   i    : integer;
   loop : integer;
   qi   : TOmniValue;
-  time : int64;
+  sw   : TStopwatch;
   value: TOmniValue;
 begin
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   for loop := 1 to 10 do begin
     coll := TOmniBlockingCollection.Create;
     try
@@ -257,8 +256,7 @@ begin
         raise Exception.Create('Collection is not empty at the end');
     finally FreeAndNil(coll); end;
   end;
-  time := DSiTimeGetTime64 - time;
-  Log('TOmniBlockingCollection, 10x (%d enqueues and %0:d dequeues), %d ms', [CCountSingleTest, time]);
+  Log('TOmniBlockingCollection, 10x (%d enqueues and %0:d dequeues), %d ms', [CCountSingleTest, sw.ElapsedMilliseconds]);
 end; { TfrmTestOtlCollections.btnTestClick }
 
 procedure TfrmTestOmniBlockingCollection.btnTestIntfClick(Sender: TObject);
@@ -267,10 +265,10 @@ var
   i    : integer;
   loop : integer;
   qi   : TOmniValue;
-  time : int64;
+  sw   : TStopwatch;
   value: TOmniValue;
 begin
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   for loop := 1 to 10 do begin
     coll := TOmniBlockingCollection.Create;
     try
@@ -287,24 +285,23 @@ begin
         raise Exception.Create('Collection is not empty at the end');
     finally FreeAndNil(coll); end;
   end; //for loop
-  time := DSiTimeGetTime64 - time;
-  Log('TOmniBlockingCollection, 10x (%d enqueues and %0:d dequeues), %d ms', [CCountSingleTest, time]);
+  Log('TOmniBlockingCollection, 10x (%d enqueues and %0:d dequeues), %d ms', [CCountSingleTest, sw.ElapsedMilliseconds]);
 end; { TfrmTestOtlCollections.btnTestIntfClick }
 
 procedure TfrmTestOmniBlockingCollection.CheckResult;
 var
   i: integer;
-  testList: TGpIntegerList;
+  testList: TList<integer>;
   value: TOmniValue;
 begin
   try
-    testList := TGpIntegerList.Create;
+    testList := TList<integer>.Create;
     try
       Assert(not FDstCollection.IsFinalized);
       while FDstCollection.Take(value) do
         testList.Add(value.AsInteger);
       Assert(FDstCollection.IsFinalized);
-      testList.Sorted := true;
+      testList.Sort;
       if testList.Count <> CCountThreadedTest then
         raise Exception.CreateFmt('Expected %d items, got %d', [CCountThreadedTest, testList.Count]);
       for i := 1 to CCountThreadedTest do
@@ -342,12 +339,9 @@ begin
 end; { TfrmTestOmniBlockingCollection.OtlMonitorTaskMessage }
 
 procedure TfrmTestOmniBlockingCollection.OtlMonitorTaskTerminated(const task: IOmniTaskControl);
-var
-  time: int64;
 begin
   if FNumWorkers.Decrement = 0 then begin
-    time := DSiTimeGetTime64 - FStartTime;
-    Log('All worker threads terminated, execution time = %d', [time]);
+    Log('All worker threads terminated, execution time = %d', [FStopwatch.ElapsedMilliseconds]);
     CheckResult;
     if cbRepeat.Checked then
       PostMessage(Handle, WM_USER, 0, 0);
@@ -412,7 +406,7 @@ begin
   FSrcCollection.CompleteAdding;
   Assert(FSrcCollection.IsCompleted);
   Assert(not FSrcCollection.IsFinalized);
-  FStartTime := DSiTimeGetTime64;
+  FStopwatch := TStopwatch.StartNew;
   PrepareReaders(numReaders);
   PrepareForwarders(numForwarders);
 end; { TfrmTestOtlCollections.PrepareTest }

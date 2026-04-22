@@ -5,6 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Dialogs, StdCtrls,
+  OtlSync,
   OtlComm,
   OtlTask,
   OtlTaskControl;
@@ -23,7 +24,7 @@ type
     procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
     procedure FormCreate(Sender: TObject);
   strict private
-    FEvent: THandle;
+    FEvent: IOmniEvent;
   private
     FSignalDemo: IOmniTaskControl;
     procedure ReportMessage(const task: IOmniTaskControl; const msg: TOmniMessage);
@@ -45,8 +46,8 @@ const
 type
   TSignalDemo = class(TOmniWorker)
   strict private
-    FSignal1: THandle;
-    FSignal2: THandle;
+    FSignal1: IOmniEvent;
+    FSignal2: IOmniEvent;
   strict protected
     procedure HandleSignal1;
     procedure HandleSignal2;
@@ -69,7 +70,7 @@ end; { TfrmTestWaitableObjects.btnRegister1Click }
 
 procedure TfrmTestWaitableObjects.btnSignal1Click(Sender: TObject);
 begin
-  SetEvent(FEvent);
+  FEvent.SetEvent;
 end; { TfrmTestWaitableObjects.btnSignal1Click }
 
 procedure TfrmTestWaitableObjects.btnSignal2Click(Sender: TObject);
@@ -85,12 +86,11 @@ end; { TfrmTestWaitableObjects.btnUnregister1Click }
 procedure TfrmTestWaitableObjects.FormCloseQuery(Sender: TObject; var CanClose: boolean);
 begin
   FSignalDemo.Terminate;
-  CloseHandle(FEvent);
 end; { TfrmTestWaitableObjects.FormCloseQuery }
 
 procedure TfrmTestWaitableObjects.FormCreate(Sender: TObject);
 begin
-  FEvent := CreateEvent(nil, false, false, nil);
+  FEvent := CreateOmniEvent(false, false);
   FSignalDemo := CreateTask(TSignalDemo.Create(), 'Signal demo thread')
     .OnMessage(ReportMessage)
     .SetParameter(FEvent)
@@ -107,7 +107,7 @@ end; { TfrmTestWaitableObjects.ReportMessage }
 
 procedure TSignalDemo.Cleanup;
 begin
-  CloseHandle(FSignal2);
+  FSignal2 := nil;
   inherited;
 end; { TSignalDemo.Cleanup }
 
@@ -121,8 +121,8 @@ end; { TSignalDemo.OMChangeSignal1 }
 
 procedure TSignalDemo.OMSignal2(var msg: TOmniMessage);
 begin
-  SetEvent(FSignal2);
-end; { TSignalDemo.HandleMessageSignal2 }
+  FSignal2.SetEvent;
+end; { TSignalDemo.OMSignal2 }
 
 procedure TSignalDemo.HandleSignal1;
 begin
@@ -139,8 +139,8 @@ begin
   Result := inherited Initialize;
   if not Result then
     Exit;
-  FSignal1 := Task.Param[0];
-  FSignal2 := CreateEvent(nil, false, false, nil);
+  FSignal1 := Task.Param[0].AsInterface as IOmniEvent;
+  FSignal2 := CreateOmniEvent(false, false);
   Task.RegisterWaitObject(FSignal1, HandleSignal1);
   Task.RegisterWaitObject(FSignal2, HandleSignal2);
 end; { TSignalDemo.Initialize }

@@ -25,10 +25,8 @@ type
     btnFuture: TButton;
     btnPipeline: TButton;
     btnForEach: TButton;
-    btnForkJoin: TButton;
     procedure btnAsyncClick(Sender: TObject);
     procedure btnForEachClick(Sender: TObject);
-    procedure btnForkJoinClick(Sender: TObject);
     procedure btnFutureClick(Sender: TObject);
     procedure btnJoinClick(Sender: TObject);
     procedure btnPipelineClick(Sender: TObject);
@@ -50,13 +48,7 @@ var
 
 implementation
 
-uses
-  Math;
-
 {$R *.dfm}
-
-type
-  TArray<T> = array of T;
 
 procedure TfrmDemoParallelTaskConfig.btnAsyncClick(Sender: TObject);
 var
@@ -108,52 +100,6 @@ begin
       begin
         task.Comm.Send(WM_LOG, value);
       end);
-end;
-
-function ParallelMax(data: TArray<integer>; forkJoin: IOmniForkJoin<integer>; left, right: integer): integer;
-var
-  computeLeft : IOmniCompute<integer>;
-  computeRight: IOmniCompute<integer>;
-  mid         : integer;
-begin
-  if (right - left) <= 2 then
-    Result := Max(data[left], data[right])
-  else begin
-    mid := (left + right) div 2;
-    computeLeft := forkJoin.Compute(
-      function: integer
-      begin
-        Result := ParallelMax(data, forkJoin, left, mid);
-      end);
-    computeRight := forkJoin.Compute(
-      function: integer
-      begin
-        Result := ParallelMax(data, forkJoin, mid + 1, right);
-      end);
-    Result := Max(computeLeft.Value, computeRight.Value);
-  end;
-end;
-
-procedure TfrmDemoParallelTaskConfig.btnForkJoinClick(Sender: TObject);
-var
-  data: TArray<integer>;
-  max : integer;
-begin
-  //D2009 doesn't have (array of T).Create initializers
-  SetLength(data, 9);
-  data[0] := 1; data[1] := 17; data[2] := 4; data[3] := 99; data[4] := -250;
-  data[5] := 7; data[6] := 13; data[7] := 132; data[8] := 101;
-  max := ParallelMax(
-    data,
-    Parallel.ForkJoin<integer>.TaskConfig(Parallel.TaskConfig.OnTerminated(
-      procedure (const task: IOmniTaskControl)
-      begin
-        lbLog.ItemIndex := lbLog.Items.Add(Format('COMPUTE: Task %d terminated', [task.UniqueID]));
-      end
-    )),
-    Low(data),
-    High(data));
-  lbLog.ItemIndex := lbLog.Items.Add('FORKJOIN: ' + IntToStr(max) + ' (expected 132)');
 end;
 
 procedure TfrmDemoParallelTaskConfig.btnFutureClick(Sender: TObject);

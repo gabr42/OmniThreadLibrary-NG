@@ -70,7 +70,6 @@ var
 implementation
 
 uses
-  DSiWin32,
   OtlCommon;
 
 {$R *.dfm}

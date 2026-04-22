@@ -33,7 +33,7 @@ implementation
 
 uses
   Generics.Collections,
-  DSiWin32,
+  System.Diagnostics,
   OtlCommon;
 
 {$R *.dfm}
@@ -76,15 +76,16 @@ var
   arr : TArray<integer>;
   coll: IOmniBlockingCollection;
   i   : integer;
+  sw  : TStopwatch;
   time: int64;
 begin
   SetLength(arr, CTestSize);
   for i := 1 to CTestSize do
     arr[i-1] := i;
 
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   coll := TOmniBlockingCollection.FromArray<integer>(arr);
-  time := DSiElapsedTime64(time);
+  time := sw.ElapsedMilliseconds;
 
   Assert(coll.Count = CTestSize);
   for i := 1 to CTestSize do
@@ -98,15 +99,16 @@ var
   coll: IOmniBlockingCollection;
   i   : integer;
   intf: ITestIntf;
+  sw  : TStopwatch;
   time: int64;
 begin
   SetLength(arr, CTestSize);
   for i := 1 to CTestSize do
     arr[i-1] := TTestObj.Create(i, IntToStr(i));
 
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   coll := TOmniBlockingCollection.FromArray<ITestIntf>(arr);
-  time := DSiElapsedTime64(time);
+  time := sw.ElapsedMilliseconds;
 
   Assert(coll.Count = CTestSize);
   for i := 1 to CTestSize do begin
@@ -123,15 +125,16 @@ var
   coll: IOmniBlockingCollection;
   i   : integer;
   obj : TTestObj;
+  sw  : TStopwatch;
   time: int64;
 begin
   SetLength(arr, CTestSize);
   for i := 1 to CTestSize do
     arr[i-1] := TTestObj.Create(i, IntToStr(i));
 
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   coll := TOmniBlockingCollection.FromRange<TTestObj>(arr);
-  time := DSiElapsedTime64(time);
+  time := sw.ElapsedMilliseconds;
 
   Assert(coll.Count = CTestSize);
   for i := 1 to CTestSize do begin
@@ -149,6 +152,7 @@ var
   coll: IOmniBlockingCollection;
   i   : integer;
   rec : TTestRec;
+  sw  : TStopwatch;
   time: int64;
 begin
   SetLength(arr, CTestSize);
@@ -157,9 +161,9 @@ begin
     arr[i-1].Value := IntToStr(i);
   end;
 
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   coll := TOmniBlockingCollection.FromArray<TTestRec>(arr);
-  time := DSiElapsedTime64(time);
+  time := sw.ElapsedMilliseconds;
 
   Assert(coll.Count = CTestSize);
   for i := 1 to CTestSize do begin
@@ -175,16 +179,17 @@ var
   arr : TArray<string>;
   coll: TOmniBlockingCollection;
   i   : integer;
+  sw  : TStopwatch;
   time: int64;
 begin
   SetLength(arr, CTestSize);
   for i := 1 to CTestSize do
     arr[i-1] := IntToStr(i);
 
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   coll := TOmniBlockingCollection.Create;
   coll.AddRange<string>(arr);
-  time := DSiElapsedTime64(time);
+  time := sw.ElapsedMilliseconds;
 
   Assert(coll.Count = CTestSize);
   for i := 1 to CTestSize do

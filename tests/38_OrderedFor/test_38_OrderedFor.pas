@@ -47,9 +47,8 @@ var
 implementation
 
 uses
-  DSiWin32,
-  GpStuff,
-  GpLists,
+  System.Diagnostics,
+  System.Generics.Collections,
   OtlCommon,
   OtlSync,
   OtlCollections,
@@ -157,7 +156,7 @@ var
   order: string;
   value: integer;
   value2: integer;
-  primes: TGpIntegerList;
+  primes: TList<integer>;
   error: boolean;
 begin
   if lbLog.Items.Count <= 1 then
@@ -166,7 +165,7 @@ begin
     error := false;
     order := 'ordered';
     value := StrToInt(lbLog.Items[1]);
-    primes := TGpIntegerList.Create;
+    primes := TList<integer>.Create;
     try
       primes.Add(value);
       for iItem := 2 to lbLog.Items.Count - 1 do begin
@@ -204,9 +203,9 @@ end;
 procedure TfrmOderedForDemo.btnSGPrimesClick(Sender: TObject);
 var
   numSGPrimes: integer;
-  time       : int64;
+  sw         : TStopwatch;
 begin
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   if inpNumSGTasks.Value = 0 then
     numSGPrimes := SingleThreadedSGPrimes
   else if Sender = btnOrderedSGPrimes then
@@ -215,11 +214,10 @@ begin
     numSGPrimes := MultiThreadedAggregatedSGPrimes(inpNumSGTasks.Value)
   else
     numSGPrimes := MultiThreadedSGPrimes(inpNumSGTasks.Value);
-  time := DSiElapsedTime64(time);
   lbLog.ItemIndex :=
     lbLog.Items.Add(Format(
       '%d Sophie Germain primes from 1 to %d, calculation on %d threads took %s seconds',
-      [numSGPrimes, CMaxSGPrimeTest, inpNumSGTasks.Value, FormatDateTime('ss.zzz', time/MSecsPerDay)]));
+      [numSGPrimes, CMaxSGPrimeTest, inpNumSGTasks.Value, FormatDateTime('ss.zzz', sw.ElapsedMilliseconds/MSecsPerDay)]));
 end;
 
 procedure TfrmOderedForDemo.btnUnorderedPrimes1Click(Sender: TObject);

@@ -24,7 +24,7 @@ var
 implementation
 
 uses
-  DSiWin32,
+  System.Diagnostics,
   OtlCommon,
   OtlTask,
   OtlParallel;
@@ -40,10 +40,10 @@ end;
 
 procedure TfrmParallelMandelbrot.FormDblClick(Sender: TObject);
 var
-  start: int64;
+  sw: TStopwatch;
 begin
   Invalidate; Update; // clear the form
-  start := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
 
   Parallel.ForEach(0, ClientHeight - 1)
     .TaskConfig(Parallel.TaskConfig.OnMessage(frmParallelMandelbrot))
@@ -58,7 +58,7 @@ begin
     );
 
   Application.ProcessMessages; // force full repaint before measuring time
-  Caption := FormatDateTime('ss.zzz', DSiElapsedTime64(start)/MSecsPerDay);
+  Caption := FormatDateTime('ss.zzz', sw.ElapsedMilliseconds/MSecsPerDay);
 end;
 
 procedure TfrmParallelMandelbrot.PaintLine(width: integer; y: integer; var bitmap: TBitmap);

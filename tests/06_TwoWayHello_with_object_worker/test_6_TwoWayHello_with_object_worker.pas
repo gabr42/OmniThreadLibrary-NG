@@ -58,9 +58,6 @@ var
 
 implementation
 
-uses
-  DSiWin32;
-
 {$R *.dfm}
 
 { TfrmTestOTL }
@@ -80,7 +77,7 @@ begin
   FWorker := TAsyncHello.Create('Hello');
   FHelloTask :=
     OmniEventMonitor1.Monitor(CreateTask(FWorker, 'Hello'))
-    .SetTimer(1000, MSG_SEND_MESSAGE)
+    .SetTimer(0, 1000, MSG_SEND_MESSAGE)
     .SetParameter('Delay', 1000)
     .Run;
 end;

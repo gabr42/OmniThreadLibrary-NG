@@ -41,10 +41,6 @@ var
 
 implementation
 
-uses
-  DSiWin32,
-  GpStuff;
-
 {$R *.dfm}
 
 const

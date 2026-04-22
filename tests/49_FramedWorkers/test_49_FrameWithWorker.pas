@@ -23,6 +23,9 @@ type
 
 implementation
 
+uses
+  OtlCommon;
+
 {$R *.dfm}
 
 procedure TfrmFrameWithWorker.btnHelloClick(Sender: TObject);

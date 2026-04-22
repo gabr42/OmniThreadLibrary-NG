@@ -88,8 +88,7 @@ var
 implementation
 
 uses
-  DSiWin32,
-  GpLists,
+  System.Diagnostics,
   Generics.Collections,
   OtlCommon,
   OtlSync,
@@ -210,8 +209,8 @@ var
   nodeList: TList;
   numCores: integer;
   outQueue: IOmniBlockingCollection;
+  sw      : TStopwatch;
   testSize: integer;
-  time    : int64;
 begin
   nodeList := TList.Create;
   try
@@ -219,7 +218,7 @@ begin
     numCores := Random(Environment.Process.Affinity.Count*2)+1;
     i := 1;
     outQueue := TOmniBlockingCollection.Create;
-    time := DSiTimeGetTime64;
+    sw := TStopwatch.StartNew;
     Parallel.ForEach<integer>(
       function (var value: integer): boolean
       begin
@@ -233,7 +232,7 @@ begin
         begin
           outQueue.Add(elem);
         end);
-    VerifyResult(outQueue, testSize, numCores, DSiTimeGetTime64 - time);
+    VerifyResult(outQueue, testSize, numCores, sw.ElapsedMilliseconds);
   finally FreeAndNil(nodeList); end;
   if cbRepeat.Checked then
     PostMessage(Handle, WM_USER, 4, 0);
@@ -245,8 +244,8 @@ var
   nodeList: TList;
   numCores: integer;
   outQueue: IOmniBlockingCollection;
+  sw      : TStopwatch;
   testSize: integer;
-  time    : int64;
 begin
   nodeList := TList.Create;
   try
@@ -255,7 +254,7 @@ begin
     for i := 1 to testSize do
       nodeList.Add(pointer(i));
     outQueue := TOmniBlockingCollection.Create;
-    time := DSiTimeGetTime64;
+    sw := TStopwatch.StartNew;
     {$IF CompilerVersion >= 21}
     Parallel.ForEach<pointer>(CreateIEnumerator(nodeList))
       .NumTasks(numCores)
@@ -273,7 +272,7 @@ begin
           outQueue.Add(pointer(elem));
         end);
     {$IFEND}
-    VerifyResult(outQueue, testSize, numCores, DSiTimeGetTime64 - time);
+    VerifyResult(outQueue, testSize, numCores, sw.ElapsedMilliseconds);
   finally FreeAndNil(nodeList); end;
   if cbRepeat.Checked then
     PostMessage(Handle, WM_USER, 2, 0);
@@ -286,8 +285,8 @@ var
   nodeList: TList;
   numCores: integer;
   outQueue: IOmniBlockingCollection;
+  sw      : TStopwatch;
   testSize: integer;
-  time    : int64;
 {$IFEND}
 begin
   {$IF CompilerVersion >= 21}
@@ -298,7 +297,7 @@ begin
     for i := 1 to testSize do
       nodeList.Add(pointer(i));
     outQueue := TOmniBlockingCollection.Create;
-    time := DSiTimeGetTime64;
+    sw := TStopwatch.StartNew;
     Parallel.ForEach<integer>(nodeList)
       .NumTasks(numCores)
       .Execute(
@@ -306,7 +305,7 @@ begin
         begin
           outQueue.Add(elem);
         end);
-    VerifyResult(outQueue, testSize, numCores, DSiTimeGetTime64 - time);
+    VerifyResult(outQueue, testSize, numCores, sw.ElapsedMilliseconds);
   finally FreeAndNil(nodeList); end;
   if cbRepeat.Checked then
     PostMessage(Handle, WM_USER, 3, 0);
@@ -317,13 +316,13 @@ procedure TfrmParallelForDemo.btnIntegerEnumClick(Sender: TObject);
 var
   numCores: integer;
   outQueue: IOmniBlockingCollection;
+  sw      : TStopwatch;
   testSize: integer;
-  time    : int64;
 begin
   testSize := Random(200000)+1;
   numCores := Random(Environment.Process.Affinity.Count*2)+1;
   outQueue := TOmniBlockingCollection.Create;
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   Parallel.ForEach(1, testSize)
     .NumTasks(1{numCores})
     .Execute(
@@ -331,7 +330,7 @@ begin
       begin
         outQueue.Add(elem);
       end);
-  VerifyResult(outQueue, testSize, numCores, DSiTimeGetTime64 - time);
+  VerifyResult(outQueue, testSize, numCores, sw.ElapsedMilliseconds);
   if cbRepeat.Checked then
     PostMessage(Handle, WM_USER, 0, 0);
 end; { TfrmParallelForDemo.btnIntegerRenumClick }
@@ -342,8 +341,8 @@ var
   nodeQueue: IOmniBlockingCollection;
   numCores : integer;
   outQueue : IOmniBlockingCollection;
+  sw       : TStopwatch;
   testSize : integer;
-  time     : int64;
 begin
   nodeQueue := TOmniBlockingCollection.Create;
   testSize := Random(200000)+1;
@@ -352,7 +351,7 @@ begin
     nodeQueue.Add(i);
   nodeQueue.CompleteAdding;
   outQueue := TOmniBlockingCollection.Create;
-  time := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   Parallel.ForEach<int64>(nodeQueue as IOmniValueEnumerable)
     .NumTasks(numCores)
     .Execute(
@@ -360,7 +359,7 @@ begin
       begin
         outQueue.Add(elem);
       end);
-  VerifyResult(outQueue, testSize, numCores, DSiTimeGetTime64 - time);
+  VerifyResult(outQueue, testSize, numCores, sw.ElapsedMilliseconds);
   if cbRepeat.Checked then
     PostMessage(Handle, WM_USER, 1, 0);
 end; { TfrmParallelForDemo.btnOmniValueEnumClick }
@@ -388,8 +387,8 @@ var
   nodeList: TList<integer>;
   numCores: integer;
   outQueue: IOmniBlockingCollection;
+  sw      : TStopwatch;
   testSize: integer;
-  time    : int64;
 begin
   nodeList := TList<integer>.Create;
   try
@@ -398,7 +397,7 @@ begin
     for i := 1 to testSize do
       nodeList.Add(i);
     outQueue := TOmniBlockingCollection.Create;
-    time := DSiTimeGetTime64;
+    sw := TStopwatch.StartNew;
     Parallel.ForEach<integer>(nodeList.GetEnumerator())
       .NumTasks(numCores)
       .Execute(
@@ -406,7 +405,7 @@ begin
         begin
           outQueue.Add(elem);
         end);
-    VerifyResult(outQueue, testSize, numCores, DSiTimeGetTime64 - time);
+    VerifyResult(outQueue, testSize, numCores, sw.ElapsedMilliseconds);
   finally FreeAndNil(nodeList); end;
   if cbRepeat.Checked then
     PostMessage(Handle, WM_USER, 5, 0);
@@ -494,16 +493,16 @@ end; { TfrmParallelForDemo.Log }
 
 procedure TfrmParallelForDemo.ParaFind(value: integer);
 var
-  node     : TNode;
-  startTime: integer;
+  node: TNode;
+  sw  : TStopwatch;
 begin
   Log('Searching for: %d', [value]);
-  startTime := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   node := ParaScan(FRootNode, value);
   if assigned(node) then
-    Log('Found in %d ms; node = %s', [DSiTimeGetTime64 - startTime, node.ToString])
+    Log('Found in %d ms; node = %s', [sw.ElapsedMilliseconds, node.ToString])
   else
-    Log('Not found in %d ms', [DSiTimeGetTime64 - startTime]);
+    Log('Not found in %d ms', [sw.ElapsedMilliseconds]);
 end; { TfrmParallelForDemo.ParaFind }
 
 function TfrmParallelForDemo.ParaScan(rootNode: TNode; value: integer): TNode;
@@ -555,16 +554,16 @@ end; { TfrmParallelForDemo.RemoveEmptyLeaves }
 
 procedure TfrmParallelForDemo.SeqFind(value: integer);
 var
-  node     : TNode;
-  startTime: integer;
+  node: TNode;
+  sw  : TStopwatch;
 begin
   Log('Searching for: %d', [value]);
-  startTime := DSiTimeGetTime64;
+  sw := TStopwatch.StartNew;
   node := SeqScan(FRootNode, value);
   if assigned(node) then
-    Log('Found in %d ms; node = %s', [DSiTimeGetTime64 - startTime, node.ToString])
+    Log('Found in %d ms; node = %s', [sw.ElapsedMilliseconds, node.ToString])
   else
-    Log('Not found in %d ms', [DSiTimeGetTime64 - startTime]);
+    Log('Not found in %d ms', [sw.ElapsedMilliseconds]);
 end; { TfrmParallelForDemo.SeqFind }
 
 function TfrmParallelForDemo.SeqScan(node: TNode; value: integer): TNode;
@@ -587,18 +586,17 @@ function TfrmParallelForDemo.VerifyResult(outQueue: IOmniBlockingCollection; tes
   numCores: integer; time: int64): boolean;
 var
   i      : integer;
-  outList: TGpInt64List;
+  outList: TList<int64>;
   value  : TOmniValue;
 begin
   Result := false;
   outQueue.CompleteAdding;
   try
-    outList := TGpInt64List.Create;
+    outList := TList<int64>.Create;
     try
       while outQueue.Take(value) do
         outList.Add(value.RawData^);
       outList.Sort;
-      outList.Sorted := false;
       outList.Insert(0, 0);
       for i := 1 to testSize do
       if outList[i] <> i then

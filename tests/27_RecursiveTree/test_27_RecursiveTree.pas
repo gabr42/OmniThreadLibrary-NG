@@ -5,7 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Dialogs, StdCtrls, Spin,
-  DSiWin32,
+  System.Diagnostics,
   OtlCommon,
   OtlComm,
   OtlTask,
@@ -54,9 +54,9 @@ type
   private
     FRebuildTree : boolean;
     FRoot        : PNode;
-    FRootTask: IOmniTaskControl;
+    FRootTask    : IOmniTaskControl;
     FTaskMessages: TStringList;
-    FTimeStart   : int64;
+    FStopwatch   : TStopwatch;
     FValue       : integer;
     function  AllocateNode: PNode;
     procedure CalcNumNodes;
@@ -191,16 +191,16 @@ end;
 
 procedure TfrmRecursiveTreeDemo.btnBuildTreeClick(Sender: TObject);
 var
-  timeStart: int64;
+  sw: TStopwatch;
 begin
   DestroyTree;
   GNumChildren := inpNumChildren.Value;
   FValue := 1;
   Log('Building tree');
-  timeStart := GetTickCount;
+  sw := TStopwatch.StartNew;
   FRoot := AllocateNode;
   CreateChildren(FRoot, inpTreeDepth.Value - 1);
-  Log(Format('Tree built in %d ms', [DSiElapsedTime(timeStart)]));
+  Log(Format('Tree built in %d ms', [sw.ElapsedMilliseconds]));
   FRebuildTree := false;
 end;
 
@@ -212,7 +212,7 @@ begin
     ClearTree;
   Log('Scanning tree');
   FTaskMessages := TStringList.Create;
-  FTimeStart := GetTickCount;
+  FStopwatch := TStopwatch.StartNew;
   FRootTask := CreateTask(ParallelProcessTree)
     .SetParameter('Node', TObject(FRoot))
     .SetParameter('Monitor', OtlMonitor as IOmniTaskControlMonitor)
@@ -225,16 +225,16 @@ end;
 
 procedure TfrmRecursiveTreeDemo.btnSingleCoreTestClick(Sender: TObject);
 var
-  timeStart: int64;
+  sw: TStopwatch;
 begin
   if (not assigned(FRoot)) or FRebuildTree then
     btnBuildTree.Click
   else
     ClearTree;
   Log('Scanning tree');
-  timeStart := GetTickCount;
+  sw := TStopwatch.StartNew;
   ProcessTree(FRoot);
-  Log(Format('Completed in %d ms, answer = %d', [DSiElapsedTime(timeStart), FRoot.Value]));
+  Log(Format('Completed in %d ms, answer = %d', [sw.ElapsedMilliseconds, FRoot.Value]));
 end;
 
 procedure TfrmRecursiveTreeDemo.CalcNumNodes;
@@ -271,13 +271,13 @@ end;
 
 procedure TfrmRecursiveTreeDemo.ClearTree;
 var
-  timeStart: int64;
+  sw: TStopwatch;
 begin
   if assigned(FRoot) then begin
     Log('Clearing tree');
-    timeStart := GetTickCount;
+    sw := TStopwatch.StartNew;
     ClearNode(FRoot);
-    Log(Format('Tree cleared in %d ms', [DSiElapsedTime(timeStart)]));
+    Log(Format('Tree cleared in %d ms', [sw.ElapsedMilliseconds]));
   end;
 end;
 
@@ -311,13 +311,13 @@ end;
 
 procedure TfrmRecursiveTreeDemo.DestroyTree;
 var
-  timeStart: int64;
+  sw: TStopwatch;
 begin
   if assigned(FRoot) then begin
     Log('Destroying tree');
-    timeStart := GetTickCount;
+    sw := TStopwatch.StartNew;
     DestroyNode(FRoot);
-    Log(Format('Tree destroyed in %d ms', [DSiElapsedTime(timeStart)]));
+    Log(Format('Tree destroyed in %d ms', [sw.ElapsedMilliseconds]));
   end;
   FRoot := nil;
 end;
@@ -329,7 +329,7 @@ end;
 
 procedure TfrmRecursiveTreeDemo.FormCreate(Sender: TObject);
 begin
-  inpNumTasks.Value := Length(DSiGetProcessAffinity);
+  inpNumTasks.Value := TThread.ProcessorCount;
   CalcNumNodes;
 end;
 
@@ -356,7 +356,7 @@ begin
     FRootTask := nil;
     lbLog.Items.AddStrings(FTaskMessages);
     FreeAndNil(FTaskMessages);
-    Log(Format('Completed in %d ms, answer = %d', [DSiElapsedTime(FTimeStart), FRoot.Value]));
+    Log(Format('Completed in %d ms, answer = %d', [FStopwatch.ElapsedMilliseconds, FRoot.Value]));
   end;
 end;
 

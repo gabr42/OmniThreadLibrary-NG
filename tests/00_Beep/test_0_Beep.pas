@@ -20,9 +20,6 @@ var
 
 implementation
 
-uses
-  DSiWin32;
-
 {$R *.dfm}
 
 { TfrmTestOTL }

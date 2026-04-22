@@ -19,6 +19,9 @@ type
 
 implementation
 
+uses
+  OtlCommon;
+
 { TFramedWorker }
 
 function TFramedWorker.Initialize: boolean;

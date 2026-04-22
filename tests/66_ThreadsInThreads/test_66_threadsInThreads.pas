@@ -14,9 +14,11 @@ type
   TfrmThreadInThreads = class(TForm)
     btnOTLFromTask: TButton;
     btnOTLFromThread: TButton;
+    btnOTLFromThreadDrain: TButton;
     lbLog: TListBox;
     procedure btnOTLFromTaskClick(Sender: TObject);
     procedure btnOTLFromThreadClick(Sender: TObject);
+    procedure btnOTLFromThreadDrainClick(Sender: TObject);
   private
     FOwnerTask: IOmniTaskControl;
     FThread: TThread;
@@ -33,8 +35,7 @@ var
 implementation
 
 uses
-  DSiWin32,
-  OtlCommon, OtlTask, OtlParallel;
+  OtlCommon, OtlTask, OtlParallel, OtlBackgroundObserver;
 
 {$R *.dfm}
 
@@ -60,6 +61,16 @@ type
     procedure Execute; override;
   end;
 
+  TWorkerThreadDrain = class(TThread)
+  strict private const
+    MSG_STATUS = 1;
+  strict protected
+    function Asy_DoTheCalculation(const task: IOmniTask): integer;
+    procedure Log(const msg: string);
+  public
+    procedure Execute; override;
+  end;
+
 { TfrmThreadInThreads }
 
 procedure TfrmThreadInThreads.btnOTLFromTaskClick(Sender: TObject);
@@ -71,7 +82,6 @@ begin
   FOwnerTask := CreateTask(TWorker.Create(), 'OTL owner')
     .OnMessage(Self)
     .OnTerminated(TaskTerminated)
-    .MsgWait // critical, this allows OTL task to process messages
     .Run;
 end;
 
@@ -82,6 +92,20 @@ begin
   Log('Creating thread');
 
   FThread := TWorkerThread.Create(true);
+  FThread.OnTerminate := ThreadTerminated;
+  FThread.FreeOnTerminate := true;
+  FThread.Start;
+end;
+
+procedure TfrmThreadInThreads.btnOTLFromThreadDrainClick(Sender: TObject);
+begin
+  // Create a TThread that will spawn a Future and drain its events via
+  // DrainBackgroundObservers (cross-platform alternative to an alertable
+  // MsgWaitForMultipleObjectsEx loop).
+
+  Log('Creating thread (drain)');
+
+  FThread := TWorkerThreadDrain.Create(true);
   FThread.OnTerminate := ThreadTerminated;
   FThread.FreeOnTerminate := true;
   FThread.Start;
@@ -164,7 +188,6 @@ end;
 
 procedure TWorkerThread.Execute;
 var
-  awaited: DWORD;
   calc   : IOmniFuture<integer>;
   handles: array [0..0] of THandle;
 begin
@@ -178,10 +201,11 @@ begin
           Log('Future sent a message: ' + msg.MsgData.AsString);
         end));
 
+  // MWMO_ALERTABLE puts the thread into an alertable wait so OTL's
+  // QueueUserAPC-based delivery of the nested Future's OnMessage /
+  // OnTerminated callbacks can fire on this (non-OTL, non-main) thread.
   repeat
-    awaited := MsgWaitForMultipleObjects(0, handles, false, INFINITE, QS_ALLPOSTMESSAGE);
-    if awaited = WAIT_OBJECT_0 + 0 {handle count} then
-      DSiProcessThreadMessages;
+    MsgWaitForMultipleObjectsEx(0, handles, INFINITE, QS_ALLPOSTMESSAGE, MWMO_ALERTABLE);
   until calc.IsDone;
 
   Log('Future terminated, result = ' + IntToStr(calc.Value));
@@ -190,6 +214,58 @@ begin
 end;
 
 procedure TWorkerThread.Log(const msg: string);
+var
+  s: string;
+begin
+  s := Format('[%d] ', [GetCurrentThreadID]) + msg;
+  Queue(
+    procedure
+    begin
+      frmThreadInThreads.Log(s);
+    end);
+end;
+
+{ TWorkerThreadDrain }
+
+function TWorkerThreadDrain.Asy_DoTheCalculation(const task: IOmniTask): integer;
+var
+  i: integer;
+begin
+  for i := 1 to 5 do begin
+    task.Comm.Send(MSG_STATUS, Format('[%d] ... still calculating', [GetCurrentThreadID]));
+    Sleep(1000);
+  end;
+  Result := 42;
+end;
+
+procedure TWorkerThreadDrain.Execute;
+var
+  calc: IOmniFuture<integer>;
+begin
+  Log('Starting a Future');
+
+  calc := Parallel.Future<integer>(Asy_DoTheCalculation,
+    Parallel.TaskConfig
+      .OnMessage(MSG_STATUS,
+        procedure(const workerTask: IOmniTaskControl; const msg: TOmniMessage)
+        begin
+          Log('Future sent a message: ' + msg.MsgData.AsString);
+        end));
+
+  // DrainBackgroundObservers is cross-platform: on Windows it runs a
+  // zero-timeout alertable wait to fire queued APCs; on POSIX it drains
+  // the thread-local background-observer registry.
+  while not calc.IsDone do begin
+    DrainBackgroundObservers;
+    Sleep(10);
+  end;
+
+  Log('Future terminated, result = ' + IntToStr(calc.Value));
+  calc := nil;
+  Log('Terminating worker');
+end;
+
+procedure TWorkerThreadDrain.Log(const msg: string);
 var
   s: string;
 begin
