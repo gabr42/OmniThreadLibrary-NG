@@ -35,9 +35,26 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
 ///   Last modification : 2026-04-22
-///   Version           : 3.05
+///   Version           : 3.06
 ///</para><para>
 ///   History:
+///     3.06: 2026-04-22
+///       - Pinned the owner's TaskControl (and therefore its executor) via
+///         a new strong otcOwnerCtrlRef field for the full lifetime of any
+///         child task that registered a background-notification event in
+///         the owner's wait set. This closes the still-open race in test
+///         66 (Future spawned from a TOmniWorker) where the child's
+///         Destroy could run on a thread that is neither the owner's
+///         executor thread nor one we could detect: the inner worker
+///         thread right after synchronous ForwardTaskTerminated in
+///         TOmniTask.InternalExecute, or the TOmniUnobservedCleanupThread
+///         once ScheduleRelease dropped the final ref. In either case the
+///         previous (otcOwnerExecutor_ref = _CurrentOmniTaskExecutor)
+///         guard fell through, Destroy skipped the unregister, and the
+///         owner's next wait-set dispatch invoked a TMethod pointing at
+///         freed memory (AV reading ostiCommChannel at offset $28 from a
+///         nil otcSharedInfo). With the owner pinned, Destroy can now
+///         unregister unconditionally regardless of which thread frees us.
 ///     3.05: 2026-04-22
 ///       - Closed remaining UAF in the non-main-thread-owner path of
 ///         HandleBackgroundNotification. Commit 099d9ca only unregistered
@@ -752,6 +769,7 @@ type
     property Priority: TOTLThreadPriority read otePriority write otePriority;
     property TaskException: Exception read oteException write oteException;
     property Terminating: boolean read oteTerminating write oteTerminating;
+    property Owner_ref: TOmniTaskControl read oteOwner_ref;
     property WorkerInitialized: IOmniEvent read oteWorkerInitialized;
     property WorkerInitOK: boolean read oteWorkerInitOK;
     property WorkerIntf: IOmniWorker read oteWorkerIntf;
@@ -881,6 +899,7 @@ type
     otcOnMessageList       : TList<TPair<integer, TObject>>;
     otcOnTerminatedExec    : TOmniMessageExec;
     otcOwnerExecutor_ref   : Pointer; {TOmniTaskExecutor — owner's executor for wait object unregistration}
+    otcOwnerCtrlRef        : IInterface; {strong IOmniTaskControl ref to owner — keeps otcOwnerExecutor_ref valid through our Destroy}
     otcOwnerThreadID       : TThreadID;
     otcOwningPool          : IOmniThreadPool;
     otcParameters          : TOmniValueContainer;
@@ -2980,20 +2999,20 @@ begin
     otcDispatcher := nil;
   end;
   if assigned(otcBackgroundObserver) then begin
-    // If Terminate was short-circuited by otcInEventHandler (task freed
-    // from inside its own OnTerminated callback — otcDelayedTerminate is
-    // never consumed on the background-observer path), the wait-set
-    // unregister was skipped. Do it here, before Self is freed, so the
-    // owner's MainMessageLoop cannot dispatch a now-dangling method pointer
-    // the next time the event handle reports signaled. The same
-    // same-thread-as-owner guard as Terminate applies; outside that
-    // context, otcOwnerExecutor_ref may be dangling.
-    if assigned(otcBgNotifyEvent) and assigned(otcOwnerExecutor_ref)
-       and (otcOwnerExecutor_ref = _CurrentOmniTaskExecutor)
-    then
+    // Remove the wait-set entry unconditionally. otcOwnerCtrlRef kept the
+    // owner's TaskControl (and therefore otcOwnerExecutor_ref) alive for
+    // our whole lifetime, so this call is safe regardless of which thread
+    // runs Destroy — including the TOmniUnobservedCleanupThread and the
+    // inner worker thread right after synchronous ForwardTaskTerminated.
+    // Asy_UnregisterWaitObject takes oteInternalLock, and Remove is a
+    // no-op when the object is no longer in the list, so it is safe to
+    // call even if HandleBackgroundNotification already unregistered us
+    // on the owner's thread.
+    if assigned(otcBgNotifyEvent) and assigned(otcOwnerExecutor_ref) then
       TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_UnregisterWaitObject(otcBgNotifyEvent);
     otcBgNotifyEvent := nil;
     otcOwnerExecutor_ref := nil;
+    otcOwnerCtrlRef := nil;
     if assigned(otcSharedInfo) then
       otcSharedInfo.BackgroundObserver := nil;
     otcBackgroundObserver := nil;
@@ -3067,6 +3086,7 @@ begin
       TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_UnregisterWaitObject(otcBgNotifyEvent);
       otcBgNotifyEvent := nil;
       otcOwnerExecutor_ref := nil;
+      otcOwnerCtrlRef := nil;
     end;
   finally selfRef := nil; end;
 end; { TOmniTaskControl.HandleBackgroundNotification }
@@ -3143,6 +3163,17 @@ begin
     if _CurrentOmniTaskExecutor <> nil then begin
       otcBgNotifyEvent := bgObs.GetNotifyEvent;
       otcOwnerExecutor_ref := _CurrentOmniTaskExecutor;
+      // Pin the owner's TaskControl — and therefore its executor — for the
+      // full lifetime of Self. Without this, our Destroy running on any
+      // thread other than the owner executor's thread (e.g. the Unobserved
+      // cleanup thread, or our own worker right after synchronous
+      // ForwardTaskTerminated in TOmniTask.InternalExecute) would have no
+      // safe way to reach otcOwnerExecutor_ref and would leak the wait-set
+      // entry — a stale TMethod that fires against freed memory on the
+      // next owner-thread dispatch. The outer cannot hold inner back via
+      // this ref: the outer stores only a TMethod (raw pointer) in its
+      // wait set, not an interface, so there is no cycle.
+      otcOwnerCtrlRef := TOmniTaskExecutor(otcOwnerExecutor_ref).Owner_ref as IOmniTaskControl;
       TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_RegisterWaitObject(
         otcBgNotifyEvent, HandleBackgroundNotification);
     end
@@ -3770,10 +3801,10 @@ begin
   end;
   if assigned(otcBackgroundObserver) then begin
     var bgObs: IOmniContainerBackgroundObserver := otcBackgroundObserver as IOmniContainerBackgroundObserver;
-    // Unregister notification event from owner's wait set (if registered)
-    if assigned(otcBgNotifyEvent) and assigned(otcOwnerExecutor_ref)
-       and (otcOwnerExecutor_ref = _CurrentOmniTaskExecutor)
-    then
+    // Unregister notification event from owner's wait set unconditionally.
+    // otcOwnerCtrlRef keeps the owner alive, so otcOwnerExecutor_ref is
+    // safe to dereference from any thread Terminate may be called on.
+    if assigned(otcBgNotifyEvent) and assigned(otcOwnerExecutor_ref) then
       TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_UnregisterWaitObject(otcBgNotifyEvent);
     {$IFNDEF OTL_HasAPC}
     if not assigned(otcOwnerExecutor_ref) then // was not registered as wait object
@@ -3781,6 +3812,7 @@ begin
     {$ENDIF}
     otcBgNotifyEvent := nil;
     otcOwnerExecutor_ref := nil;
+    otcOwnerCtrlRef := nil;
     otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Detach(
       bgObs, coiNotifyOnAllInserts);
     otcSharedInfo.BackgroundObserver := nil;
