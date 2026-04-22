@@ -50,6 +50,7 @@
 			<DCC_S>false</DCC_S>
 			<DCC_F>false</DCC_F>
 			<DCC_K>false</DCC_K>
+			<DCC_UnitSearchPath>..\..;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
 		</PropertyGroup>
 		<PropertyGroup Condition="'$(Base_Win64)'!=''">
 			<DCC_UsePackage>cxLibraryRS16;dxLayoutControlRS16;dxCoreRS16;cxExportRS16;dxBarRS16;dxSkinsdxNavBarPainterRS16;TeeDB;vclib;cxPageControlRS16;dxRibbonRS16;DBXSybaseASEDriver;vclimg;dxComnRS16;vcldb;dxSkinsdxRibbonPainterRS16;vcldsnap;dxBarExtDBItemsRS16;DBXDb2Driver;vclribbon;vcl;DBXMSSQLDriver;cxDataRS16;cxBarEditItemRS16;cxPageControldxBarPopupMenuRS16;dxDockingRS16;webdsnap;dxBarExtItemsRS16;dxSkinsdxDLPainterRS16;adortl;dxNavBarRS16;OverbyteIcsDXe2Run;dxSkinsdxBarPainterRS16;Tee;DBXOdbcDriver;dxSkinsCoreRS16;dxmdsRS16;cxGridRS16;dxSkinscxPCPainterRS16;cxEditorsRS16;TeeUI;vclactnband;bindcompvcl;vclie;vcltouch;websnap;VclSmp;dxTabbedMDIRS16;DataSnapConnectors;dsnapcon;dxThemeRS16;dcldxSkinsCoreRS16;vclx;dxGDIPlusRS16;dxBarDBNavRS16;$(DCC_UsePackage)</DCC_UsePackage>

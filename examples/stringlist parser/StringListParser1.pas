@@ -40,7 +40,6 @@ interface
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Dialogs, StdCtrls,
-  DSiWin32,
   OtlCommon,
   OtlComm,
   OtlSync,
@@ -159,10 +158,13 @@ end;
 
 procedure StringProcessorLL(const task: IOmniTask);
 var
+  handles : array[0..1] of THandle;
   input   : TOmniMessage;
   slOutput: TStringList;
 begin
-  while DSiWaitForTwoObjects(task.TerminateEvent, task.Comm.NewMessageEvent, false, INFINITE) = WAIT_OBJECT_1 do begin
+  handles[0] := task.TerminateEvent.Handle;
+  handles[1] := task.Comm.NewMessageEvent.Handle;
+  while WaitForMultipleObjects(2, @handles[0], false, INFINITE) = WAIT_OBJECT_0 + 1 do begin
     task.Comm.Receive(input);
     slOutput := TStringList.Create;
     BreakStringLL(input.MsgData.AsString, slOutput, task.CancellationToken);

@@ -11,7 +11,7 @@ uses
 
   System.Threading,
 
-  GpStuff,
+  OtlCommon,
   OtlComm,
   OtlTask,
   OtlTaskControl,
@@ -41,7 +41,7 @@ type
     procedure tmrUpdateProgressTimer(Sender: TObject);
   private
     FParallelFor: IOmniParallelSimpleLoop;
-    FProcessed: TGp4AlignedInt;
+    FProcessed: TOmniAlignedInt32;
     FProgress: integer;
     FTask: ITask;
     FTotal: integer;
