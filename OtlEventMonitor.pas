@@ -35,10 +35,19 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, Claude AI
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-04-14
-///   Version           : 2.0e
+///   Last modification : 2026-04-22
+///   Version           : 2.0f
 ///</para><para>
 ///   History:
+///     2.0f: 2026-04-22
+///       - Fixed UAF in Notify{Message,Terminated,ThreadPool}: queued closures
+///         captured Self as a raw pointer (TComponent IInterface does not
+///         refcount), so a closure could fire on a freed monitor when the
+///         last task released the monitor pool ref inside ProcessTerminated
+///         while rearmed ProcessNewMessage closures were still queued.
+///         Closures now route through a lock-serialized IInterface-refcounted
+///         dispatcher; Clear (called from ~TOmniEventMonitor) mutually
+///         excludes in-flight Dispatch and makes later Dispatches no-ops.
 ///     2.0e: 2026-04-14
 ///       - Fixed ProcessTerminated: apply FilterMessage to drain loop,
 ///         preventing internal OTL messages from leaking to user callback.
@@ -130,6 +139,13 @@ type
   TOmniMonitorPoolThreadEvent = procedure(const pool: IOmniThreadPool; threadID: integer) of object;
   TOmniMonitorPoolWorkItemEvent = procedure(const pool: IOmniThreadPool; taskID: int64) of object;
 
+  IOmniEventMonitorDispatcher = interface ['{3FBDB96C-3C0D-4C7C-8A42-0D42CFB2B6DE}']
+    procedure Clear;
+    procedure DispatchNewMessage(taskControlID: int64);
+    procedure DispatchTerminated(taskControlID: int64);
+    procedure DispatchThreadPool(threadPoolInfo: TOmniThreadPoolMonitorInfo);
+  end; { IOmniEventMonitorDispatcher }
+
   [ComponentPlatformsAttribute(pidWin32 or pidWin64)]
   TOmniEventMonitor = class(TComponent, IOmniTaskControlMonitor,
                                         IOmniThreadPoolMonitor,
@@ -139,6 +155,7 @@ type
     FLastID                   : TOmniAlignedInt64;
   var
     emCurrentMsg              : TOmniMessage;
+    emDispatcher              : IOmniEventMonitorDispatcher;
     emID                      : int64;
     emMonitoredPools          : IOmniInterfaceDictionary;
     emMonitoredTasks          : IOmniInterfaceDictionary;
@@ -150,7 +167,10 @@ type
     emOnTaskUndeliveredMessage: TOmniMonitorTaskMessageEvent;
     emOnTaskTerminated        : TOmniMonitorTaskEvent;
     emThreadID                : TThreadID;
-  strict protected
+  protected
+    // Invoked via the lock-serialized TOmniEventMonitorDispatcher in the
+    // implementation section; not strict because the dispatcher is not a
+    // descendant class. Plain protected keeps the methods in-unit only.
     procedure ProcessNewMessage(taskControlID: int64);
     procedure ProcessTerminated(taskControlID: int64);
     procedure ProcessThreadPool(threadPoolInfo: TOmniThreadPoolMonitorInfo);
@@ -227,6 +247,27 @@ type
     property RefCount: integer read cemRefCount;
   end; { TOmniCountedEventMonitor }
 
+  ///<summary>Lock-serialized proxy that keeps queued TOmniEventMonitor
+  ///   closures UAF-safe. Queued closures capture the dispatcher interface
+  ///   (refcounted) rather than the TComponent-based monitor (not refcounted
+  ///   through IInterface). Clear, called from the monitor destructor,
+  ///   nils the raw target pointer under the same lock that guards Dispatch,
+  ///   so any in-flight Dispatch finishes first and any later Dispatch is
+  ///   a no-op. DispatchThreadPool still frees threadPoolInfo when the
+  ///   monitor is gone so ownership semantics are preserved.</summary>
+  TOmniEventMonitorDispatcher = class(TInterfacedObject, IOmniEventMonitorDispatcher)
+  strict private
+    FLock  : TCriticalSection;
+    FTarget: Pointer; // raw TOmniEventMonitor; nil after Clear
+  public
+    constructor Create(target: Pointer);
+    destructor  Destroy; override;
+    procedure Clear;
+    procedure DispatchNewMessage(taskControlID: int64);
+    procedure DispatchTerminated(taskControlID: int64);
+    procedure DispatchThreadPool(threadPoolInfo: TOmniThreadPoolMonitorInfo);
+  end; { TOmniEventMonitorDispatcher }
+
 { TOmniEventMonitor }
 
 constructor TOmniEventMonitor.Create(AOwner: TComponent);
@@ -240,12 +281,20 @@ begin
                               [emThreadID]);
   emMonitoredTasks := CreateInterfaceDictionary;
   emMonitoredPools := CreateInterfaceDictionary;
+  emDispatcher := TOmniEventMonitorDispatcher.Create(Self);
 end; { TOmniEventMonitor.Create }
 
 destructor TOmniEventMonitor.Destroy;
 var
   intfKV   : TOmniInterfaceDictionaryPair;
 begin
+  // Sever pending queued closures first: after Clear returns, any in-flight
+  // Dispatch has finished and any still-queued Dispatch is a no-op. This
+  // must run before we tear down emMonitoredTasks / emMonitoredPools.
+  if assigned(emDispatcher) then begin
+    emDispatcher.Clear;
+    emDispatcher := nil;
+  end;
   for intfKV in emMonitoredTasks do
     (intfKV.Value as IOmniTaskControl).RemoveMonitor;
   emMonitoredTasks.Clear;
@@ -285,33 +334,42 @@ begin
 end; { TOmniEventMonitor.Monitor }
 
 procedure TOmniEventMonitor.NotifyMessage(taskControlID: int64);
+var
+  dispatcher: IOmniEventMonitorDispatcher;
 begin
+  dispatcher := emDispatcher; // strong ref keeps dispatcher alive inside the closure
   TThread.ForceQueue(
     TThread.CurrentThread,
     procedure
     begin
-      ProcessNewMessage(taskControlID);
+      dispatcher.DispatchNewMessage(taskControlID);
     end);
 end; { TOmniEventMonitor.NotifyMessage }
 
 procedure TOmniEventMonitor.NotifyTerminated(taskControlID: int64);
+var
+  dispatcher: IOmniEventMonitorDispatcher;
 begin
+  dispatcher := emDispatcher;
   TThread.ForceQueue(
     TThread.CurrentThread,
     procedure
     begin
-      ProcessTerminated(taskControlID);
+      dispatcher.DispatchTerminated(taskControlID);
     end);
 end; { TOmniEventMonitor.NotifyTerminated }
 
 procedure TOmniEventMonitor.NotifyThreadPool(
   threadPoolInfo: TOmniThreadPoolMonitorInfo);
+var
+  dispatcher: IOmniEventMonitorDispatcher;
 begin
+  dispatcher := emDispatcher;
   TThread.ForceQueue(
     TThread.CurrentThread,
     procedure
     begin
-      ProcessThreadPool(threadPoolInfo);
+      dispatcher.DispatchThreadPool(threadPoolInfo);
     end);
 end; { TOmniEventMonitor.NotifyThreadPool }
 
@@ -404,6 +462,60 @@ begin
     end;
   finally FreeAndNil(threadPoolInfo); end;
 end; { TOmniEventMonitor.ProcessThreadPool }
+
+{ TOmniEventMonitorDispatcher }
+
+constructor TOmniEventMonitorDispatcher.Create(target: Pointer);
+begin
+  inherited Create;
+  FLock := TCriticalSection.Create;
+  FTarget := target;
+end; { TOmniEventMonitorDispatcher.Create }
+
+destructor TOmniEventMonitorDispatcher.Destroy;
+begin
+  FreeAndNil(FLock);
+  inherited;
+end; { TOmniEventMonitorDispatcher.Destroy }
+
+procedure TOmniEventMonitorDispatcher.Clear;
+begin
+  FLock.Enter;
+  try
+    FTarget := nil;
+  finally FLock.Leave; end;
+end; { TOmniEventMonitorDispatcher.Clear }
+
+procedure TOmniEventMonitorDispatcher.DispatchNewMessage(taskControlID: int64);
+begin
+  FLock.Enter;
+  try
+    if FTarget <> nil then
+      TOmniEventMonitor(FTarget).ProcessNewMessage(taskControlID);
+  finally FLock.Leave; end;
+end; { TOmniEventMonitorDispatcher.DispatchNewMessage }
+
+procedure TOmniEventMonitorDispatcher.DispatchTerminated(taskControlID: int64);
+begin
+  FLock.Enter;
+  try
+    if FTarget <> nil then
+      TOmniEventMonitor(FTarget).ProcessTerminated(taskControlID);
+  finally FLock.Leave; end;
+end; { TOmniEventMonitorDispatcher.DispatchTerminated }
+
+procedure TOmniEventMonitorDispatcher.DispatchThreadPool(
+  threadPoolInfo: TOmniThreadPoolMonitorInfo);
+begin
+  FLock.Enter;
+  try
+    if FTarget <> nil then
+      TOmniEventMonitor(FTarget).ProcessThreadPool(threadPoolInfo)
+    else
+      // ProcessThreadPool would have freed it; preserve ownership contract.
+      FreeAndNil(threadPoolInfo);
+  finally FLock.Leave; end;
+end; { TOmniEventMonitorDispatcher.DispatchThreadPool }
 
 { TOmniCountedEventMonitor }
 
