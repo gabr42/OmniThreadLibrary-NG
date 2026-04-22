@@ -90,10 +90,10 @@ var
   dataModule: TdmTwoFishDB;
 begin
   dataModule := (workItem.TaskState.AsObject as TdmTwoFishDB);
-  GTwoFishLock.Acquire; //probably only necessary when using InterBase driver
+  GTwoFishLock.Acquire; //serialize concurrent driver initialization
   try
-    dataModule.IBDatabase1.DatabaseName := workItem.Data.AsString;
-    dataModule.IBDatabase1.Connected := true;
+    dataModule.FDConnection1.Params.Values['Database'] := workItem.Data.AsString;
+    dataModule.FDConnection1.Connected := true;
   finally GTwoFishLock.Release; end;
 end;
 
@@ -128,21 +128,21 @@ var
   tempProvider: TDataSetProvider;
 begin
   dataModule := (workItem.TaskState.AsObject as TdmTwoFishDB);
-  if not dataModule.IBTable1.Active then
-    dataModule.IBTable1.Active := true
+  if not dataModule.FDTable1.Active then
+    dataModule.FDTable1.Active := true
   else
-    dataModule.IBTable1.Refresh;
+    dataModule.FDTable1.Refresh;
 
   resultDS := TClientDataSet.Create(nil);
 
   //http://docs.embarcadero.com/products/rad_studio/delphiAndcpp2009/HelpUpdate2/EN/html/devwin32/fhxr18643_xml.html
   tempProvider := TDataSetProvider.Create(nil);
   try
-    tempProvider.DataSet := dataModule.IBTable1;
-    resultDS.Data := tempProvider.Data; //Exception "IBTable1: Field 'SPECIES_NO' not found" is expected. It is handled internally in Data.DB and in IBTable.
+    tempProvider.DataSet := dataModule.FDTable1;
+    resultDS.Data := tempProvider.Data;
   finally FreeAndNil(tempProvider); end;
 
-  workItem.Result := resultDS; // receiver will take ownershipt
+  workItem.Result := resultDS; // receiver takes ownership
 end;
 
 procedure TfrmTwoFishDB_GUI.OpenConnection(const databaseName: string;

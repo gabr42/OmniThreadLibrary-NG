@@ -4,7 +4,7 @@ interface
 
 uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
-  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Data.DB, IBCustomDataSet, IBTable, IBDatabase,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Data.DB,
   twoFishDB_GUI;
 
 type
@@ -31,7 +31,7 @@ const
   CFrameWidth = 512;
   CFrameHeight = 400;
 
-  CDatabaseName = 'C:\Users\Public\Documents\RAD Studio\9.0\Samples\Data\dbdemos.gdb';
+  CDatabaseName = 'C:\Users\Public\Documents\Embarcadero\Studio\37.0\Samples\Data\dbdemos.gdb';
 
 function TfrmTwoFish.CreateFrame(left, top, width, height: integer;
   const name: string): TfrmTwoFishDB_GUI;
