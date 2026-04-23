@@ -43,7 +43,7 @@ object frmTestWaitableObjects: TfrmTestWaitableObjects
   end
   object btnUnregister1: TButton
     Left = 8
-    Top = 96
+    Top = 84
     Width = 105
     Height = 25
     Caption = 'Unregister event 1'
@@ -52,11 +52,47 @@ object frmTestWaitableObjects: TfrmTestWaitableObjects
   end
   object btnRegister1: TButton
     Left = 8
-    Top = 127
+    Top = 115
     Width = 105
     Height = 25
     Caption = 'Register event 1'
     TabOrder = 4
     OnClick = btnRegister1Click
+  end
+  object btnSingnalH1: TButton
+    Left = 8
+    Top = 196
+    Width = 105
+    Height = 25
+    Caption = 'Signal handle 1'
+    TabOrder = 5
+    OnClick = btnSingnalH1Click
+  end
+  object btnSignalH2: TButton
+    Left = 8
+    Top = 227
+    Width = 105
+    Height = 25
+    Caption = 'Signal handle 2'
+    TabOrder = 6
+    OnClick = btnSignalH2Click
+  end
+  object btnUnregisterH1: TButton
+    Left = 8
+    Top = 272
+    Width = 105
+    Height = 25
+    Caption = 'Unregister handle 1'
+    TabOrder = 7
+    OnClick = btnUnregisterH1Click
+  end
+  object btnRegisterH1: TButton
+    Left = 8
+    Top = 303
+    Width = 105
+    Height = 25
+    Caption = 'Register handle 1'
+    TabOrder = 8
+    OnClick = btnRegisterH1Click
   end
 end
