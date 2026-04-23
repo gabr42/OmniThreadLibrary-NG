@@ -40,7 +40,7 @@ uses
 {$R *.dfm}
 
 const
-  CTestQueueLength = 1000;
+  CTestQueueLength = 10000;
 
   // GUI -> thread messages
   MSG_START_TEST        = 1;
