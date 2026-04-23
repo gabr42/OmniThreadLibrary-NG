@@ -146,7 +146,7 @@ type
     procedure DispatchThreadPool(threadPoolInfo: TOmniThreadPoolMonitorInfo);
   end; { IOmniEventMonitorDispatcher }
 
-  [ComponentPlatformsAttribute(pidWin32 or pidWin64)]
+  [ComponentPlatformsAttribute(pidAllPlatforms)]
   TOmniEventMonitor = class(TComponent, IOmniTaskControlMonitor,
                                         IOmniThreadPoolMonitor,
                                         IOmniEventMonitorNotify)
