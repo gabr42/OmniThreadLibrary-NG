@@ -83,3 +83,11 @@ thmm
 .claude/
 
 unittests/ARM64EC/Debug/
+
+benchmarks/*/Win32/
+benchmarks/*/Win64/
+benchmarks/*/Linux64/
+benchmarks/*/ARM64EC/
+benchmarks/*/Android64/
+benchmarks/*/*.lnk
+benchmarks/*/*.exp
