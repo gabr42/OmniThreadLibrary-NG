@@ -1,7 +1,7 @@
 ﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{A8C2F4F7-54D8-42A5-B7FD-C4CB94628141}</ProjectGuid>
-        <ProjectVersion>14.6</ProjectVersion>
+        <ProjectVersion>20.4</ProjectVersion>
         <FrameworkType>VCL</FrameworkType>
         <MainSource>app_54_LockManager.dpr</MainSource>
         <Base>True</Base>
@@ -9,6 +9,7 @@
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <TargetedPlatforms>1</TargetedPlatforms>
         <AppType>Application</AppType>
+        <ProjectName Condition="'$(ProjectName)'==''">app_54_LockManager</ProjectName>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>
@@ -50,17 +51,22 @@
         <DCC_S>false</DCC_S>
         <DCC_F>false</DCC_F>
         <DCC_K>false</DCC_K>
+        <SanitizedProjectName>app_54_LockManager</SanitizedProjectName>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <DCC_UsePackage>JvBDE;JvGlobus;JvMM;cxLibraryRS16;dxLayoutControlRS16;JvManagedThreads;dxCoreRS16;cxExportRS16;dxBarRS16;dxSkinsdxNavBarPainterRS16;JvDlgs;IndySystem;JvCrypt;TeeDB;Rave100VCL;vclib;inetdbbde;JvNet;cxPageControlRS16;dxRibbonRS16;DBXSybaseASEDriver;JvDotNetCtrls;vclSvComV7D16;vclimg;fmi;dxComnRS16;JvXPCtrls;AsyncPro;vcldb;B305vrXE2;dxSkinsdxRibbonPainterRS16;vcldsnap;dxBarExtDBItemsRS16;DBXDb2Driver;Intraweb_120_160;JvCore;vclribbon;vcl;IndyCore;CloudService;CodeSiteExpressPkg;DBXMSSQLDriver;FmxTeeUI;cxDataRS16;cxBarEditItemRS16;cxPageControldxBarPopupMenuRS16;dxDockingRS16;JvAppFrm;JvDB;JvRuntimeDesign;webdsnap;dxBarExtItemsRS16;dxSkinsdxDLPainterRS16;JclDeveloperTools;JvDocking;adortl;JvWizards;JvHMI;JvBands;vcldbx;dxNavBarRS16;VirtualTreesD;OverbyteIcsDXe2Run;dxSkinsdxBarPainterRS16;JvPluginSystem;Tee;DBXOdbcDriver;TsiLang_XE2r;JvCmp;dxSkinsCoreRS16;JvSystem;svnui;SynEdit_RXE2;JvControls;dxmdsRS16;JvTimeFramework;IndyProtocols;intrawebdb_120_160;cxGridRS16;dxSkinscxPCPainterRS16;cxEditorsRS16;TeeUI;FMXTee;vclactnband;JvJans;bindcompvcl;JvStdCtrls;JvCustom;Jcl;vclie;JvPageComps;JvPrintPreview;vcltouch;websnap;VclSmp;dxTabbedMDIRS16;DataSnapConnectors;dsnapcon;dxThemeRS16;JclVcl;dcldxSkinsCoreRS16;JvPascalInterpreter;vclx;svn;bdertl;VirtualTreesR;dxBarDBNavRS16;dxGDIPlusRS16;$(DCC_UsePackage)</DCC_UsePackage>
-        <VerInfo_Keys>CompanyName=;FileDescription=;FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductName=;ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=;ProgramID=com.embarcadero.$(MSBuildProjectName)</VerInfo_Keys>
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
+        <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
+        <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win64)'!=''">
         <DCC_UsePackage>cxLibraryRS16;dxLayoutControlRS16;dxCoreRS16;cxExportRS16;dxBarRS16;dxSkinsdxNavBarPainterRS16;TeeDB;vclib;cxPageControlRS16;dxRibbonRS16;DBXSybaseASEDriver;vclimg;dxComnRS16;vcldb;dxSkinsdxRibbonPainterRS16;vcldsnap;dxBarExtDBItemsRS16;DBXDb2Driver;vcl;DBXMSSQLDriver;cxDataRS16;cxBarEditItemRS16;cxPageControldxBarPopupMenuRS16;dxDockingRS16;webdsnap;dxBarExtItemsRS16;dxSkinsdxDLPainterRS16;adortl;dxNavBarRS16;OverbyteIcsDXe2Run;dxSkinsdxBarPainterRS16;Tee;DBXOdbcDriver;dxSkinsCoreRS16;dxmdsRS16;cxGridRS16;dxSkinscxPCPainterRS16;cxEditorsRS16;TeeUI;vclactnband;bindcompvcl;vclie;vcltouch;websnap;VclSmp;dxTabbedMDIRS16;DataSnapConnectors;dsnapcon;dxThemeRS16;dcldxSkinsCoreRS16;vclx;dxBarDBNavRS16;dxGDIPlusRS16;$(DCC_UsePackage)</DCC_UsePackage>
+        <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
+        <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
         <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
@@ -76,12 +82,14 @@
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <DCC_SYMBOL_PLATFORM>false</DCC_SYMBOL_PLATFORM>
         <DCC_RemoteDebug>false</DCC_RemoteDebug>
+        <BT_BuildType>Debug</BT_BuildType>
+        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
         <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
         <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
-        <DCC_DebugInformation>false</DCC_DebugInformation>
+        <DCC_DebugInformation>0</DCC_DebugInformation>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
@@ -91,15 +99,15 @@
             <Form>frmTestLockManager</Form>
             <FormType>dfm</FormType>
         </DCCReference>
-        <BuildConfiguration Include="Release">
-            <Key>Cfg_2</Key>
-            <CfgParent>Base</CfgParent>
-        </BuildConfiguration>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
         <BuildConfiguration Include="Debug">
             <Key>Cfg_1</Key>
+            <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Release">
+            <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>
         </BuildConfiguration>
     </ItemGroup>
@@ -139,11 +147,15 @@
                     <Source Name="MainSource">app_54_LockManager.dpr</Source>
                 </Source>
                 <Excluded_Packages>
-                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k160.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
-                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp160.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="x:\common\pkg\_packages\13\bpl\JclVcl370.bpl">JEDI Code Library VCL package</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\bcboffice2k370.bpl">Embarcadero C++Builder Office 2000 Servers Package</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\bcbofficexp370.bpl">Embarcadero C++Builder Office XP Servers Package</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k370.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp370.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="X:\common\pkg\_packages\12\bpl\dclsgcWebSocketsD12.bpl">SGC WebSockets</Excluded_Packages>
                 </Excluded_Packages>
             </Delphi.Personality>
-            <Deployment/>
+            <Deployment Version="5"/>
             <Platforms>
                 <Platform value="Win32">True</Platform>
                 <Platform value="Win64">False</Platform>
@@ -153,4 +165,5 @@
     </ProjectExtensions>
     <Import Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')" Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
     <Import Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')" Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj"/>
+    <Import Project="$(MSBuildProjectName).deployproj" Condition="Exists('$(MSBuildProjectName).deployproj')"/>
 </Project>

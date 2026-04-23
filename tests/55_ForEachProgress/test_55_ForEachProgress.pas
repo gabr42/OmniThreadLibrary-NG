@@ -29,7 +29,7 @@ implementation
 {$R *.dfm}
 
 const
-  CNumLoop = 20000;
+  CNumLoop = 1000;
 
 procedure TfrmForEachWithProgressBar.btnStartClick(Sender: TObject);
 begin

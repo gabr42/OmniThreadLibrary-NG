@@ -10,11 +10,9 @@ object frmTestParallelMap: TfrmTestParallelMap
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
-  OldCreateOrder = False
   DesignSize = (
     629
     411)
-  PixelsPerInch = 96
   TextHeight = 13
   object btnMap: TButton
     Left = 16
