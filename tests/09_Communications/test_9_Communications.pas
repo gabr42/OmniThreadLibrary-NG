@@ -25,6 +25,7 @@ type
     FClient2    : IOmniTaskControl;
     FCommChannel: IOmniTwoWayChannel;
     procedure Log(const msg: string);
+    procedure TestsDone(var msg: TMessage); message WM_USER;
   end;
 
 var
@@ -39,7 +40,7 @@ uses
 {$R *.dfm}
 
 const
-  CTestQueueLength = 10000;
+  CTestQueueLength = 1000;
 
   // GUI -> thread messages
   MSG_START_TEST        = 1;
@@ -146,7 +147,9 @@ begin
   if ctTestSuite = tsMessageExchange then begin
     Inc(ctTestRepetition);
     if ctTestRepetition <= 10 then
-      RunMessageExchangeTest;
+      RunMessageExchangeTest
+    else
+      PostMessage(frmTestCommunications.Handle, WM_USER, 0, 0);
   end
   else if ctTestSuite = tsDump then begin
     Inc(ctTestRepetition);
@@ -201,6 +204,7 @@ end;
 
 procedure TfrmTestCommunications.btnRunTestsClick(Sender: TObject);
 begin
+  btnRunTests.Enabled := false;
   FClient1.Comm.Send(MSG_START_TEST, 0);
 end;
 
@@ -240,6 +244,11 @@ begin
     else
       Log(Format('Unknown message %d', [msg.MsgID]));
   end;
+end;
+
+procedure TfrmTestCommunications.TestsDone(var msg: TMessage);
+begin
+  btnRunTests.Enabled := true;
 end;
 
 end.
