@@ -10,8 +10,13 @@ object frmParallelMandelbrot: TfrmParallelMandelbrot
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
-  OldCreateOrder = False
   OnDblClick = FormDblClick
-  PixelsPerInch = 96
   TextHeight = 13
+  object Label1: TLabel
+    Left = 40
+    Top = 32
+    Width = 94
+    Height = 13
+    Caption = 'Duble-click the form'
+  end
 end

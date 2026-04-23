@@ -143,13 +143,21 @@ end;
 
 procedure StageSum(const input, output: IOmniBlockingCollection; const task: IOmniTask);
 var
-   sum  : integer;
+  sum  : integer;
   value: TOmniValue;
 begin
   sum := 0;
   for value in input do
     Inc(sum, value);
-  output.TryAdd(sum);
+  // Honour cancellation before emitting the partial sum. Without this check,
+  // pipeline.Cancel races against StageSum's final TryAdd: Cancel marks all
+  // intermediate queues as CompleteAdding, StageSum's for-in loop exits as
+  // soon as its (now-completed) input drains, and TryAdd can beat Cancel's
+  // CompleteAdding on the pipeline's output queue — leaking a partial sum
+  // to callers that expected cancellation to leave the output empty
+  // (see btnCancelPipeClick).
+  if not task.CancellationToken.IsSignalled then
+    output.TryAdd(sum);
 end;
 
 procedure StageSumEx(const input, output: IOmniBlockingCollection; const task: IOmniTask);

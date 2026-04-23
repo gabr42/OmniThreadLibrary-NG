@@ -10,7 +10,6 @@ type
   TfrmOtlParallelExceptions = class(TForm)
     btnAsync: TButton;
     btnForeach: TButton;
-    btnForkJoin: TButton;
     btnFuture1: TButton;
     btnFuture2: TButton;
     btnFuture3: TButton;

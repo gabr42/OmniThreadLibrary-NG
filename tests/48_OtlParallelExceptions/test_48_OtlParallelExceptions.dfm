@@ -10,8 +10,6 @@ object frmOtlParallelExceptions: TfrmOtlParallelExceptions
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
-  OldCreateOrder = False
-  PixelsPerInch = 96
   TextHeight = 13
   object btnAsync: TButton
     Left = 16
@@ -58,15 +56,6 @@ object frmOtlParallelExceptions: TfrmOtlParallelExceptions
     TabOrder = 8
     OnClick = btnPipeline1Click
   end
-  object btnForkJoin: TButton
-    Left = 16
-    Top = 464
-    Width = 75
-    Height = 25
-    Caption = 'Fork/Join'
-    Enabled = False
-    TabOrder = 9
-  end
   object lbLog: TListBox
     Left = 128
     Top = 0
@@ -75,8 +64,7 @@ object frmOtlParallelExceptions: TfrmOtlParallelExceptions
     Align = alRight
     Anchors = [akLeft, akTop, akRight, akBottom]
     ItemHeight = 13
-    TabOrder = 10
-    ExplicitHeight = 436
+    TabOrder = 9
   end
   object btnFuture2: TButton
     Left = 16
@@ -120,7 +108,7 @@ object frmOtlParallelExceptions: TfrmOtlParallelExceptions
     Width = 91
     Height = 25
     Caption = 'Pipeline 2'
-    TabOrder = 11
+    TabOrder = 10
     OnClick = btnPipeline2Click
   end
   object btnPipeline3: TButton
@@ -129,7 +117,7 @@ object frmOtlParallelExceptions: TfrmOtlParallelExceptions
     Width = 91
     Height = 25
     Caption = 'Pipeline 3'
-    TabOrder = 12
+    TabOrder = 11
     OnClick = btnPipeline3Click
   end
   object btnPipeline4: TButton
@@ -138,7 +126,7 @@ object frmOtlParallelExceptions: TfrmOtlParallelExceptions
     Width = 91
     Height = 25
     Caption = 'Pipeline 4'
-    TabOrder = 13
+    TabOrder = 12
     OnClick = btnPipeline4Click
   end
   object btnAsync2: TButton
@@ -147,7 +135,7 @@ object frmOtlParallelExceptions: TfrmOtlParallelExceptions
     Width = 91
     Height = 25
     Caption = 'Async 2'
-    TabOrder = 14
+    TabOrder = 13
     OnClick = btnAsync2Click
   end
   object btnAsync3: TButton
@@ -156,7 +144,7 @@ object frmOtlParallelExceptions: TfrmOtlParallelExceptions
     Width = 91
     Height = 25
     Caption = 'Async 3'
-    TabOrder = 15
+    TabOrder = 14
     OnClick = btnAsync3Click
   end
 end

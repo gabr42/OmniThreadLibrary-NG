@@ -1,4 +1,4 @@
-program app_34_TreeScan.XE3;
+program app_34_TreeScan;
 
 {$R 'MainIcon.res' '..\..\res\MainIcon.rc'}
 

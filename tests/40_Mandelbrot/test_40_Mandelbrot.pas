@@ -4,13 +4,14 @@ interface
 
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Dialogs, OtlComm, OtlTaskControl;
+  Dialogs, OtlComm, OtlTaskControl, Vcl.StdCtrls;
 
 const
   WM_DISPLAY_LINE = WM_USER;
 
 type
   TfrmParallelMandelbrot = class(TForm)
+    Label1: TLabel;
     procedure FormDblClick(Sender: TObject);
   private
     procedure DisplayLine(bitmap: TBitmap; y: integer);
@@ -42,6 +43,7 @@ procedure TfrmParallelMandelbrot.FormDblClick(Sender: TObject);
 var
   sw: TStopwatch;
 begin
+  Label1.Visible := false;
   Invalidate; Update; // clear the form
   sw := TStopwatch.StartNew;
 

@@ -51,28 +51,24 @@ var
 begin
   msg := task.Param['Message'];
   waiter := TWaitFor.Create([task.TerminateEvent, task.Comm.NewMessageEvent]);
-(*
-  handles[0] := task.TerminateEvent.Handle;
-  handles[1] := task.Comm.NewMessageEvent;
-  repeat
-
-//    oteMsgInfo.Waiter := TWaitFor.Create({$IF not Defined(MSWINDOWS) or Defined(OTL_PlatformIndependent)}[]{$IFEND}); //TODO: Not implemented for non-Windows platforms.
-//    msgInfo.Waiter.SetHandles(msgInfo.WaitHandles);
-    case WaitForMultipleObjects(2, @handles[0], false, task.Param['Delay']) of
-      WAIT_OBJECT_0 + 1:
-        begin
-          while task.Comm.Receive(msgID, msgData) do begin
-            if msgID = MSG_CHANGE_MESSAGE then
-              msg := msgData;
+  try
+    repeat
+      case waiter.WaitAny(task.Param['Delay'].AsCardinal) of
+        waAwaited:
+          begin
+            if (Length(waiter.Signalled) = 0) or (waiter.Signalled[0].Index = 0) then
+              break; //repeat (terminate event)
+            while task.Comm.Receive(msgID, msgData) do
+              if msgID = MSG_CHANGE_MESSAGE then
+                msg := msgData;
           end;
-        end;
-      WAIT_TIMEOUT:
-        task.Comm.Send(0, msg);
-      else
-        break; //repeat
-    end;
-  until false;
-*)
+        waTimeout:
+          task.Comm.Send(0, msg);
+        else
+          break; //repeat
+      end;
+    until false;
+  finally FreeAndNil(waiter); end;
 end;
 
 procedure TfrmTwoWayHello.FormCreate(Sender: TObject);
