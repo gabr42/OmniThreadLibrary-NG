@@ -1543,7 +1543,19 @@ begin
   if assigned(unobservedRef) then begin
     if hasBgObserver then
       (unobservedRef as IOmniTaskControlInternals).ForwardTaskTerminated;
-    GUnobservedCleanup.ScheduleRelease(unobservedRef);
+    // OtlTaskControl.finalization may have freed GUnobservedCleanup while a
+    // pool worker is still finishing InternalExecute here (Pipeline.WaitFor
+    // returns on opShutDownComplete, which a stage task sets before its
+    // InternalExecute tail runs — the worker can still be on this line when
+    // the enclosing form is destroyed and unit finalization begins). Fall
+    // back to inline release during shutdown: we hold no locks at this
+    // point, pool tasks have no otcThread, and TaskControl.Destroy is safe
+    // to run on this worker thread.
+    var cleanup := GUnobservedCleanup;
+    if assigned(cleanup) then
+      cleanup.ScheduleRelease(unobservedRef)
+    else
+      unobservedRef := nil;
   end;
 end; { TOmniTask.InternalExecute }
 
