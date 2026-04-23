@@ -51,14 +51,14 @@ MsgExchange (10000 r/t)      count=10  sum=<s> ms  avg=<a> ms  min=<mn> ms  max=
                              values=[t1,t2,...,t10]
 ```
 
-## Baseline (after Windows fast-path; POSIX slow-path untouched)
+## Timings
 
 | Platform | Total | MsgEx avg | MsgEx min | MsgEx max |
 |---|---|---|---|---|
 | Win32    | 2.15 s | 197 ms | 176 ms | 234 ms |
-| Win64    | 1.99 s | 187 ms | 165 ms | 295 ms |
-| Linux64  | 5.54 s | 378 ms | 364 ms | 402 ms |
+| Win64    | 2.00 s | 181 ms | 160 ms | 267 ms |
+| Linux64  | 4.21 s | 345 ms | 333 ms | 353 ms |
 
-Linux64 is ~2× slower than Windows — that's the CV+observer overhead
-the persistent-observer and cached-`IsSignalled` optimisations still
-need to shave.
+Linux64 is still ~2× slower than Windows — the CV + observer path
+on POSIX has fundamental per-signal kernel-transition cost that the
+direct `WaitForMultipleObjects` fast path avoids on Windows.

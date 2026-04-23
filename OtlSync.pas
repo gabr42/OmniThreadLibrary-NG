@@ -668,6 +668,7 @@ type
     FAllSignalled    : TCondition;
     FGate            : IOmniCriticalSection;
     FOneSignalled    : TCondition;
+    FSignalledCount  : integer;
     FSignalledHandles: THandles;
     FSynchObjects    : TSynchroList;
     FSynchClient     : IOmniSynchroObserver;
@@ -678,7 +679,9 @@ type
   protected
     function  MapResult(waitResult: TWaitResult): TWaitForResult;
     procedure PopulateSignalled(const signaller: IOmniSynchro; waitAll: boolean);
+    procedure RecomputeSignalledCount;
     property Gate: IOmniCriticalSection read FGate;
+    property SignalledCount: integer read FSignalledCount;
     property SynchClient: IOmniSynchroObserver read FSynchClient;
     property SynchObjects: TSynchroList read FSynchObjects;
   public
@@ -2181,28 +2184,46 @@ end; { TWaitFor.TSynchroClient.DereferenceSynchObj }
 
 procedure TWaitFor.TSynchroClient.BeforeSignal(const Signaller: TObject; var Data: TObject);
 var
-  Dummy: IOmniSynchro;
+  synch: IOmniSynchro;
 begin
-  if assigned(FController) then
-    Data := TPreSignalData.Create(
-      FController.FOneSignalled.Test(Dummy),
-      FController.FAllSignalled.Test(Dummy));
+  // Snapshot only the signaller's pre-state; AfterSignal compares with the
+  // post-state to detect a transition and updates FSignalledCount O(1)
+  // instead of scanning FSynchObjects via Test on every signal.
+  // OneSignalled field is reused to carry the signaller's pre-state.
+  if assigned(FController) and Supports(Signaller, IOmniSynchro, synch) then
+    Data := TPreSignalData.Create(synch.IsSignalled, false);
 end; { TWaitFor.TSynchroClient.BeforeSignal }
 
 procedure TWaitFor.TSynchroClient.AfterSignal(const Signaller: TObject; var Data: TObject);
 var
-  Dummy: IOmniSynchro;
+  newCount  : integer;
+  postState : boolean;
+  preState  : boolean;
+  synch     : IOmniSynchro;
 begin
   try
     if not assigned(FController) then
       Exit;
-    if (not (Data as TPreSignalData).OneSignalled)
-       and FController.FOneSignalled.Test(Dummy)
-    then
+    if not assigned(Data) then
+      Exit;
+    if not Supports(Signaller, IOmniSynchro, synch) then
+      Exit;
+    preState  := TPreSignalData(Data).OneSignalled;
+    postState := synch.IsSignalled;
+    if preState = postState then
+      Exit;
+    if postState then
+      newCount := TInterlocked.Increment(FController.FSignalledCount)
+    else
+      newCount := TInterlocked.Decrement(FController.FSignalledCount);
+    // False→true transition on the signaller brings the total from
+    // newCount-1 to newCount. If newCount = 1 the waiter's FOneSignalled
+    // just transitioned from "none signalled" to "some signalled" — wake.
+    if postState and (newCount = 1) then
       FController.FOneSignalled.FCondVar.Release;
-    if (not (Data as TPreSignalData).AllSignalled)
-       and FController.FAllSignalled.Test(Dummy)
-    then
+    // FAllSignalled transitions to signalled only when every synch
+    // object is signalled at once.
+    if postState and (newCount = FController.FSynchObjects.Count) then
       FController.FAllSignalled.FCondVar.Release;
   finally FreeAndNil(Data); end;
 end; { TWaitFor.TSynchroClient.AfterSignal }
@@ -2320,6 +2341,11 @@ begin
       for so in FController.SynchObjects do
         if assigned(so) then
         so.AddObserver(FController.SynchClient);
+      // Baseline the signalled count now that observers are attached and
+      // the wait set is stable (FGate held). TSynchroClient.AfterSignal
+      // maintains it atomically from here, so FCondVar.Release only fires
+      // on real false→true transitions.
+      FController.RecomputeSignalledCount;
       try
         if Test(signaller1) then
           Result := wrSignaled
@@ -2363,8 +2389,15 @@ begin
     end;
 
     if Result = wrSignaled then begin
-      if assigned(signaller1) then
+      if assigned(signaller1) then begin
         signaller1.ConsumeSignalFromObserver(FController.FSynchClient);
+        // ConsumeSignalFromObserver clears FState on auto-reset events
+        // without going through PerformObservableAction, so the observer
+        // AfterSignal callback never fires — decrement the count manually
+        // if the signaller actually transitioned to not-signalled.
+        if not signaller1.IsSignalled then
+          TInterlocked.Decrement(FController.FSignalledCount);
+      end;
       Signaller := signaller1;
     end;
   finally FController.FGate.Release; end;
@@ -2513,6 +2546,22 @@ begin
     else raise Exception.Create('Unexpected value: ' + Ord(waitResult).ToString);
   end;
 end; { TWaitFor.MapResult }
+
+procedure TWaitFor.RecomputeSignalledCount;
+var
+  count : integer;
+  member: IOmniSynchro;
+begin
+  // Caller must hold FGate. Called after AddObserver in TCondition.Wait so
+  // that TSynchroClient.AfterSignal has an accurate baseline to atomically
+  // update — and so TestFast can read an O(1) snapshot instead of scanning
+  // SynchObjects on every signal.
+  count := 0;
+  for member in FSynchObjects do
+    if assigned(member) and member.IsSignalled then
+      Inc(count);
+  FSignalledCount := count;
+end; { TWaitFor.RecomputeSignalledCount }
 
 procedure TWaitFor.PopulateSignalled(const signaller: IOmniSynchro; waitAll: boolean);
 var
