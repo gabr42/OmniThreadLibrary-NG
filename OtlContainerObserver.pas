@@ -364,6 +364,13 @@ var
   list     : TList<IOmniContainerObserver>;
   snapshot : TArray<IOmniContainerObserver>;
 begin
+  // Lock-free fast path: if no observer is currently registered, skip the
+  // read-lock / snapshot overhead entirely. Attach/Detach hold the write
+  // lock, so a stale-zero read here at worst means a simultaneously
+  // attaching observer misses a notification that predates its attach
+  // — which is indistinguishable from racing Attach against a signal.
+  if csObserverLists[interest].Count = 0 then
+    Exit;
   {$R-}
   csListLocks[interest].EnterReadLock;
   try

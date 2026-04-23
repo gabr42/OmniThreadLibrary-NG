@@ -322,6 +322,15 @@ type
     function  Base: TSynchroObject;
     {$IFDEF MSWINDOWS}
     function  Handle: THandle;
+    function  HasKernelHandle: boolean;
+    /// <remarks>
+    ///  Called from the kernel-wait fast path (TCondition.TryKernelFastPath)
+    ///  after WaitForMultipleObjects returned a signalled handle and the OS
+    ///  already performed whatever auto-reset was appropriate. The default
+    ///  implementation just syncs the tracked FState to match; implementors
+    ///  must NOT issue an additional kernel syscall (ResetEvent, etc.).
+    /// </remarks>
+    procedure AckKernelConsumed;
     {$ENDIF}
   end; { IOmniSynchro }
 
@@ -642,6 +651,13 @@ type
     protected
       FCondVar   : TConditionVariableCS;
       FController: TWaitFor;
+      {$IFDEF MSWINDOWS}
+      // Fast path: if every synch object exposes a kernel HANDLE, wait with
+      // WaitForMultipleObjects and skip the observer/CV machinery. Returns
+      // true when the fast path handled the wait.
+      function  TryKernelFastPath(timeout_ms: cardinal;
+                  var Signaller: IOmniSynchro; out waitResult: TWaitResult): boolean;
+      {$ENDIF MSWINDOWS}
     public
       constructor Create(AController: TWaitFor);
       destructor  Destroy; override;
@@ -806,6 +822,8 @@ type
     function  Base: TSynchroObject;
     {$IFDEF MSWINDOWS}
     function  Handle: THandle;
+    function  HasKernelHandle: boolean;
+    procedure AckKernelConsumed; virtual;
     {$ENDIF}
   strict protected
     FBase     : TSynchroObject;
@@ -888,6 +906,9 @@ type
     procedure ConsumeSignalFromObserver(const Observer: IOmniSynchroObserver);  override;
     function  WaitFor(timeout: cardinal = INFINITE): TWaitResult; override;
     function  IsSignalled: boolean; override;
+    {$IFDEF MSWINDOWS}
+    procedure AckKernelConsumed; override;
+    {$ENDIF}
   end; { TOmniEvent }
 
   TOneCondition = class(TWaitFor.TCondition)
@@ -2201,6 +2222,78 @@ begin
   inherited;
 end; { TWaitFor.TCondition.Destroy }
 
+{$IFDEF MSWINDOWS}
+function TWaitFor.TCondition.TryKernelFastPath(timeout_ms: cardinal;
+  var Signaller: IOmniSynchro; out waitResult: TWaitResult): boolean;
+var
+  count      : integer;
+  handles    : TArray<THandle>;
+  i, idx     : integer;
+  idxToSynch : TArray<IOmniSynchro>;
+  so         : IOmniSynchro;
+  waitAll    : BOOL;
+  waitRes    : DWORD;
+begin
+  Result := false;
+  waitResult := wrError;
+
+  // Snapshot under FGate so SynchObjects cannot mutate mid-scan.
+  FController.FGate.Acquire;
+  try
+    count := FController.SynchObjects.Count;
+    if (count = 0) or (count > MAXIMUM_WAIT_OBJECTS) then
+      Exit;
+    SetLength(handles, count);
+    SetLength(idxToSynch, count);
+    count := 0;
+    for so in FController.SynchObjects do begin
+      if not assigned(so) then continue;
+      if not so.HasKernelHandle then Exit; // fall back to slow path
+      idxToSynch[count] := so;
+      handles[count]    := so.Handle;
+      Inc(count);
+    end;
+    if count = 0 then Exit;
+  finally FController.FGate.Release; end;
+
+  SetLength(handles, count);
+  SetLength(idxToSynch, count);
+
+  waitAll := Self is TAllCondition;
+  waitRes := WaitForMultipleObjects(DWORD(count), @handles[0], waitAll, timeout_ms);
+
+  case waitRes of
+    WAIT_TIMEOUT:
+      waitResult := wrTimeout;
+    WAIT_FAILED:
+      waitResult := wrError;
+  else
+    if waitAll then begin
+      if waitRes = WAIT_OBJECT_0 then begin
+        waitResult := wrSignaled;
+        // Kernel already auto-reset; just sync the shadow state.
+        for i := 0 to count - 1 do
+          idxToSynch[i].AckKernelConsumed;
+        Signaller := idxToSynch[0];
+      end
+      else
+        waitResult := wrError;
+    end
+    else begin
+      if waitRes < WAIT_OBJECT_0 + DWORD(count) then begin
+        idx := integer(waitRes - WAIT_OBJECT_0);
+        waitResult := wrSignaled;
+        idxToSynch[idx].AckKernelConsumed;
+        Signaller := idxToSynch[idx];
+      end
+      else
+        waitResult := wrError;
+    end;
+  end;
+  Result := true;
+end; { TWaitFor.TCondition.TryKernelFastPath }
+{$ENDIF MSWINDOWS}
+
 function TWaitFor.TCondition.Wait(timeout_ms: cardinal;
   var Signaller: IOmniSynchro): TWaitResult;
 var
@@ -2210,6 +2303,10 @@ var
   timer     : TStopWatch;
   waitTime  : cardinal;
 begin
+  {$IFDEF MSWINDOWS}
+  if TryKernelFastPath(timeout_ms, Signaller, Result) then
+    Exit;
+  {$ENDIF MSWINDOWS}
   waitTime := timeout_ms;
   if waitTime > 0 then
     timer := TStopWatch.StartNew;
@@ -2650,6 +2747,15 @@ var
   observersCopy: TArray<IOmniSynchroObserver>;
   spinGuard    : IInterface;
 begin
+  // Lock-free fast path: when no observers are attached, skip spin-lock
+  // acquire entirely. A racy-stale read of 0 is safe — slow-path waiters
+  // re-test state after AddObserver, so any observer that transitions
+  // Count from 0→1 concurrently with us will catch the Action's state
+  // change on their re-test. Action still runs.
+  if FObservers.Count = 0 then begin
+    Action;
+    Exit;
+  end;
   if DoLock then begin
     // Phase 1: Snapshot observers under spin lock
     spinGuard := EnterSpinLock;
@@ -2743,6 +2849,17 @@ begin
   else
     raise Exception.Create('TOmniSynchroObject.Handle: Handle is not available!');
 end; { TOmniSynchroObject.Handle }
+
+function TOmniSynchroObject.HasKernelHandle: boolean;
+begin
+  Result := FBase is THandleObject;
+end; { TOmniSynchroObject.HasKernelHandle }
+
+procedure TOmniSynchroObject.AckKernelConsumed;
+begin
+  // Default: nothing to sync. Subclasses that maintain a shadow signalled
+  // flag (e.g. TOmniEvent.FState) override this to match the post-wait state.
+end; { TOmniSynchroObject.AckKernelConsumed }
 {$ENDIF}
 
 procedure TOmniSynchroObject.Acquire;
@@ -2872,6 +2989,18 @@ begin
     FState := False;
   end
 end; { TOmniEvent.ConsumeSignalFromObserver }
+
+{$IFDEF MSWINDOWS}
+procedure TOmniEvent.AckKernelConsumed;
+begin
+  // WaitForMultipleObjects already auto-reset an auto-reset kernel event;
+  // just sync the shadow flag so subsequent IsSignalled checks (slow path
+  // or PopulateSignalled) return the correct value. Skipping the redundant
+  // ResetEvent syscall vs. ConsumeSignalFromObserver saves ~1 µs per wake.
+  if not FManualReset then
+    FState := False;
+end; { TOmniEvent.AckKernelConsumed }
+{$ENDIF MSWINDOWS}
 
 function TOmniEvent.IsSignalled: boolean;
 begin
