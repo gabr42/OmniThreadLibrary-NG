@@ -19,6 +19,8 @@ type
     [Test]
     procedure TestPipelineClosureCapturePerStage;
     [Test]
+    procedure TestPipelineCancelSignalsTokenBeforeFinalStageEmits;
+    [Test]
     procedure TestOmniValueCreateLeakOnInvalidType;
     [Test]
     procedure TestBgObserverOnTerminatedFromBgThread;
@@ -256,6 +258,91 @@ begin
     'Pipeline output count wrong (expected 4 transformed values + 1 marker)');
   Assert.AreEqual(int64(6+12+18+24), nonMarkerSum,
     'Pipeline non-exception values did not transform through both stages');
+end;
+
+procedure TestBugfixes.TestPipelineCancelSignalsTokenBeforeFinalStageEmits;
+// Regression for test_41_Pipeline / btnCancelPipe.
+//
+// TOmniPipeline.Cancel is a cascade: signal opCancelWith, CompleteAdding
+// opInput, then CompleteAdding each opOutQueues entry in order (ending
+// with opOutput). While Cancel works its way down the queue chain,
+// worker threads keep running. A final stage whose loop exits as soon
+// as its input is "drained AND completed" can leave the loop the
+// moment Cancel marks that input, then race Cancel's CompleteAdding
+// on opOutput. If the stage unconditionally emits after the loop, that
+// final value lands in opOutput before Cancel can finalise it.
+//
+// test_41's StageSum hit this race: no CancellationToken.IsSignalled
+// check around the post-loop output.TryAdd(sum), so after
+// pipeline.Cancel the output sometimes contained a partial sum —
+// surfacing as the demo's "*** ERROR *** there should be no data in
+// the output pipe" log. The library's Cancel code is unchanged from
+// the original OTL; timing shifts in OTL-NG simply made the race
+// resolve against the demo more often.
+//
+// The invariant this test locks in: after pipeline.Cancel, every
+// worker's task.CancellationToken is observably signalled, so a
+// final stage that *does* guard its emission with
+// `if not task.CancellationToken.IsSignalled then` will reliably
+// leave the output empty.
+//
+// The test builds a 2-stage pipeline. Stage 1 generates a large,
+// throttled stream so the pipeline cannot drain before Cancel fires.
+// Stage 2 mirrors the fixed StageSum: reads until input is done,
+// then emits only when CancellationToken is not signalled. After
+// Sleep + Cancel + WaitFor, Output.TryTake must return false.
+// Repeated to make a regression in the signal-propagation path
+// detectable even on fast hardware.
+const
+  CIterations = 20;
+  CTimeout_ms = 10000;
+var
+  k       : integer;
+  pipeline: IOmniPipeline;
+  value   : TOmniValue;
+begin
+  for k := 1 to CIterations do begin
+    pipeline := Parallel.Pipeline
+      .Throttle(102400)
+      .Stage(
+        procedure (const input, output: IOmniBlockingCollection; const task: IOmniTask)
+        var
+          i: integer;
+        begin
+          for i := 1 to 1000000 do begin
+            if task.CancellationToken.IsSignalled then
+              Exit;
+            if not output.TryAdd(i) then
+              Exit;
+          end;
+        end)
+      .Stage(
+        procedure (const input, output: IOmniBlockingCollection; const task: IOmniTask)
+        var
+          sum : integer;
+          item: TOmniValue;
+        begin
+          sum := 0;
+          for item in input do
+            Inc(sum, item.AsInteger);
+          if not task.CancellationToken.IsSignalled then
+            output.TryAdd(sum);
+        end)
+      .Run;
+
+    Sleep(50);
+    pipeline.Cancel;
+    Assert.IsTrue(pipeline.WaitFor(CTimeout_ms),
+      Format('Iteration %d: pipeline.WaitFor timed out after Cancel', [k]));
+
+    // Format must not read value.AsInteger eagerly: an empty TOmniValue on
+    // Linux64 isn't guaranteed to land in ovtNull after a false TryTake and
+    // the cast would raise before reaching the assert.
+    Assert.IsFalse(pipeline.Output.TryTake(value),
+      Format('Iteration %d: cancelled pipeline leaked data — ' +
+             'CancellationToken was not signalled in final stage before its emission',
+             [k]));
+  end;
 end;
 
 procedure TestBugfixes.TestOmniValueCreateLeakOnInvalidType;
