@@ -32,10 +32,10 @@ differences between OmniThreadLibrary v3.07.x (Windows-only) and OTL NG
    the timeout is advisory there (see
    [POSIX Has No Safe Force-Kill](#posix-has-no-safe-force-kill))
 9. If you attach `TOmniEventMonitor` to an `IOmniThreadPool` with
-   `pool.MonitorWith(monitor)`, note that pool-level events
-   (`OnPoolThreadCreated`, `OnPoolWorkItemCompleted`, …) do not deliver
-   reliably on POSIX (see
-   [Thread Pool Monitor Callbacks on POSIX](#thread-pool-monitor-callbacks-on-posix))
+   `pool.MonitorWith(monitor)`, make sure the main thread pumps
+   `CheckSynchronize` — required by all console apps (any platform),
+   automatic in VCL / FMX (see
+   [Thread Pool Monitor Callbacks Need CheckSynchronize](#thread-pool-monitor-callbacks-need-checksynchronize-console-apps))
 
 ---
 
@@ -376,37 +376,42 @@ incomplete and makes `pthread_join` block forever.
 The three `TestJoin.TestTermination*` tests that exercise force-kill behavior
 are `[Ignore]`d on non-Windows for this reason.
 
-### Thread Pool Monitor Callbacks on POSIX
+### Thread Pool Monitor Callbacks Need CheckSynchronize (Console Apps)
 
-Pool-level events on `TOmniEventMonitor` do not deliver reliably on
-Linux64 and Android64:
+`TOmniEventMonitor`'s pool-level events —
 
 - `OnPoolThreadCreated`
 - `OnPoolThreadDestroying`
 - `OnPoolThreadKilled`
 - `OnPoolWorkItemCompleted`
 
-`pool.MonitorWith(monitor)` still installs the monitor on every
-platform — the gap is in delivery. `TOmniEventMonitor.NotifyThreadPool`
-dispatches via `TThread.ForceQueue`, which needs a main-thread
-`CheckSynchronize` pump to fire the callback; in OTL-NG console test
-runs on POSIX no such pump exists, so the queued notifications never
-invoke the handler.
+— dispatch through `TThread.ForceQueue` in OTL NG (v3 used a hidden
+window + `PostMessage`). `ForceQueue` posts the handler to the main
+thread's `TThread.Synchronize` queue, which only runs when something
+calls `CheckSynchronize`. This is platform-independent:
+
+- **GUI apps (VCL / FMX on Windows, Android, iOS, macOS, Linux):** the
+  framework's idle loop calls `CheckSynchronize` automatically —
+  callbacks fire without any extra work.
+- **Console apps (Win32 / Win64 / Linux64):** the main thread must
+  call `CheckSynchronize` (or `TThread.Synchronize` / `TThread.Queue`
+  wrappers) periodically, otherwise pool callbacks queue and never
+  run.
+
+If your OTL v3 console app relied on the hidden-window pump, add a
+periodic `CheckSynchronize(<timeout_ms>)` call on the main thread:
+
+```pascal
+// Typical console main-thread drain loop
+while not Done do begin
+  CheckSynchronize(100); // fires queued monitor callbacks
+  // ...other main-thread work...
+end;
+```
 
 Task-level events on the same monitor (`OnTaskMessage`,
-`OnTaskTerminated`, `OnTaskUndeliveredMessage`) *do* work cross-platform
-— they route through the owner's task observer chain, not through the
-pool monitor's queued dispatch.
-
-**User impact on POSIX:**
-- Code that passively observes pool lifecycle via
-  `OnPoolWorkItemCompleted` in a console or non-FMX context will not
-  receive callbacks. Replace that signal with `OnTaskTerminated` on
-  each scheduled task, or check completion via `task.WaitFor` /
-  `task.Stopped`.
-
-`TestOtlEventMonitor1.TestMonitorPoolWorkItemCompleted` is runtime-skipped
-(`Assert.Pass`) on non-Windows for this reason.
+`OnTaskTerminated`, `OnTaskUndeliveredMessage`) also route through
+`TThread.ForceQueue` and follow the same rule.
 
 ### Lock-Free Containers on Non-x86/Non-Windows
 
