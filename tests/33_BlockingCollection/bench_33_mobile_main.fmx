@@ -1,0 +1,41 @@
+object frmBench33Mobile: TfrmBench33Mobile
+  Left = 0
+  Top = 0
+  Caption = 'bench_33 mobile'
+  ClientHeight = 640
+  ClientWidth = 360
+  FormFactor.Width = 320
+  FormFactor.Height = 480
+  FormFactor.Devices = [Desktop]
+  OnShow = FormShow
+  DesignerMasterStyle = 0
+  object lblStatus: TLabel
+    Align = Top
+    Size.Width = 360.000000000000000000
+    Size.Height = 32.000000000000000000
+    Size.PlatformDefault = False
+    StyledSettings = [Family, Size, FontColor]
+    TextSettings.HorzAlign = Center
+    TextSettings.Font.Style = [fsBold]
+    Text = 'Starting bench_33...'
+    Margins.Left = 8.000000000000000000
+    Margins.Top = 8.000000000000000000
+    Margins.Right = 8.000000000000000000
+    Margins.Bottom = 4.000000000000000000
+  end
+  object memResults: TMemo
+    Align = Client
+    Size.Width = 360.000000000000000000
+    Size.Height = 608.000000000000000000
+    Size.PlatformDefault = False
+    StyledSettings = [Family, Size, FontColor, Style]
+    ReadOnly = True
+    ShowScrollBars = True
+    WordWrap = False
+    TabOrder = 0
+    Margins.Left = 8.000000000000000000
+    Margins.Top = 4.000000000000000000
+    Margins.Right = 8.000000000000000000
+    Margins.Bottom = 8.000000000000000000
+  end
+end
