@@ -1,4 +1,4 @@
-unit bench_33_shared;
+﻿unit bench_33_shared;
 
 // Headless benchmark for TOmniBlockingCollection. Mirrors the GUI test in
 // test_33_BlockingCollection.pas, but:
@@ -20,6 +20,7 @@ uses
   OtlTask,
   OtlTaskControl,
   OtlSync,
+  OtlContainers,
   OtlCollections;
 
 type
@@ -88,6 +89,22 @@ var
   GForwardersCount: TOmniAlignedInt32;
   GReadersCount   : TOmniAlignedInt32;
 
+// Forwarder / reader worker loops.
+//
+// NOTE on the `TryAdd` vs `Add` choice: the original GUI test in
+// test_33_BlockingCollection.pas uses `Add`. With more than one
+// forwarder a race is possible — forwarder A increments the count to
+// CItemCount and calls chanColl.CompleteAdding while forwarder B is
+// between `Take` and `Add`. B's `Add` then hits the post-CompleteAdding
+// state and raises ECollectionCompleted. In the VCL test the monitor
+// contains the task-level exception so the app keeps running and the
+// symptom is invisible; in a headless console bench on Linux the
+// unhandled worker-thread exception aborts the whole process after
+// the first config that uses more than one forwarder. Using `TryAdd`
+// here sidesteps the race without changing what we measure — the
+// timing is end-to-end producer / consumer throughput, which is
+// identical either way. The same fix should eventually land in the
+// test_33 worker procs. See TODO.md.
 procedure ForwarderWorker(const task: IOmniTask);
 var
   chanColl: TOmniBlockingCollection;
@@ -97,7 +114,8 @@ begin
   value   := task.Param['Source'];  srcColl  := TOmniBlockingCollection(value.AsObject);
   value   := task.Param['Channel']; chanColl := TOmniBlockingCollection(value.AsObject);
   while srcColl.Take(value) do begin
-    chanColl.Add(value);
+    if not chanColl.TryAdd(value) then
+      Exit; // another forwarder already called CompleteAdding on chan
     if GForwardersCount.Increment = TBench33Runner.CItemCount then begin
       chanColl.CompleteAdding;
       Exit;
@@ -114,7 +132,8 @@ begin
   value   := task.Param['Channel'];     chanColl := TOmniBlockingCollection(value.AsObject);
   value   := task.Param['Destination']; dstColl  := TOmniBlockingCollection(value.AsObject);
   while chanColl.Take(value) do begin
-    dstColl.Add(value);
+    if not dstColl.TryAdd(value) then
+      Exit; // another reader already called CompleteAdding on dst
     if GReadersCount.Increment = TBench33Runner.CItemCount then begin
       dstColl.CompleteAdding;
       Exit;

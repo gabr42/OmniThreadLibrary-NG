@@ -1,4 +1,4 @@
-///<summary>Console benchmark for TOmniBlockingCollection (Win32 / Win64 /
+﻿///<summary>Console benchmark for TOmniBlockingCollection (Win32 / Win64 /
 ///   Linux64). FMX variant lives in bench_33_mobile.dpr for Android64.
 ///   Runs the fixed N-forwarder × M-reader Take-path configurations defined
 ///   in bench_33_shared.pas and prints per-config avg/min/max ms.</summary>
@@ -32,6 +32,7 @@ begin
       procedure(const msg: string)
       begin
         Writeln(msg);
+        Flush(Output); // Linux RTL block-buffers stdout when redirected
       end);
   finally FreeAndNil(runner); end;
 end;
@@ -42,6 +43,7 @@ begin
   except
     on E: Exception do begin
       Writeln('Error: ', E.ClassName, ': ', E.Message);
+      Flush(Output);
       ExitCode := 1;
     end;
   end;

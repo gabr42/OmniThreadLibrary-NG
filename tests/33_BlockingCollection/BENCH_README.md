@@ -63,22 +63,47 @@ Swap `dcc32` → `dcc64` and `Win32` → `Win64` for 64-bit.
 
 ### Linux64
 
-Same manual-link workflow as `unittests/ConsoleTestRunner` and
-`benchmarks/comm_pingpong`: `dcclinux64` emits `.o` files, then the
-link runs via WSL against the Delphi-provided object archive.
+Manual-link workflow, same pattern as `unittests/ConsoleTestRunner`
+and `benchmarks/comm_pingpong`. Scaffolding under
+`C:\tmp_otl_link\`:
+
+- `make_bench_33_lnk_win.py` — derives `bench_33_console.lnk.src`
+  from the unittests' `ConsoleTestRunner.lnk` by dropping
+  DUnitX / `Test*.o` / `ConsoleTestRunner.o` / `SmokeTest.o` /
+  `OtlLogger.o` entries (bench_33 keeps `OtlCollections.o`, unlike
+  bench_pingpong).
+- `linkit_bench_33.sh` — reads the .lnk.src, translates Windows
+  paths to WSL-accessible staging paths via `translate_lnk.py`,
+  and invokes `ld` with the right entry symbol
+  (`_ZN16Bench_33_console14initializationEv`).
+
+The project root lives on `H:` (a `subst` for `D:\work`) which is
+not visible to WSL, so both the .lnk and the emitted `bench_33_console`
+binary live under `/mnt/c/tmp_otl_link/...` rather than in the
+project tree.
+
+One-shot flow:
 
 ```bash
+# 1. Emit objects (linker error is expected — we link manually below).
 cd tests/33_BlockingCollection
 mkdir -p Linux64/Debug
 "C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\dcclinux64.exe" \
   bench_33_console.dpr -B "-U../..;../../FastMM4" "-NSSystem" \
   -DDEBUG -CC -E"./Linux64/Debug" -NU"./Linux64/Debug"
+# 2. Stage bench objects into the WSL-accessible dir.
+cp -f ./Linux64/Debug/*.o /c/tmp_otl_link/Linux64/Debug/
+# 3. Regenerate the .lnk.src (once, after adding new OTL units to the bench).
+/c/Python313/python /c/tmp_otl_link/make_bench_33_lnk_win.py
+# 4. Link via WSL.
+MSYS_NO_PATHCONV=1 WSLENV= wsl -- bash /mnt/c/tmp_otl_link/linkit_bench_33.sh
+# 5. Run.
+MSYS_NO_PATHCONV=1 WSLENV= wsl -- /mnt/c/tmp_otl_link/Linux64/Debug/bench_33_console
 ```
 
-The link step fails under Windows (`ld-linux.exe` can't resolve
-`-lgcc_s`); follow the `comm_pingpong/README.md` pattern to derive
-a custom `.lnk` + WSL linker script from the unittests' link. That
-setup is one-time per bench target.
+Step 3 only needs re-running when the bench's Delphi-unit set changes
+(e.g. a new `uses` in `bench_33_shared.pas`). Everyday iterations on
+the bench body only need steps 1, 2, 4, 5.
 
 ### Android64
 

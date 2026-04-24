@@ -128,7 +128,15 @@ begin
       break; //repeat
     if testIsFinalized and isFinalized then
       task.Comm.Send(MSG_ERR, Format('Forwarder: Queue was empty before reading element %d', [value.AsInteger]));
-    chanColl.Add(value);
+    // Use TryAdd to tolerate the race where another forwarder already
+    // called chanColl.CompleteAdding between this worker's Take and Add.
+    // TOmniBlockingCollection.Add raises ECollectionCompleted in that
+    // window; the monitor-based test form silently swallowed those
+    // task-level exceptions, masking the issue. Headless runners on
+    // POSIX can abort the whole process when an unhandled worker
+    // exception escapes, so we check the return value instead.
+    if not chanColl.TryAdd(value) then
+      break; //repeat — chan already completed by another forwarder
     if GForwardersCount.Increment = CCountThreadedTest then begin
       GStopForwarders := true;
       chanColl.CompleteAdding;
@@ -179,7 +187,9 @@ begin
     end
     else if not chanColl.Take(value) then
       break; //repeat
-    dstColl.Add(value);
+    // See ForwarderWorker for why this uses TryAdd instead of Add.
+    if not dstColl.TryAdd(value) then
+      break; //repeat — dst already completed by another reader
     if GReadersCount.Increment = CCountThreadedTest then begin
       GStopReaders := true;
       dstColl.CompleteAdding;
