@@ -10,6 +10,7 @@ object frmForEachWithProgressBar: TfrmForEachWithProgressBar
   Font.Height = -11
   Font.Name = 'Tahoma'
   Font.Style = []
+  OnShow = FormShow
   TextHeight = 13
   object pbForEach: TProgressBar
     Left = 24

@@ -21,6 +21,8 @@ type
     [Test]
     procedure TestPipelineCancelSignalsTokenBeforeFinalStageEmits;
     [Test]
+    procedure TestUnobservedTaskInvokeDispatchesOnMainThread;
+    [Test]
     procedure TestOmniValueCreateLeakOnInvalidType;
     [Test]
     procedure TestBgObserverOnTerminatedFromBgThread;
@@ -342,6 +344,114 @@ begin
       Format('Iteration %d: cancelled pipeline leaked data — ' +
              'CancellationToken was not signalled in final stage before its emission',
              [k]));
+  end;
+end;
+
+procedure TestBugfixes.TestUnobservedTaskInvokeDispatchesOnMainThread;
+// Regression for test_55_ForEachProgress / test_43_InvokeAnonymous behaviour
+// after the Unobserved redesign (commit 153001d).
+//
+// The redesign stopped .Unobserved from calling CreateInternalMonitor,
+// which eliminated the TaskControl<->EventMonitor ref cycle that leaked
+// task controls in console apps. Side effect: Unobserved tasks no longer
+// had any comm-queue dispatcher, so messages sent from the task body via
+// task.Invoke(func) accumulated in the owner-side comm queue and func
+// never fired on the owner thread — the demo progress bar stayed at 0%
+// and OnStopInvoke-style closures never ran.
+//
+// Fix: .Unobserved installs a lightweight dispatcher (via
+// InstallUnobservedCommDispatcher) that drains the comm queue without
+// the ref cycle. For main-thread owners the observer posts drain
+// callbacks to the main thread via TThread.ForceQueue; VCL's
+// Application.Idle pumps CheckSynchronize automatically, console apps
+// must drain it themselves (DUnitX's TOtlTestBase.TearDown does that,
+// this test's spin loop also drains it during the wait).
+//
+// The test recreates the Parallel.ForEach(1..N).NoWait.OnStop.Execute
+// pattern from test_55 with a main-thread owner. It asserts that both
+// the per-iteration task.Invoke callback and the OnStop's task.Invoke
+// callback run on the main thread.
+const
+  CNumLoop    = 200;
+  CTimeout_ms = 15000;
+var
+  deadline_ms  : int64;
+  dispatchedTID: TThreadID;
+  invokedCount : integer;
+  stopInvoked  : boolean;
+  sw           : TStopwatch;
+  worker       : IOmniParallelLoop<integer>;
+begin
+  if TThread.CurrentThread.ThreadID <> MainThreadID then begin
+    // The FMX Android runner runs tests on a worker thread — it explicitly
+    // cannot exercise TThread.ForceQueue's main-thread-pump semantics. The
+    // ConsoleTestRunner on every other platform drives DUnitX from the
+    // main thread where this test is meaningful.
+    Assert.Pass('test runs only on the main thread; skipping on non-main-thread runner');
+    Exit;
+  end;
+
+  invokedCount := 0;
+  dispatchedTID := 0;
+  stopInvoked := false;
+
+  worker := Parallel.ForEach(1, CNumLoop)
+    .NoWait
+    .OnStop(
+      procedure (const task: IOmniTask)
+      begin
+        task.Invoke(
+          procedure
+          begin
+            stopInvoked := true;
+          end);
+      end);
+  worker.Execute(
+    procedure (const task: IOmniTask; const i: integer)
+    begin
+      // Small body work: let the main thread's drain catch up while the
+      // tasks are still producing. Without this the pool workers race
+      // through 200 trivial iterations and complete (and their TaskControls
+      // are released by the Unobserved cleanup thread) before the main
+      // thread gets to drain — any queued task.Invoke messages whose drain
+      // closure hadn't fired yet then become no-ops (the dispatcher has
+      // been cleared by Destroy). That is a latent tail-drain limitation
+      // common to Unobserved + cheap bodies; it matches the real-world
+      // test_55 demo which also sleeps per iter.
+      Sleep(1);
+      task.Invoke(
+        procedure
+        begin
+          Inc(invokedCount);
+          if dispatchedTID = 0 then
+            dispatchedTID := TThread.CurrentThread.ThreadID;
+        end);
+    end);
+
+  // Drive CheckSynchronize on the main thread until both the per-iteration
+  // callbacks and the OnStop callback have all fired, or we time out.
+  // Keep worker alive until after the assertions: once worker := nil the
+  // TaskControls run Destroy, which clears their dispatchers and makes any
+  // late main-thread drain closures no-ops.
+  sw := TStopwatch.StartNew;
+  deadline_ms := CTimeout_ms;
+  while ((invokedCount < CNumLoop) or (not stopInvoked))
+        and (sw.ElapsedMilliseconds < deadline_ms)
+  do begin
+    CheckSynchronize(10);
+  end;
+
+  try
+    Assert.AreEqual(CNumLoop, invokedCount,
+      Format('Only %d of %d per-iteration task.Invoke callbacks fired — ' +
+             'Unobserved comm dispatcher is not draining the owner queue',
+             [invokedCount, CNumLoop]));
+    Assert.IsTrue(stopInvoked,
+      'OnStop''s task.Invoke callback did not fire on the main thread');
+    Assert.AreEqual(MainThreadID, dispatchedTID,
+      'task.Invoke callback ran on a non-main-thread');
+  finally
+    worker := nil; // release after asserts so late callbacks aren't gated off
   end;
 end;
 

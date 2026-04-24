@@ -875,6 +875,7 @@ type
     function  FilterMessage(const msg: TOmniMessage): boolean;
     procedure ForwardTaskMessage(const msg: TOmniMessage);
     procedure ForwardTaskTerminated;
+    procedure FinalizeUnobservedCommDispatcher;
     property DebugFlags: TOmniTaskControlInternalDebugFlags read GetDebugFlags
       write SetDebugFlags;
     property TerminatedEvent: IOmniEvent read GetTerminatedEvent;
@@ -912,6 +913,8 @@ type
     otcUserData            : TOmniValueContainer;
   strict protected
     procedure CreateInternalMonitor;
+    procedure InstallUnobservedCommDispatcher;
+    procedure FinalizeUnobservedCommDispatcher;
     function  CreateTask: IOmniTask;
     procedure DestroyMonitor;
     procedure EnsureCommChannel; inline;
@@ -1543,6 +1546,13 @@ begin
   if assigned(unobservedRef) then begin
     if hasBgObserver then
       (unobservedRef as IOmniTaskControlInternals).ForwardTaskTerminated;
+    // If this task installed a lightweight comm dispatcher (Unobserved
+    // without an explicit OnMessage/OnTerminated monitor), flush it now so
+    // pending task.Invoke callbacks are delivered on the owner thread
+    // before the cleanup thread releases us. Otherwise Destroy nils the
+    // dispatcher and any not-yet-run ForceQueue'd drain closures become
+    // no-ops — the last few callbacks would silently disappear.
+    (unobservedRef as IOmniTaskControlInternals).FinalizeUnobservedCommDispatcher;
     // OtlTaskControl.finalization may have freed GUnobservedCleanup while a
     // pool worker is still finishing InternalExecute here (Pipeline.WaitFor
     // returns on opShutDownComplete, which a stage task sets before its
@@ -3022,6 +3032,15 @@ begin
     // on the owner's thread.
     if assigned(otcBgNotifyEvent) and assigned(otcOwnerExecutor_ref) then
       TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_UnregisterWaitObject(otcBgNotifyEvent);
+    // Main-thread observer (Unobserved with main-thread owner) needs its
+    // ForceQueue'd closures gated to no-ops; otcDispatcher.Clear above
+    // already nils the dispatch target, so any late closure is a soft
+    // no-op, but Shutdown cuts it off immediately.
+    var mtObs: IOmniContainerMainThreadObserver;
+    if Supports(otcBackgroundObserver, IOmniContainerMainThreadObserver, mtObs) then begin
+      mtObs.Shutdown;
+      mtObs := nil;
+    end;
     otcBgNotifyEvent := nil;
     otcOwnerExecutor_ref := nil;
     otcOwnerCtrlRef := nil;
@@ -3196,6 +3215,114 @@ begin
     ;
   end;
 end; { TOmniTaskControl.CreateInternalMonitor }
+
+procedure TOmniTaskControl.InstallUnobservedCommDispatcher;
+// Lightweight comm-channel dispatcher for tasks that call .Unobserved
+// without also registering OnMessage/OnTerminated. Without it, messages
+// sent by the task body via task.Invoke (and internal Invoke-style
+// callbacks such as Parallel.OnStopInvoke) accumulate in the owner-side
+// comm queue and nobody drains them — the user's callbacks never fire.
+//
+// The observer closure captures a TOmniTaskControlDispatcher (weak
+// pointer to Self, cleared in Destroy). No strong ref to the TaskControl
+// is held on the observer side, so there is no cycle — lifetime is
+// still driven by TOmniUnobservedCleanupThread via SharedInfo.UnobservedRef.
+//
+// Main-thread owners use TOmniContainerMainThreadObserver (TThread.ForceQueue
+// with coalescing + Shutdown gate). VCL's Application.Idle calls
+// CheckSynchronize, so the queued drain callback fires automatically.
+// Console apps must call CheckSynchronize themselves — see CLAUDE.md's
+// "Thread-to-main-thread communication" note.
+//
+// Non-main-thread owners reuse the bg-observer path, including wait-set
+// injection for OTL-worker owners.
+begin
+  if assigned(otcEventMonitor) or assigned(otcBackgroundObserver) then
+    Exit;
+  EnsureCommChannel;
+  otcDispatcher := TOmniTaskControlDispatcher.Create(Self);
+  var dispatcher: IOmniTaskControlDispatcher := otcDispatcher;
+  if otcOwnerThreadID = MainThreadID then begin
+    var mtObs: IOmniContainerMainThreadObserver :=
+      CreateContainerMainThreadObserver(
+        procedure begin dispatcher.Dispatch end);
+    otcBackgroundObserver := mtObs;
+    otcSharedInfo.BackgroundObserver := Pointer(mtObs);
+    otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Attach(
+      mtObs, coiNotifyOnAllInserts);
+  end
+  else begin
+    var bgObs: IOmniContainerBackgroundObserver := CreateContainerBackgroundObserver(
+      otcOwnerThreadID, procedure begin dispatcher.Dispatch end);
+    otcBackgroundObserver := bgObs;
+    otcSharedInfo.BackgroundObserver := Pointer(bgObs);
+    otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Attach(
+      bgObs, coiNotifyOnAllInserts);
+    if _CurrentOmniTaskExecutor <> nil then begin
+      otcBgNotifyEvent := bgObs.GetNotifyEvent;
+      otcOwnerExecutor_ref := _CurrentOmniTaskExecutor;
+      otcOwnerCtrlRef := TOmniTaskExecutor(otcOwnerExecutor_ref).Owner_ref as IOmniTaskControl;
+      TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_RegisterWaitObject(
+        otcBgNotifyEvent, HandleBackgroundNotification);
+    end
+    {$IFNDEF OTL_HasAPC}
+    else
+      RegisterBackgroundObserver(bgObs)
+    {$ENDIF}
+    ;
+  end;
+end; { TOmniTaskControl.InstallUnobservedCommDispatcher }
+
+procedure TOmniTaskControl.FinalizeUnobservedCommDispatcher;
+// Run at task-end (from TOmniTask.InternalExecute) so that any pending
+// task.Invoke callbacks are actually delivered on the owner thread before
+// the TOmniUnobservedCleanupThread releases this TaskControl. Without this
+// flush, the main-thread observer's ForceQueue'd drain closures can still
+// be sitting in the Classes TThread queue when Destroy nils the dispatch
+// target — those stale closures then become no-ops and the last handful
+// of Invoke callbacks are lost (visible as e.g. a progress bar that
+// stops at 99%, or an OnStop closure that never re-enables the button).
+//
+// Only runs when there are actually messages pending — most Unobserved
+// tasks don't use task.Invoke at all, and TThread.Synchronize would
+// deadlock any caller that blocks the main thread waiting for the task
+// to finish (e.g. WaitUntil(completed = N) in the pool tests).
+var
+  mtObs: IOmniContainerMainThreadObserver;
+begin
+  if not Supports(otcBackgroundObserver, IOmniContainerMainThreadObserver, mtObs) then
+    Exit;
+  // Snapshot is safe: the task body has returned before we get here, so
+  // no more messages can be enqueued from the task side.
+  if (not assigned(otcSharedInfo))
+     or otcSharedInfo.CommChannel.Endpoint1.Reader.IsEmpty
+  then
+    // Nothing pending — just gate the observer so any stale dispatch is a
+    // no-op, and return without touching Synchronize.
+    mtObs.Shutdown
+  else begin
+    try
+      // Synchronously drain the comm queue on the main thread. If we're
+      // already on the main thread, run directly; otherwise use
+      // TThread.Synchronize (the main thread's message pump processes it
+      // via CheckSynchronize — always true under Application.Run in VCL/FMX
+      // apps, and the standard contract for OTL console apps per
+      // CLAUDE.md).
+      if TThread.CurrentThread.ThreadID = MainThreadID then
+        ProcessMessages
+      else
+        TThread.Synchronize(nil,
+          procedure
+          begin
+            ProcessMessages;
+          end);
+    finally
+      // Gate any further ForceQueue'd closures — they would race with the
+      // subsequent TaskControl.Destroy otherwise.
+      mtObs.Shutdown;
+    end;
+  end;
+end; { TOmniTaskControl.FinalizeUnobservedCommDispatcher }
 
 function TOmniTaskControl.CreateTask: IOmniTask;
 begin
@@ -3812,23 +3939,39 @@ begin
     DestroyMonitor;
   end;
   if assigned(otcBackgroundObserver) then begin
-    var bgObs: IOmniContainerBackgroundObserver := otcBackgroundObserver as IOmniContainerBackgroundObserver;
-    // Unregister notification event from owner's wait set unconditionally.
+    // otcBackgroundObserver can be either IOmniContainerBackgroundObserver
+    // (non-main-thread owner, set by CreateInternalMonitor or by
+    // InstallUnobservedCommDispatcher's non-main-thread branch) or
+    // IOmniContainerMainThreadObserver (main-thread Unobserved dispatcher).
+    // Handle both — the shared parent is IOmniContainerObserver.
+    var obs: IOmniContainerObserver := otcBackgroundObserver as IOmniContainerObserver;
+    var bgObs: IOmniContainerBackgroundObserver;
+    var mtObs: IOmniContainerMainThreadObserver;
+    // Bg-observer specifics: wait-set unregister + APC-registry cleanup.
     // otcOwnerCtrlRef keeps the owner alive, so otcOwnerExecutor_ref is
     // safe to dereference from any thread Terminate may be called on.
-    if assigned(otcBgNotifyEvent) and assigned(otcOwnerExecutor_ref) then
-      TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_UnregisterWaitObject(otcBgNotifyEvent);
-    {$IFNDEF OTL_HasAPC}
-    if not assigned(otcOwnerExecutor_ref) then // was not registered as wait object
-      UnregisterBackgroundObserver(bgObs);
-    {$ENDIF}
+    if Supports(otcBackgroundObserver, IOmniContainerBackgroundObserver, bgObs) then begin
+      if assigned(otcBgNotifyEvent) and assigned(otcOwnerExecutor_ref) then
+        TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_UnregisterWaitObject(otcBgNotifyEvent);
+      {$IFNDEF OTL_HasAPC}
+      if not assigned(otcOwnerExecutor_ref) then // was not registered as wait object
+        UnregisterBackgroundObserver(bgObs);
+      {$ENDIF}
+      bgObs := nil;
+    end;
+    // Main-thread observer: gate future dispatches so stale closures queued
+    // on the main thread are no-ops once we tear down referenced state.
+    if Supports(otcBackgroundObserver, IOmniContainerMainThreadObserver, mtObs) then begin
+      mtObs.Shutdown;
+      mtObs := nil;
+    end;
     otcBgNotifyEvent := nil;
     otcOwnerExecutor_ref := nil;
     otcOwnerCtrlRef := nil;
     otcSharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject.Detach(
-      bgObs, coiNotifyOnAllInserts);
+      obs, coiNotifyOnAllInserts);
     otcSharedInfo.BackgroundObserver := nil;
-    bgObs := nil;
+    obs := nil;
     otcBackgroundObserver := nil;
     if assigned(otcDispatcher) then begin
       otcDispatcher.Clear;
@@ -3878,6 +4021,10 @@ end; { TOmniTaskControl.TerminateWhen }
 function TOmniTaskControl.Unobserved: IOmniTaskControl;
 begin
   otcSharedInfo.UnobservedRef := Self;
+  // Attach a lightweight comm-channel dispatcher so task.Invoke-style
+  // callbacks still reach the owner thread. No-op if OnMessage/OnTerminated
+  // already wired one up via CreateInternalMonitor.
+  InstallUnobservedCommDispatcher;
   Result := Self;
 end; { TOmniTaskControl.Unobserved }
 
