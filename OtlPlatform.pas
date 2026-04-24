@@ -35,10 +35,22 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Claude AI
 ///   Creation date     : 2018-05-16
-///   Last modification : 2026-04-12
-///   Version           : 2.01
+///   Last modification : 2026-04-24
+///   Version           : 2.02
 ///</para><para>
 ///   History:
+///     2.02: 2026-04-24
+///       - POSIX ThreadAffinity is now wired up on Linux and Android via
+///         sched_getaffinity / sched_setaffinity (pid=0 = calling thread).
+///         The pthread_* variants were rejected because Android bionic
+///         does not export pthread_setaffinity_np at the NDK sysroot API
+///         level Delphi ships. sched_* have been in libc on both glibc
+///         and bionic from day one. The CCPUIDs alphabet still caps at
+///         64 CPUs to stay representation-compatible with the Windows
+///         NativeUInt path. macOS / iOS remain no-op.
+///       - AffinityMaskToString / StringToAffinityMask are now visible on
+///         every platform (pure Pascal, no OS dependency) so POSIX callers
+///         can build the mask themselves.
 ///     2.01: 2026-04-12
 ///       - Added AffinityMaskToString and StringToAffinityMask functions
 ///         (moved from DSiWin32 for use by OtlCommon.pas).
@@ -61,6 +73,11 @@ uses
   {$IFDEF MSWINDOWS}
   Winapi.Windows,
   {$ENDIF MSWINDOWS}
+  {$IF Defined(LINUX) or Defined(ANDROID)}
+  Posix.Base,
+  Posix.Errno,
+  Posix.SysTypes,
+  {$IFEND}
   System.Classes,
   System.Diagnostics,
   System.SysUtils;
@@ -89,10 +106,8 @@ type
 
 function Time: PTimeSource; inline;
 
-{$IFDEF MSWINDOWS}
 function AffinityMaskToString(affinityMask: NativeUInt): string;
 function StringToAffinityMask(const affinity: string): NativeUInt;
-{$ENDIF MSWINDOWS}
 
 // must be global for inlining
 var
@@ -103,7 +118,6 @@ implementation
 const
   CCPUIDs = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@$';
 
-{$IFDEF MSWINDOWS}
 function AffinityMaskToString(affinityMask: NativeUInt): string;
 var
   idxID: integer;
@@ -127,7 +141,38 @@ begin
       Result := Result OR 1;
   end;
 end; { StringToAffinityMask }
-{$ENDIF MSWINDOWS}
+
+{$IF Defined(LINUX) or Defined(ANDROID)}
+// cpu_set_t with the default CPU_SETSIZE (1024 bits / 128 bytes).
+// glibc and bionic both use `unsigned long __bits[CPU_SETSIZE / NCPUBITS]`;
+// on 64-bit POSIX (the only platforms OTL-NG targets under this IFDEF)
+// `unsigned long` is 64 bits, so 16 slots × 8 bytes = 128 bytes. We only
+// expose the lowest 64 CPUs through the CCPUIDs string alphabet, matching
+// the Windows NativeUInt mask behaviour.
+type
+  TCpuSet = record
+    Bits: array[0..15] of UInt64;
+  end;
+  PCpuSet = ^TCpuSet;
+
+// sched_setaffinity / sched_getaffinity are preferred over the pthread_*_np
+// variants because they live in libc on every glibc and bionic release that
+// OTL-NG targets. pthread_setaffinity_np is only exported by Android bionic
+// starting at API level 24 and Delphi's NDK sysroot happens to be older
+// than that, so linking against pthread_setaffinity_np fails at link time.
+// sched_setaffinity with pid=0 targets the calling thread, matching the
+// pthread_self() semantics we actually want.
+//
+// Return value convention differs: sched_* returns -1 on error and sets
+// errno (unlike pthread_*_np which returns the error code directly). Callers
+// must read errno when the return value is non-zero.
+function sched_getaffinity(pid: pid_t; cpusetsize: size_t;
+  cpuset: PCpuSet): Integer; cdecl;
+  external libc name _PU + 'sched_getaffinity';
+function sched_setaffinity(pid: pid_t; cpusetsize: size_t;
+  cpuset: PCpuSet): Integer; cdecl;
+  external libc name _PU + 'sched_setaffinity';
+{$IFEND}
 
 { exports }
 
@@ -172,16 +217,36 @@ var
   systemAffinityMask : NativeUInt;
   threadAffinityMask : NativeUInt;
 {$ENDIF}
+{$IF Defined(LINUX) or Defined(ANDROID)}
+var
+  cpuSet: TCpuSet;
+  rc    : integer;
+{$IFEND}
 begin
   {$IFDEF MSWINDOWS}
   GetProcessAffinityMask(GetCurrentProcess, processAffinityMask, systemAffinityMask);
   threadAffinityMask := SetThreadAffinityMask(GetCurrentThread, processAffinityMask);
   SetThreadAffinityMask(GetCurrentThread, threadAffinityMask);
   Result := AffinityMaskToString(threadAffinityMask);
+  {$ELSEIF Defined(LINUX) or Defined(ANDROID)}
+  FillChar(cpuSet, SizeOf(cpuSet), 0);
+  // pid=0 → calling thread; matches pthread_self() semantics.
+  if sched_getaffinity(0, SizeOf(cpuSet), @cpuSet) <> 0 then begin
+    rc := errno;
+    raise Exception.CreateFmt(
+      'TPlatform.GetThreadAffinity: sched_getaffinity failed with errno %d: %s',
+      [rc, SysErrorMessage(rc)]);
+  end;
+  // Only the lowest 64 CPUs are representable through the CCPUIDs string
+  // alphabet; that matches the Windows NativeUInt mask behaviour. Higher
+  // CPUs in the kernel cpu_set_t are silently truncated.
+  Result := AffinityMaskToString(NativeUInt(cpuSet.Bits[0]));
   {$ELSE}
+  // macOS / iOS: no pthread_setaffinity_np equivalent (thread_policy_set is
+  // advisory on macOS, unavailable on iOS). Report "all processors" as a
+  // stable fallback so callers see a non-empty string.
   Result := Copy(CCPUIDs, 1, TThread.ProcessorCount);
-  // TODO : pthread_getaffinity_np
-  {$ENDIF MSWINDOWS}
+  {$IFEND}
 end; { TPlatform.GetThreadAffinity }
 
 class function TPlatform.GetThreadID: TThreadID;
@@ -196,14 +261,32 @@ var
   systemAffinityMask : NativeUInt;
   validatedMask      : NativeUInt;
 {$ENDIF}
+{$IF Defined(LINUX) or Defined(ANDROID)}
+var
+  cpuSet: TCpuSet;
+  rc    : integer;
+{$IFEND}
 begin
   {$IFDEF MSWINDOWS}
   GetProcessAffinityMask(GetCurrentProcess, processAffinityMask, systemAffinityMask);
   validatedMask := processAffinityMask AND StringToAffinityMask(value);
   SetThreadAffinityMask(GetCurrentThread, validatedMask);
+  {$ELSEIF Defined(LINUX) or Defined(ANDROID)}
+  FillChar(cpuSet, SizeOf(cpuSet), 0);
+  // The CCPUIDs alphabet addresses the lowest 64 CPUs; anything beyond is
+  // not expressible through the string interface. If the caller passes an
+  // empty string the mask is 0, and sched_setaffinity will reject it with
+  // EINVAL — we surface that error unchanged.
+  cpuSet.Bits[0] := UInt64(StringToAffinityMask(value));
+  if sched_setaffinity(0, SizeOf(cpuSet), @cpuSet) <> 0 then begin
+    rc := errno;
+    raise Exception.CreateFmt(
+      'TPlatform.SetThreadAffinity: sched_setaffinity failed with errno %d: %s',
+      [rc, SysErrorMessage(rc)]);
+  end;
   {$ELSE}
-  // TODO : pthread_setaffinity_np
-  {$ENDIF MSWINDOWS}
+  // macOS / iOS: no-op (see GetThreadAffinity).
+  {$IFEND}
 end; { TPlatform.SetThreadAffinity }
 
 initialization

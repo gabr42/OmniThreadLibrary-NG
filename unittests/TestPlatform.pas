@@ -23,15 +23,16 @@ type
     procedure TestThreadID;
     [Test]
     procedure TestThreadAffinityNotEmpty;
-    {$IFDEF MSWINDOWS}
     [Test]
     procedure TestAffinityMaskRoundTrip;
-    {$ELSE}
+    {$IF Defined(LINUX) or Defined(ANDROID)}
     [Test]
-    procedure TestPosixThreadAffinityMatchesProcessorCount;
+    procedure TestPosixSetThreadAffinityRestrictsAndRestores;
+    {$IFEND}
+    {$IF Defined(MACOS) and not Defined(LINUX) and not Defined(ANDROID)}
     [Test]
-    procedure TestPosixSetThreadAffinityIsNoOp;
-    {$ENDIF}
+    procedure TestMacOSThreadAffinityIsNoOp;
+    {$IFEND}
   end;
 
 implementation
@@ -139,7 +140,6 @@ begin
   Assert.IsFalse(affinity.IsEmpty, 'Thread affinity should not be empty');
 end;
 
-{$IFDEF MSWINDOWS}
 procedure TPlatformTest.TestAffinityMaskRoundTrip;
 begin
   // Test single CPU
@@ -162,34 +162,53 @@ begin
   Assert.AreEqual(1, Length(s), Format('bit-63 mask should map to 1 char, got "%s"', [s]));
   Assert.AreEqual<NativeUInt>(mask, StringToAffinityMask(s));
 end;
-{$ELSE}
-procedure TPlatformTest.TestPosixThreadAffinityMatchesProcessorCount;
-begin
-  // Documented POSIX fallback: GetThreadAffinity returns a prefix of the
-  // CCPUIDs alphabet of exactly ProcessorCount characters (pthread_getaffinity_np
-  // is not yet wired up). If the POSIX branch ever grows real affinity
-  // support this test must be revisited.
-  var affinity := TPlatform.ThreadAffinity;
-  Assert.AreEqual(TThread.ProcessorCount, Length(affinity),
-    Format('POSIX ThreadAffinity length (%d) must match ProcessorCount (%d); got "%s"',
-      [Length(affinity), TThread.ProcessorCount, affinity]));
-end;
 
-procedure TPlatformTest.TestPosixSetThreadAffinityIsNoOp;
+{$IF Defined(LINUX) or Defined(ANDROID)}
+procedure TPlatformTest.TestPosixSetThreadAffinityRestrictsAndRestores;
 begin
-  // pthread_setaffinity_np is not wired up yet, so SetThreadAffinity is a
-  // documented no-op on POSIX. Writing an arbitrary (even nonsense) value
-  // must not change what GetThreadAffinity later returns.
+  // Linux/Android now wire TPlatform.ThreadAffinity to pthread_getaffinity_np /
+  // pthread_setaffinity_np. The behaviour should mirror Windows: setting a
+  // narrower mask restricts the thread; reading back returns the current
+  // (restricted) mask. Restore the original mask at the end so the test does
+  // not leave the runner thread pinned for later tests.
   var before := TPlatform.ThreadAffinity;
-  TPlatform.ThreadAffinity := '0';               // request: CPU 0 only
-  var after1 := TPlatform.ThreadAffinity;
-  TPlatform.ThreadAffinity := 'not-a-real-mask'; // request: garbage
-  var after2 := TPlatform.ThreadAffinity;
-  Assert.AreEqual(before, after1,
-    'SetThreadAffinity(''0'') must be a no-op on POSIX');
-  Assert.AreEqual(before, after2,
-    'SetThreadAffinity(garbage) must be a no-op on POSIX');
+  Assert.IsFalse(before.IsEmpty, 'baseline affinity should not be empty');
+
+  // Skip the restrict-test on a 1-CPU runner — pinning to CPU 0 is a no-op
+  // there and the assertion below would fire spuriously.
+  if Length(before) < 2 then
+    Exit;
+
+  try
+    TPlatform.ThreadAffinity := '0'; // restrict to CPU 0
+    var restricted := TPlatform.ThreadAffinity;
+    Assert.AreEqual('0', restricted,
+      Format('SetThreadAffinity(''0'') should leave only CPU 0 active, got "%s"',
+        [restricted]));
+  finally
+    // Best-effort restore; if pthread_setaffinity_np still rejects the
+    // original mask (cgroup changes mid-test etc.) we let the exception
+    // propagate so the failure is loud, not silent.
+    TPlatform.ThreadAffinity := before;
+  end;
+
+  var after := TPlatform.ThreadAffinity;
+  Assert.AreEqual(before, after,
+    Format('Affinity was not restored (before="%s", after="%s")', [before, after]));
 end;
-{$ENDIF}
+{$IFEND}
+
+{$IF Defined(MACOS) and not Defined(LINUX) and not Defined(ANDROID)}
+procedure TPlatformTest.TestMacOSThreadAffinityIsNoOp;
+begin
+  // macOS has no pthread_setaffinity_np; OtlPlatform documents this branch
+  // as a no-op. GetThreadAffinity returns a ProcessorCount-length prefix of
+  // CCPUIDs; SetThreadAffinity does nothing and must not raise.
+  var before := TPlatform.ThreadAffinity;
+  TPlatform.ThreadAffinity := '0';
+  Assert.AreEqual(before, TPlatform.ThreadAffinity,
+    'macOS SetThreadAffinity must be a no-op');
+end;
+{$IFEND}
 
 end.
