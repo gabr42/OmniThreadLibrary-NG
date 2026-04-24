@@ -9,7 +9,7 @@ differences between OmniThreadLibrary v3.07.x (Windows-only) and OTL NG
 | Aspect | OTL v3 | OTL NG |
 |--------|--------|--------|
 | Minimum Delphi | 2007 | **Delphi 11 Alexandria** |
-| Platforms | Win32, Win64 | Win32, Win64 (full), Linux64 (near-full, 3 POSIX-specific skips); WinARM64/macOS/iOS/Android targeted but unverified |
+| Platforms | Win32, Win64 | Win32, Win64 (full), Linux64 (near-full, 3 POSIX-specific skips), Android64 (FMX runner verified on ARM64 device); WinARM64 compiles (no runtime); macOS/iOS targeted but unverified |
 | Test framework | DUnit | DUnitX |
 | External dependencies | GpLists, GpStringHash, DSiWin32 | **None** (all inlined or replaced with RTL) |
 
@@ -33,8 +33,9 @@ differences between OmniThreadLibrary v3.07.x (Windows-only) and OTL NG
    [POSIX Has No Safe Force-Kill](#posix-has-no-safe-force-kill))
 9. If you attach `TOmniEventMonitor` to an `IOmniThreadPool` with
    `pool.MonitorWith(monitor)`, note that pool-level events
-   (`OnPoolThreadCreated`, `OnPoolWorkItemCompleted`, …) are Windows-only
-   (see [Thread Pool Monitor is Windows-only](#thread-pool-monitor-is-windows-only))
+   (`OnPoolThreadCreated`, `OnPoolWorkItemCompleted`, …) do not deliver
+   reliably on POSIX (see
+   [Thread Pool Monitor Callbacks on POSIX](#thread-pool-monitor-callbacks-on-posix))
 
 ---
 
@@ -98,9 +99,11 @@ removed from `OtlContainerObserver.pas`.
 **Replaced by:** Cross-platform observers:
 - Main thread: `CreateContainerMainThreadObserver()` from
   `OtlContainerObserver.pas` (dispatches a `TProc` callback via
-  `TThread.ForceQueue`; multiple notifications coalesce into one)
+  `TThread.ForceQueue`; multiple notifications coalesce into one).
 - Background threads: `CreateContainerBackgroundObserver()` from
-  `OtlBackgroundObserver.pas` (APC on Windows, CV-based on POSIX)
+  `OtlBackgroundObserver.pas`. Windows uses `QueueUserAPC` into the
+  target thread's alertable wait; POSIX uses an atomic pending flag +
+  thread-local registry drained by `DrainBackgroundObservers`.
 
 ---
 
@@ -112,12 +115,13 @@ CreateTask(worker)
   .Alertable           // deprecated: task loop uses CV-based waiting
   .Run;
 
-// Replace two-parameter SetTimer with three-parameter version
+// Replace the old one/two-parameter SetTimer with the three-parameter
+// overload: timerID first, then interval (ms), then the message.
 // Old:
 task.SetTimer(1000);
 task.SetTimer(1000, MSG_TIMER);
 // New:
-task.SetTimer(1000, MSG_TIMER, timerID);
+task.SetTimer(timerID, 1000, MSG_TIMER);
 ```
 
 ### .MsgWait Reinstated (Windows only)
@@ -247,27 +251,27 @@ is accepted but has no effect.
 
 ### OtlBackgroundObserver
 
-New unit providing cross-platform background-thread notification:
+New unit providing cross-platform background-thread notification. The
+factory returns an `IOmniContainerBackgroundObserver` interface
+(reference-counted — no explicit `Free` needed):
 
 ```pascal
 uses OtlBackgroundObserver;
 
 var
-  observer: TObject;
+  observer: IOmniContainerBackgroundObserver;
 begin
   observer := CreateContainerBackgroundObserver(
     TThread.Current.ThreadID,
-    procedure begin HandleNotification; end
-  );
-  // ...
-  observer.Free;
+    procedure begin HandleNotification; end);
+  // ...use observer — release by letting it go out of scope.
 end;
 ```
 
-- **Windows:** Uses `QueueUserAPC` for zero-latency delivery during alertable
-  waits
+- **Windows:** Uses `QueueUserAPC` for zero-latency delivery into the
+  target thread's alertable wait.
 - **POSIX:** Uses atomic pending flag + thread-local registry; call
-  `DrainBackgroundObservers` from your thread loop
+  `DrainBackgroundObservers` from your thread loop.
 
 ---
 
@@ -301,10 +305,17 @@ work as-is and are now safer.
 
 ### Plain TThread Owners
 
-In OTL v3, if you created and owned an OTL task from a background thread, Windows
-APC delivery (via `SleepEx`) handled notification dispatch implicitly.
+In OTL v3, `TOmniEventMonitor` dispatched `OnTaskMessage` / `OnTaskTerminated`
+callbacks through Windows messages posted to a hidden window (created
+via `AllocateHWnd`) — delivery required a Windows message pump on the
+owner thread.
 
-In OTL NG, background-thread owners must explicitly process messages:
+OTL NG removes the hidden-window infrastructure. Dispatch now uses an
+APC-based path on Windows (`OtlBackgroundObserver` queues the callback
+via `QueueUserAPC` into the owner thread's alertable wait) and a
+manual-drain flag with thread-local observer registry on POSIX. Either
+way, background-thread owners have to give OTL a chance to run
+callbacks:
 
 ```pascal
 // OTL NG — owning a task from a plain TThread
@@ -365,28 +376,34 @@ incomplete and makes `pthread_join` block forever.
 The three `TestJoin.TestTermination*` tests that exercise force-kill behavior
 are `[Ignore]`d on non-Windows for this reason.
 
-### Thread Pool Monitor is Windows-only
+### Thread Pool Monitor Callbacks on POSIX
 
-`TOmniThreadPool.MonitorWith(monitor)` is a no-op on Linux64 and Android64.
-The call site in `OtlThreadPool.pas` is guarded by `{$IFDEF MSWINDOWS}`, so
-the pool manager never installs its monitor observer on non-Windows targets
-and **no pool-level events fire**:
+Pool-level events on `TOmniEventMonitor` do not deliver reliably on
+Linux64 and Android64:
 
 - `OnPoolThreadCreated`
 - `OnPoolThreadDestroying`
 - `OnPoolThreadKilled`
 - `OnPoolWorkItemCompleted`
 
-Task-level events on the same `TOmniEventMonitor` (`OnTaskMessage`,
-`OnTaskTerminated`, `OnTaskUndeliveredMessage`) *do* work cross-platform —
-only the pool-observation hook is Windows-only.
+`pool.MonitorWith(monitor)` still installs the monitor on every
+platform — the gap is in delivery. `TOmniEventMonitor.NotifyThreadPool`
+dispatches via `TThread.ForceQueue`, which needs a main-thread
+`CheckSynchronize` pump to fire the callback; in OTL-NG console test
+runs on POSIX no such pump exists, so the queued notifications never
+invoke the handler.
+
+Task-level events on the same monitor (`OnTaskMessage`,
+`OnTaskTerminated`, `OnTaskUndeliveredMessage`) *do* work cross-platform
+— they route through the owner's task observer chain, not through the
+pool monitor's queued dispatch.
 
 **User impact on POSIX:**
-- Code that passively observes pool lifecycle via `OnPoolWorkItemCompleted`
-  will appear to work (no error, no warning) but never receive callbacks.
-  If you use that signal to trigger follow-up work, replace it with an
-  explicit `OnTaskTerminated` on each scheduled task, or check task
-  completion via `task.WaitFor` / `task.Stopped`.
+- Code that passively observes pool lifecycle via
+  `OnPoolWorkItemCompleted` in a console or non-FMX context will not
+  receive callbacks. Replace that signal with `OnTaskTerminated` on
+  each scheduled task, or check completion via `task.WaitFor` /
+  `task.Stopped`.
 
 `TestOtlEventMonitor1.TestMonitorPoolWorkItemCompleted` is runtime-skipped
 (`Assert.Pass`) on non-Windows for this reason.
@@ -489,9 +506,10 @@ CreateTask(worker)
   .SetTimer(1000)
   .Run;
 
-// OTL NG (most workers drop .Alertable/.MsgWait)
+// OTL NG (most workers drop .Alertable/.MsgWait; SetTimer args are
+// timerID, interval_ms, message)
 CreateTask(worker)
-  .SetTimer(1000, MSG_TIMER, timerID)
+  .SetTimer(timerID, 1000, MSG_TIMER)
   .Run;
 ```
 
@@ -511,17 +529,22 @@ begin
   end;
 end;
 
-// OTL NG
+// OTL NG — WaitFor.Signalled is `array of THandleInfo` (record with
+// `Index: integer`), NOT a boolean array. Iterate to see which
+// IOmniEvents signalled in the winning slice.
 var
   waitFor: TWaitFor;
+  info   : TWaitFor.THandleInfo;
 begin
   waitFor := TWaitFor.Create([event1, event2]);
   try
     case waitFor.WaitAny(1000) of
-      waAwaited: begin
-        if waitFor.Signalled[0] then HandleEvent1;
-        if waitFor.Signalled[1] then HandleEvent2;
-      end;
+      waAwaited:
+        for info in waitFor.Signalled do
+          case info.Index of
+            0: HandleEvent1;
+            1: HandleEvent2;
+          end;
       waTimeout: HandleTimeout;
     end;
   finally waitFor.Free; end;
@@ -537,7 +560,7 @@ var
   observer: TOmniContainerWindowsMessageObserver;
 begin
   observer := CreateContainerWindowsMessageObserver(Handle, WM_USER + 1, 0, 0);
-  collection.ContainerSubject.Attach(observer, cycNotify);
+  collection.ContainerSubject.Attach(observer, coiNotifyOnAllInserts);
 
 // OTL NG (cross-platform, main-thread owner)
 uses OtlContainerObserver;
