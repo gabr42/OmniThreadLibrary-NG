@@ -560,7 +560,7 @@ No existing tests. All new:
 - [x] Notification coalescing — multiple Notify calls before drain result in single callback invocation
 
 #### 5.5.10 Test compilation hygiene
-- [ ] All test units compile cleanly across Win32 / Win64 / Linux64 / Android64 / ARM64EC — no hints, no warnings. Currently `TestStressBackgroundObserver1.pas` and `TestStressContainerObserver1.pas` emit `H2443 Inline function 'TTimeSource.Timestamp_ms' has not been expanded because unit 'System.Diagnostics' is not specified in USES list` on Win32/Win64.
+- [x] All test units compile cleanly across Win32 / Win64 / Linux64 / Android64 / ARM64EC — no hints, no warnings. (H2443 `TTimeSource.Timestamp_ms` hints in `TestStressBackgroundObserver1.pas`, `TestStressContainerObserver1.pas`, `TestStressOtlSync1.pas` fixed by adding `System.Diagnostics` to each unit's implementation uses so the inline expands.) Remaining: two H2445 hints in `TestTask.pas` for `TInterlocked.Increment` — that's the inline-in-interface-from-implementation-uses limitation of the Delphi compiler, not fixable without restructuring unrelated code.
 
 #### 5.5.11 Demos for new Parallel abstractions ✅
 - [x] Write demos for `Parallel.Channel` → `tests/68_Channel` (basic send/receive, cross-thread producer/consumer, bounded TrySend)

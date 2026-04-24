@@ -34,6 +34,7 @@ implementation
 
 uses
   System.SysUtils,
+  System.Diagnostics,
   OtlPlatform,
   OtlTaskControl;
 

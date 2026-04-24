@@ -8,6 +8,9 @@ uses
   {$IFDEF MSWindows}
   Winapi.Windows,
   {$ENDIF}
+  {$IFDEF POSIX}
+  Posix.Pthread,
+  {$ENDIF}
   System.SysUtils, System.SyncObjs, System.Classes, System.Threading, System.Diagnostics,
   OtlContainers,
   TestOtlBase,

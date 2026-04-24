@@ -41,6 +41,7 @@ uses
   System.SysUtils,
   System.Classes,
   System.SyncObjs,
+  System.Diagnostics,
   OtlSync,
   OtlPlatform,
   OtlBackgroundObserver;
