@@ -9,7 +9,7 @@ differences between OmniThreadLibrary v3.07.x (Windows-only) and OTL NG
 | Aspect | OTL v3 | OTL NG |
 |--------|--------|--------|
 | Minimum Delphi | 2007 | **Delphi 11 Alexandria** |
-| Platforms | Win32, Win64 | Win32, Win64 (full), Linux64 (near-full, 3 POSIX-specific skips), Android64 (FMX runner verified on ARM64 device); WinARM64 compiles (no runtime); macOS/iOS targeted but unverified |
+| Platforms | Win32, Win64 | Win32, Win64 (313/313), Linux64 (308/311 + 3 POSIX skips), Android64 (308/311 + 3 POSIX skips, FMX runner on ARM64 device); WinARM64 compiles (no runtime); macOS/iOS targeted but unverified |
 | Test framework | DUnit | DUnitX |
 | External dependencies | GpLists, GpStringHash, DSiWin32 | **None** (all inlined or replaced with RTL) |
 
