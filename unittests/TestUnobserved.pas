@@ -60,6 +60,10 @@ const
 
 { Sentinel for tracking task control lifetime.
   Increments a shared counter on creation, decrements on destruction.
+  Optionally signals a destroy-event on destruction — the TestControl*
+  tests wait on that event to observe destructor completion deterministically
+  (polling the counter times out transiently under CPU load when the
+  GUnobservedCleanup thread is backlogged or scheduler-delayed).
   Pass as a task parameter — the task control's parameter container holds
   a strong reference. When the task control is freed, the sentinel is
   released and the counter drops. }
@@ -71,22 +75,26 @@ type
 
   TSentinel = class(TInterfacedObject, ISentinel)
   strict private
-    FCount: PInteger;
+    FCount       : PInteger;
+    FDestroyEvent: IOmniEvent;
   public
-    constructor Create(count: PInteger);
+    constructor Create(count: PInteger; const destroyEvent: IOmniEvent = nil);
     destructor  Destroy; override;
   end;
 
-constructor TSentinel.Create(count: PInteger);
+constructor TSentinel.Create(count: PInteger; const destroyEvent: IOmniEvent);
 begin
   inherited Create;
   FCount := count;
+  FDestroyEvent := destroyEvent;
   TInterlocked.Increment(FCount^);
 end;
 
 destructor TSentinel.Destroy;
 begin
   TInterlocked.Decrement(FCount^);
+  if assigned(FDestroyEvent) then
+    FDestroyEvent.SetEvent;
   inherited;
 end;
 
@@ -297,20 +305,29 @@ end;
 
 procedure TestUnobservedTask.TestScheduleControlReleased;
 var
-  sentinelCount: integer;
-  sentinel     : IInterface;
-  event        : IOmniEvent;
+  sentinelCount : integer;
+  sentinel      : IInterface;
+  ranEvent      : IOmniEvent;
+  releasedEvent : IOmniEvent;
 begin
+  // Deterministic: the sentinel destructor signals releasedEvent after
+  // decrementing the counter, so we wait on that rather than polling. The
+  // earlier polling version timed out transiently under full-suite CPU load
+  // when the GUnobservedCleanup thread's scheduling was delayed — not a
+  // real leak, just measurement-induced flake.
   sentinelCount := 0;
-  sentinel := TSentinel.Create(@sentinelCount);
-  event := CreateOmniEvent(false, false);
-  ScheduleUnobservedWithSentinel(sentinel, event);
+  ranEvent      := CreateOmniEvent(false, false);
+  releasedEvent := CreateOmniEvent(false, false);
+  sentinel := TSentinel.Create(@sentinelCount, releasedEvent);
+  ScheduleUnobservedWithSentinel(sentinel, ranEvent);
   sentinel := nil; // release our ref; task control holds it via parameters
-  Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
+  Assert.IsTrue(ranEvent.WaitFor(CTimeout_ms) = wrSignaled,
     'Task did not run');
-  // Wait for the task control to be released (sentinel count drops to 0)
-  Assert.IsTrue(WaitForCount(sentinelCount, 0, CTimeout_ms),
-    'Task control was not released (reference leaked)');
+  Assert.IsTrue(releasedEvent.WaitFor(CTimeout_ms) = wrSignaled,
+    Format('Task control was not released within %d ms (sentinel count=%d)',
+      [CTimeout_ms, sentinelCount]));
+  Assert.AreEqual<integer>(0, sentinelCount,
+    'Sentinel destructor signalled but counter was not zero');
 end;
 
 procedure RunUnobservedWithSentinel(sentinel: IInterface; event: IOmniEvent);
@@ -327,19 +344,26 @@ end;
 
 procedure TestUnobservedTask.TestRunControlReleased;
 var
-  sentinelCount: integer;
-  sentinel     : IInterface;
-  event        : IOmniEvent;
+  sentinelCount : integer;
+  sentinel      : IInterface;
+  ranEvent      : IOmniEvent;
+  releasedEvent : IOmniEvent;
 begin
+  // See TestScheduleControlReleased for why this is event-driven rather
+  // than polling.
   sentinelCount := 0;
-  sentinel := TSentinel.Create(@sentinelCount);
-  event := CreateOmniEvent(false, false);
-  RunUnobservedWithSentinel(sentinel, event);
+  ranEvent      := CreateOmniEvent(false, false);
+  releasedEvent := CreateOmniEvent(false, false);
+  sentinel := TSentinel.Create(@sentinelCount, releasedEvent);
+  RunUnobservedWithSentinel(sentinel, ranEvent);
   sentinel := nil;
-  Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
+  Assert.IsTrue(ranEvent.WaitFor(CTimeout_ms) = wrSignaled,
     'Task did not run');
-  Assert.IsTrue(WaitForCount(sentinelCount, 0, CTimeout_ms),
-    'Task control was not released (reference leaked)');
+  Assert.IsTrue(releasedEvent.WaitFor(CTimeout_ms) = wrSignaled,
+    Format('Task control was not released within %d ms (sentinel count=%d)',
+      [CTimeout_ms, sentinelCount]));
+  Assert.AreEqual<integer>(0, sentinelCount,
+    'Sentinel destructor signalled but counter was not zero');
 end;
 
 procedure TestUnobservedTask.TestRepeatedSchedule;
