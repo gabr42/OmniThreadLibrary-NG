@@ -250,20 +250,25 @@ end;
 
 procedure TfrmTestTWaitFor.WaitForAny(timeout_ms: cardinal;
   expectedResult: TWaitFor.TWaitForResult; const msg: string; checkHandle: integer);
+var
+  awaited: TWaitFor.TWaitForResult;
 begin
   if msg <> '' then
     Log(msg);
-  if FWaiter.WaitAny(timeout_ms) = expectedResult then begin
+  awaited := FWaiter.WaitAny(timeout_ms);
+  if awaited = expectedResult then begin
     if (checkHandle >= 0) and
        ((Length(FWaiter.Signalled) <> 1) or
         (FWaiter.Signalled[0].Index <> checkHandle))
     then
-      raise Exception.Create('WaitAny returned unexpected handle number');
+      raise Exception.CreateFmt('WaitAny returned unexpected handle number (%d, expected %d)',
+                                [FWaiter.Signalled[0].Index, checkHandle]);
     if msg <> '' then
       Log('  OK');
   end
   else
-    raise Exception.Create('WaitAny returned unexpected result');
+    raise Exception.CreateFmt('WaitAny returned unexpected result (%d, expected %d)',
+                              [Ord(awaited), Ord(expectedResult)]);
 end;
 
 end.

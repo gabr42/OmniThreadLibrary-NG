@@ -23,6 +23,8 @@ type
     [Test]
     procedure TestUnobservedTaskInvokeDispatchesOnMainThread;
     [Test]
+    procedure TestWaitForManyRawHandlesExternalSignal;
+    [Test]
     procedure TestOmniValueCreateLeakOnInvalidType;
     [Test]
     procedure TestBgObserverOnTerminatedFromBgThread;
@@ -31,6 +33,7 @@ type
 implementation
 
 uses
+  {$IFDEF MSWINDOWS}Winapi.Windows,{$ENDIF}
   System.Classes, System.SysUtils, System.SyncObjs, System.Diagnostics,
   System.Generics.Collections,
   OtlCommon, OtlSync, OtlParallel, OtlCollections, OtlTask, OtlTaskControl,
@@ -454,6 +457,70 @@ begin
     worker := nil; // release after asserts so late callbacks aren't gated off
   end;
 end;
+
+procedure TestBugfixes.TestWaitForManyRawHandlesExternalSignal;
+// Regression for test_59_TWaitFor (130 raw HANDLEs) after the CV-based
+// TWaitFor rewrite. The old OTL v3 used WaitForMultipleObjects for
+// <= 64 handles and RegisterWaitForSingleObject for > 64 handles.
+// OTL-NG's initial rewrite kept only the WaitForMultipleObjects fast
+// path and relied on an observer-based slow path for the > 64 case.
+//
+// That broke TWaitFor.Create(array of THandle) with > 64 raw HANDLEs:
+// externally signalling one via Windows.SetEvent updates the kernel
+// event but does NOT route through IOmniEvent.SetEvent, so none of
+// OTL's observer/CV notifications ever fire and the slow path waits
+// out the full timeout. Visible break in test_59's "second button"
+// (`btnWaitForAnyClick` with 130 handles): the per-handle WaitAny(100)
+// returned waTimeout (1) instead of waAwaited (0).
+//
+// Fix: TCondition.TryKernelLargeSet — when the handle count is above
+// MAXIMUM_WAIT_OBJECTS and every synch object has a kernel HANDLE, use
+// RegisterWaitForSingleObject to dispatch per-handle signals into a
+// manual-reset shared event (WaitAny) or a resource count (WaitAll).
+// Mirrors the v3 behaviour.
+{$IFDEF MSWINDOWS}
+const
+  CHandleCount = 130;
+  CTimeout_ms  = 2000;
+var
+  handles : array of THandle;
+  i       : integer;
+  waiter  : TWaitFor;
+  target  : integer;
+begin
+  SetLength(handles, CHandleCount);
+  for i := 0 to CHandleCount - 1 do
+    handles[i] := Winapi.Windows.CreateEvent(nil, False {auto-reset}, False, nil);
+  waiter := TWaitFor.Create(handles);
+  try
+    // A: nothing signalled — must time out within the timeout, not hang.
+    Assert.AreEqual(Ord(TWaitFor.TWaitForResult.waTimeout),
+      Ord(waiter.WaitAny(100)),
+      'WaitAny with no signal should time out');
+
+    // B: signal a specific handle in the middle of the set; WaitAny must
+    //    wake and report exactly that index.
+    target := 97;
+    Winapi.Windows.SetEvent(handles[target]);
+    Assert.AreEqual(Ord(TWaitFor.TWaitForResult.waAwaited),
+      Ord(waiter.WaitAny(CTimeout_ms)),
+      Format('WaitAny did not wake on external SetEvent of handle %d ' +
+             '(> MAXIMUM_WAIT_OBJECTS path)', [target]));
+    Assert.AreEqual(integer(1), integer(Length(waiter.Signalled)),
+      'Signalled set should contain exactly one entry');
+    Assert.AreEqual(integer(target), integer(waiter.Signalled[0].Index),
+      Format('Wrong Signalled.Index (expected %d)', [target]));
+  finally
+    waiter.Free;
+    for i := 0 to CHandleCount - 1 do
+      Winapi.Windows.CloseHandle(handles[i]);
+  end;
+end;
+{$ELSE}
+begin
+  Assert.Pass('Windows-only test: raw HANDLE array is not available on POSIX');
+end;
+{$ENDIF MSWINDOWS}
 
 procedure TestBugfixes.TestOmniValueCreateLeakOnInvalidType;
 // Regression for commit 3210d64 (OtlCommon.pas v3.01).

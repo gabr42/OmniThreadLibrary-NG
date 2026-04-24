@@ -657,6 +657,12 @@ type
       // true when the fast path handled the wait.
       function  TryKernelFastPath(timeout_ms: cardinal;
                   var Signaller: IOmniSynchro; out waitResult: TWaitResult): boolean;
+      // Large-set fallback for > 64 kernel handles. Uses
+      // RegisterWaitForSingleObject so externally-signalled raw HANDLE
+      // events (which don't drive OTL's observer chain) still wake the
+      // caller. Returns true when the fallback handled the wait.
+      function  TryKernelLargeSet(timeout_ms: cardinal;
+                  var Signaller: IOmniSynchro; out waitResult: TWaitResult): boolean;
       {$ENDIF MSWINDOWS}
     public
       constructor Create(AController: TWaitFor);
@@ -882,8 +888,13 @@ type
 
   {$IFDEF MSWINDOWS}
   TOmniWrappedEvent = class(TEvent)
+  // NOTE: the FHandle we mutate here is THandleObject.FHandle (protected in the
+  // parent). Declaring our own FHandle in this class would SHADOW the parent's,
+  // causing TEvent/THandleObject methods (SetEvent, ResetEvent, WaitFor, Handle)
+  // to keep operating on the internally-created event while we stored the caller's
+  // handle in the shadow field — so external SetEvent/WaitFor would see two
+  // different kernel objects.
   strict private
-    FHandle : THandle;
     FIsOwner: boolean;
   public
     constructor Create(AExternalEvent: THandle; ATakeOwnership: boolean = false);
@@ -2313,6 +2324,168 @@ begin
   end;
   Result := true;
 end; { TWaitFor.TCondition.TryKernelFastPath }
+
+type
+  PLargeSetWaiter = ^TLargeSetWaiter;
+  TLargeSetWaiter = record
+    Index    : integer;    // position in SynchObjects
+    Signalled: integer;    // 0/1, interlocked
+    IdxSlot  : ^integer;   // WaitAny: shared "who signalled first"
+    Counter  : IOmniResourceCount; // WaitAll: decremented on each fire
+    SignalOK : ^THandle;   // manual-reset event the waiter signals on fire
+  end;
+
+procedure _LargeSetWaitCallback(Context: Pointer; TimerOrWaitFired: Boolean); stdcall;
+// TWaitOrTimerCallback per MSDN: TimerOrWaitFired is TRUE when the timer
+// expired (we pass INFINITE so that path won't fire) and FALSE when the
+// waited event was signaled. Delphi's Winapi.Windows declaration names
+// this parameter "Success" which is misleading — do NOT early-exit on
+// "Success=False" — that's the signalled case we actually want.
+var
+  w: PLargeSetWaiter absolute Context;
+begin
+  if TimerOrWaitFired then Exit;
+  if TInterlocked.CompareExchange(w.Signalled, 1, 0) <> 0 then
+    Exit; // already counted this handle
+  if assigned(w.Counter) then begin
+    // WaitAll: decrement the shared counter; its Handle auto-signals at 0.
+    w.Counter.Allocate;
+  end
+  else if assigned(w.IdxSlot) then begin
+    // WaitAny: publish index to the first-writer slot, then signal.
+    TInterlocked.CompareExchange(w.IdxSlot^, w.Index, -1);
+    if assigned(w.SignalOK) then
+      Winapi.Windows.SetEvent(w.SignalOK^);
+  end;
+end;
+
+function TWaitFor.TCondition.TryKernelLargeSet(timeout_ms: cardinal;
+  var Signaller: IOmniSynchro; out waitResult: TWaitResult): boolean;
+// Port of the OTL v3 approach used when the handle count exceeds
+// WaitForMultipleObjects' 64-handle limit. Each handle is registered
+// with RegisterWaitForSingleObject; callbacks publish either into a
+// shared "first-signalled index" slot (WaitAny) or into a resource
+// count whose handle signals at zero (WaitAll). This path is what
+// makes TWaitFor.Create(array of THandle) still work for > 64 raw
+// handles signalled externally via Windows.SetEvent — those never
+// drive OTL's observer chain, so the generic CV/observer slow path
+// would never wake.
+var
+  count      : integer;
+  handles    : TArray<THandle>;
+  i          : integer;
+  idxSlot    : integer;
+  idxToSynch : TArray<IOmniSynchro>;
+  pCounterH  : THandle;
+  resCount   : IOmniResourceCount;
+  signalEvent: THandle;
+  so         : IOmniSynchro;
+  waitAll    : boolean;
+  waiters    : TArray<TLargeSetWaiter>;
+  waitHandles: TArray<THandle>;
+  waitRes    : DWORD;
+begin
+  Result := false;
+  waitResult := wrError;
+  waitAll := Self is TAllCondition;
+  signalEvent := 0;
+  resCount := nil;
+
+  FController.FGate.Acquire;
+  try
+    count := FController.SynchObjects.Count;
+    if count <= MAXIMUM_WAIT_OBJECTS then Exit; // fast path handles these
+    SetLength(handles, count);
+    SetLength(idxToSynch, count);
+    count := 0;
+    for so in FController.SynchObjects do begin
+      if not assigned(so) then continue;
+      if not so.HasKernelHandle then Exit; // fall through to observer slow path
+      idxToSynch[count] := so;
+      handles[count]    := so.Handle;
+      Inc(count);
+    end;
+    if count = 0 then Exit;
+  finally FController.FGate.Release; end;
+
+  SetLength(handles, count);
+  SetLength(idxToSynch, count);
+  SetLength(waiters, count);
+  SetLength(waitHandles, count);
+
+  idxSlot := -1;
+  if waitAll then begin
+    resCount := CreateResourceCount(count); // signals when allocation count hits 0
+    pCounterH := resCount.Handle;
+  end
+  else begin
+    signalEvent := Winapi.Windows.CreateEvent(nil, True, False, nil); // manual reset
+    if signalEvent = 0 then Exit;
+    pCounterH := signalEvent;
+  end;
+
+  try
+    // Register a waiter per handle. Each fires once and decrements the
+    // resource count (WaitAll) or publishes its index + signals the event
+    // (WaitAny).
+    for i := 0 to count - 1 do begin
+      waiters[i].Index := i;
+      waiters[i].Signalled := 0;
+      if waitAll then begin
+        waiters[i].Counter := resCount;
+      end
+      else begin
+        waiters[i].IdxSlot := @idxSlot;
+        waiters[i].SignalOK := @signalEvent;
+      end;
+      if not Winapi.Windows.RegisterWaitForSingleObject(waitHandles[i],
+              handles[i], _LargeSetWaitCallback, @waiters[i],
+              INFINITE, WT_EXECUTEONLYONCE)
+      then begin
+        // Rollback any registrations done so far, bubble wrError.
+        for var k := 0 to i - 1 do
+          Winapi.Windows.UnregisterWaitEx(waitHandles[k], INVALID_HANDLE_VALUE);
+        Exit;
+      end;
+    end;
+
+    waitRes := Winapi.Windows.WaitForSingleObject(pCounterH, timeout_ms);
+
+    // Unregister everyone. INVALID_HANDLE_VALUE makes UnregisterWaitEx block
+    // until in-flight callbacks complete, so pending callbacks never
+    // dereference our waiter records after this loop returns.
+    for i := 0 to count - 1 do
+      Winapi.Windows.UnregisterWaitEx(waitHandles[i], INVALID_HANDLE_VALUE);
+
+    case waitRes of
+      WAIT_TIMEOUT: waitResult := wrTimeout;
+      WAIT_FAILED : waitResult := wrError;
+      WAIT_OBJECT_0:
+        begin
+          waitResult := wrSignaled;
+          if waitAll then begin
+            for i := 0 to count - 1 do
+              idxToSynch[i].AckKernelConsumed;
+            Signaller := idxToSynch[0];
+          end
+          else if (idxSlot >= 0) and (idxSlot < count) then begin
+            idxToSynch[idxSlot].AckKernelConsumed;
+            Signaller := idxToSynch[idxSlot];
+          end
+          else
+            waitResult := wrError;
+        end;
+    else
+      waitResult := wrError;
+    end;
+  finally
+    if signalEvent <> 0 then
+      Winapi.Windows.CloseHandle(signalEvent);
+    resCount := nil;
+  end;
+
+  Result := true;
+end; { TWaitFor.TCondition.TryKernelLargeSet }
 {$ENDIF MSWINDOWS}
 
 function TWaitFor.TCondition.Wait(timeout_ms: cardinal;
@@ -2326,6 +2499,13 @@ var
 begin
   {$IFDEF MSWINDOWS}
   if TryKernelFastPath(timeout_ms, Signaller, Result) then
+    Exit;
+  // For > 64 kernel handles WaitForMultipleObjects is not usable; use the
+  // RegisterWaitForSingleObject fallback so externally-signalled raw
+  // HANDLE events still wake the caller (the generic observer slow path
+  // below would never wake for those — it only notices state changes
+  // routed through IOmniEvent.SetEvent / PerformObservableAction).
+  if TryKernelLargeSet(timeout_ms, Signaller, Result) then
     Exit;
   {$ENDIF MSWINDOWS}
   waitTime := timeout_ms;
