@@ -1,4 +1,4 @@
-unit test_55_ForEachProgress;
+﻿unit test_55_ForEachProgress;
 
 interface
 
@@ -84,8 +84,6 @@ var
 begin
   Inc(FProgress);
   newPosition := Trunc((FProgress / CNumLoop)*pbForEach.Max);
-
-  OutputDebugString(PChar(IntToStr(FProgress)));
 
   // make sure we don't overflow TProgressBar with messages
   if newPosition <> FPosition then begin
