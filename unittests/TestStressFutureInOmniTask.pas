@@ -56,7 +56,7 @@ uses
   OtlParallel;
 
 const
-  CIterations = 2000; // manual repro was ~1 in 3 clicks; 2000 is comfortably above the noise floor
+  CIterations = 300; // manual repro was ~1 in 3 clicks; 300 comfortably exercises the race and keeps the per-iter resource footprint below Win32 limits
   CMessagesPerFuture = 20;
   CPerTaskTimeout_ms = 10000;
 

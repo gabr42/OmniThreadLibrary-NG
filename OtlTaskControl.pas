@@ -893,7 +893,7 @@ type
     otcEventMonitor        : TObject{TOmniEventMonitor};
     otcEventMonitorInternal: boolean;
     otcExecutor            : TOmniTaskExecutor;
-    otcInEventHandler      : boolean;
+    otcEventHandlerDepth   : integer; // nested event-handler dispatch counter (interlocked); Terminate early-exits when > 0. See TOmniTaskControl.Terminate.
     otcMultiWaitLock       : IOmniCriticalSection;
     otcOnMessageExec       : TOmniMessageExec;
     otcOnMessageList       : TList<TPair<integer, TObject>>;
@@ -3271,13 +3271,13 @@ begin
         exec := TOmniMessageExec(pair.Value);
         break;
       end;
-    otcInEventHandler := true;
+    TInterlocked.Increment(otcEventHandlerDepth);
     try
       if assigned(exec) then
         exec.OnMessage(Self, msg)
       else if assigned(otcOnMessageExec) then
         otcOnMessageExec.OnMessage(Self, msg);
-    finally otcInEventHandler := false; end;
+    finally TInterlocked.Decrement(otcEventHandlerDepth); end;
   end;
 end; { TOmniTaskControl.ForwardTaskMessage }
 
@@ -3286,10 +3286,10 @@ begin
   if TInterlocked.Exchange(otcTerminatedForwarded, 1) = 1 then
     Exit;
   if assigned(otcOnTerminatedExec) then begin
-    otcInEventHandler := true;
+    TInterlocked.Increment(otcEventHandlerDepth);
     try
       otcOnTerminatedExec.OnTerminated(Self);
-    finally otcInEventHandler := false; end;
+    finally TInterlocked.Decrement(otcEventHandlerDepth); end;
   end;
 end; { TOmniTaskControl.ForwardTaskTerminated }
 
@@ -3792,7 +3792,7 @@ var
   msg: TOmniMessage;
 begin
   //TODO : reset executor and exit immediately if task was not started at all or raise exception?
-  if otcInEventHandler then begin
+  if otcEventHandlerDepth > 0 then begin
     otcDelayedTerminate := true;
     Result := true;
     Exit;
