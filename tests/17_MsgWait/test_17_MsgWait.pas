@@ -51,8 +51,13 @@ type
 
 procedure TfrmTestMsgWait.actStartExecute(Sender: TObject);
 begin
+  // .MsgWait is required for the worker's TTimer to fire — it routes the
+  // task's wait through MsgWaitForMultipleObjectsEx and pumps WM_TIMER on
+  // the task thread. Without it the OTL-NG task loop only wakes on OTL
+  // comm/terminate events and the timer never ticks.
   FHelloWorld := CreateTask(THelloWorld.Create(), 'Hello, World!')
                  .MonitorWith(oeMonitor)
+                 .MsgWait
                  .Run;
 end;
 

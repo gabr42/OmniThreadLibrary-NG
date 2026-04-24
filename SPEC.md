@@ -466,7 +466,7 @@ overload resolution in distant code.
   - [x] `H2164: Variable declared but never used` (OtlParallel.pas) — removed unused `dest`/`el` from `TOmniParallelMapper.Execute`
   - [x] `H2443: Inline function not expanded because unit not in USES list` (OtlContainers.pas) — suppressed with `{$HINTS OFF}` around TSpinLock.Enter call; cannot fix without re-adding `Winapi.Windows`
   - [x] `H2445: Inline function not expanded` (OtlDataManager.pas) — suppressed with `{$HINTS OFF}`; Delphi compiler limitation
-  - [x] `W1000: Symbol deprecated` (OtlTaskControl.pas) — expected for `Alertable`/`MsgWait` deprecations; intentional, kept as user-facing API guidance
+  - [x] `W1000: Symbol deprecated` (OtlTaskControl.pas) — expected for `Alertable` deprecation; intentional, kept as user-facing API guidance (`MsgWait` was reinstated on Windows, see MIGRATION.md)
   - [x] `W1036: Variable might not have been initialized` (OtlTaskControl.pas) — no longer emitted; fixed earlier
   - [x] `W1002: Symbol 'DebugHook' is specific to a platform` (TestOtlSync1.pas, ConsoleTestRunner.dpr) — suppressed with `{$WARN SYMBOL_PLATFORM OFF}`
 

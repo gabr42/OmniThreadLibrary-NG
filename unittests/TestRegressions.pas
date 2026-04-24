@@ -25,6 +25,8 @@ type
     [Test]
     procedure TestWaitForManyRawHandlesExternalSignal;
     [Test]
+    procedure TestMsgWaitDeliversWMTimer;
+    [Test]
     procedure TestOmniValueCreateLeakOnInvalidType;
     [Test]
     procedure TestBgObserverOnTerminatedFromBgThread;
@@ -519,6 +521,103 @@ end;
 {$ELSE}
 begin
   Assert.Pass('Windows-only test: raw HANDLE array is not available on POSIX');
+end;
+{$ENDIF MSWINDOWS}
+
+{$IFDEF MSWINDOWS}
+type
+  TMsgWaitTimerWorker = class(TOmniWorker)
+  strict private
+    FTimerID: UINT_PTR;
+  protected
+    function  Initialize: boolean; override;
+    procedure Cleanup; override;
+  end;
+
+var
+  GMsgWaitTimerFires: integer = 0;
+  GMsgWaitTimerThreadID: cardinal = 0;
+
+procedure MsgWaitTimerProc(hwnd: HWND; uMsg: UINT; idEvent: UINT_PTR; dwTime: DWORD); stdcall;
+begin
+  // Capture the thread we were dispatched on so the test can prove we weren't
+  // piggy-backing on the main thread's message pump.
+  TInterlocked.CompareExchange(integer(GMsgWaitTimerThreadID),
+    integer(Winapi.Windows.GetCurrentThreadId), 0);
+  TInterlocked.Increment(GMsgWaitTimerFires);
+end;
+
+function TMsgWaitTimerWorker.Initialize: boolean;
+begin
+  Result := inherited Initialize;
+  if not Result then Exit;
+  // Thread-owned WM_TIMER: hwnd=0 posts to the calling thread's queue. The
+  // task's message loop must Translate/Dispatch for TimerProc to fire.
+  FTimerID := Winapi.Windows.SetTimer(0, 0, 20, @MsgWaitTimerProc);
+  Result := FTimerID <> 0;
+end;
+
+procedure TMsgWaitTimerWorker.Cleanup;
+begin
+  if FTimerID <> 0 then begin
+    Winapi.Windows.KillTimer(0, FTimerID);
+    FTimerID := 0;
+  end;
+  inherited Cleanup;
+end;
+{$ENDIF MSWINDOWS}
+
+procedure TestBugfixes.TestMsgWaitDeliversWMTimer;
+// Regression for the .MsgWait reinstatement.
+//
+// A TOmniWorker that uses Windows timers (TTimer / Win32 SetTimer) relies on
+// the task's message loop pumping WM_TIMER. Without .MsgWait the task waits
+// only on its comm/terminate handles and never drains the thread queue, so
+// WM_TIMER never fires. Chaining .MsgWait routes the wait through
+// MsgWaitForMultipleObjectsEx; on waMessage the task loop runs
+// PeekMessage/Translate/Dispatch, which delivers WM_TIMER to the registered
+// TimerProc.
+//
+// Test: SetTimer(hwnd=0) in the worker's Initialize, count callbacks via
+// global atomic. Assert that several fire within the deadline and that the
+// callback's thread is the task thread (not the test thread).
+{$IFDEF MSWINDOWS}
+const
+  CDeadline_ms      = 3000;
+  CMinExpectedFires = 3;
+var
+  task: IOmniTaskControl;
+  sw  : TStopwatch;
+begin
+  GMsgWaitTimerFires    := 0;
+  GMsgWaitTimerThreadID := 0;
+
+  task := CreateTask(TMsgWaitTimerWorker.Create() as IOmniWorker, 'msg-wait-timer')
+          .MsgWait
+          .Run;
+  try
+    sw := TStopwatch.StartNew;
+    while (GMsgWaitTimerFires < CMinExpectedFires) and
+          (sw.ElapsedMilliseconds < CDeadline_ms)
+    do
+      Sleep(10);
+
+    Assert.IsTrue(GMsgWaitTimerFires >= CMinExpectedFires,
+      Format('WM_TIMER not delivered via .MsgWait task loop ' +
+             '(fires=%d, expected >= %d within %d ms)',
+             [GMsgWaitTimerFires, CMinExpectedFires, CDeadline_ms]));
+    Assert.AreNotEqual(cardinal(MainThreadID), GMsgWaitTimerThreadID,
+      'TimerProc fired on the main thread instead of the task thread');
+    Assert.AreNotEqual(cardinal(0), GMsgWaitTimerThreadID,
+      'TimerProc thread-id capture did not run');
+  finally
+    task.Terminate(CDeadline_ms);
+    task := nil;
+  end;
+end;
+{$ELSE}
+begin
+  Assert.Pass('Windows-only test: .MsgWait is Windows-only');
 end;
 {$ENDIF MSWINDOWS}
 

@@ -17,7 +17,8 @@ differences between OmniThreadLibrary v3.07.x (Windows-only) and OTL NG
 
 ## Quick Checklist
 
-1. Remove `.Alertable` and `.MsgWait` calls from task chains
+1. Remove `.Alertable` calls from task chains (`.MsgWait` is back, see
+   [.MsgWait Reinstated (Windows only)](#msgwait-reinstated-windows-only))
 2. Replace `THandle`-based wait objects with `IOmniEvent`
 3. Remove `Parallel.ForkJoin` usage (no replacement; use `Parallel.ForEach` or
    `TTask`)
@@ -105,13 +106,10 @@ removed from `OtlContainerObserver.pas`.
 
 ## Deprecated APIs
 
-These methods still compile but are no-ops. Remove them from your code:
-
 ```pascal
-// Remove these — they do nothing in OTL NG
+// Remove — no-op in OTL NG
 CreateTask(worker)
   .Alertable           // deprecated: task loop uses CV-based waiting
-  .MsgWait             // deprecated: task loop uses CV-based waiting
   .Run;
 
 // Replace two-parameter SetTimer with three-parameter version
@@ -121,6 +119,31 @@ task.SetTimer(1000, MSG_TIMER);
 // New:
 task.SetTimer(1000, MSG_TIMER, timerID);
 ```
+
+### .MsgWait Reinstated (Windows only)
+
+`.MsgWait(wakeMask: DWORD = QS_ALLEVENTS)` is back on `IOmniTaskControl`
+for Windows targets. It is still absent on POSIX. Use it when the worker
+relies on thread-owned Windows messages — most commonly `TTimer`, raw
+`SetTimer`, window hooks, or legacy code that uses `PostThreadMessage`.
+
+```pascal
+// TTimer/WM_TIMER in a worker's Initialize needs this chain to fire:
+CreateTask(MyTimerWorker).MsgWait.Run;
+```
+
+Internally the task's wait is routed through
+`MsgWaitForMultipleObjectsEx` with the supplied `wakeMask`; on
+`waMessage` the task loop calls `PeekMessage / TranslateMessage /
+DispatchMessage` so `WM_TIMER`, posted messages, and window-message
+callbacks reach their handlers on the task thread.
+
+**Limit:** `MsgWaitForMultipleObjectsEx` accepts at most
+`MAXIMUM_WAIT_OBJECTS - 1 = 63` wait handles. If a `.MsgWait` task's wait
+set exceeds this at runtime (comm channels + terminate events +
+`RegisterWaitObject` handles), `WaitForEvent` raises an exception rather
+than silently stalling. For larger wait sets, drop `.MsgWait` and route
+messages through a dedicated message pump.
 
 ---
 
@@ -254,15 +277,16 @@ end;
 
 | Aspect | OTL v3 | OTL NG |
 |--------|--------|--------|
-| Wait mechanism | `MsgWaitForMultipleObjectsEx` | `TWaitFor.WaitAny` (CV-based) |
-| Message dispatch | Windows message queue | Direct queue polling |
+| Wait mechanism | `MsgWaitForMultipleObjectsEx` | `TWaitFor.WaitAny` (CV-based) by default; `TWaitFor.MsgWaitAny` when `.MsgWait` is set (Windows) |
+| Message dispatch | Windows message queue | Direct queue polling; Windows message pump only when `.MsgWait` is set |
 | `.Alertable` | Enables alertable wait | No-op (deprecated) |
-| `.MsgWait` | Enables message waiting | No-op (deprecated) |
+| `.MsgWait` | Enables message waiting | Windows-only; wired through `TWaitFor.MsgWaitAny` + in-loop `PeekMessage/Translate/Dispatch` — see [.MsgWait Reinstated](#msgwait-reinstated-windows-only) |
 | Timer processing | Polling-based | Polling-based (unchanged) |
 
-The task loop no longer processes Windows messages. If your `TOmniWorker` relied
-on receiving `WM_*` messages inside the task thread, that no longer works. Use
-OTL's own messaging (`task.Comm.Send`) instead.
+The default task loop no longer processes Windows messages. If your
+`TOmniWorker` relies on `WM_*` messages (e.g. `TTimer`, `SetTimer`, window
+hooks) chain `.MsgWait` on Windows or switch to OTL's own messaging
+(`task.Comm.Send`).
 
 ### Unobserved Task Lifetime
 
@@ -465,7 +489,7 @@ CreateTask(worker)
   .SetTimer(1000)
   .Run;
 
-// OTL NG
+// OTL NG (most workers drop .Alertable/.MsgWait)
 CreateTask(worker)
   .SetTimer(1000, MSG_TIMER, timerID)
   .Run;
@@ -556,7 +580,7 @@ on the main thread.
 | `OtlPlatform.pas` | New platform abstraction: `TTimeSource`, `TPlatform.ThreadAffinity` |
 | `OtlCommon.pas` | Removed GpStringHash/DSiWin32 dependencies |
 | `OtlComm.pas` | Removed hidden window; switched to `IOmniEvent` observers |
-| `OtlTaskControl.pas` | CV-based task loop; new `ProcessMessages`/`WaitForMessage`/`COMInitialize` APIs; deprecated `Alertable`/`MsgWait` |
+| `OtlTaskControl.pas` | CV-based task loop; new `ProcessMessages`/`WaitForMessage`/`COMInitialize` APIs; deprecated `Alertable`; `.MsgWait(wakeMask)` reinstated on Windows for workers that need `WM_*` dispatch (see [.MsgWait Reinstated](#msgwait-reinstated-windows-only)) |
 | `OtlThreadPool.pas` | Removed `SuspendThread`/`ResumeThread`; removed DSiWin32 |
 | `OtlParallel.pas` | Removed `ForkJoin`; replaced hidden window with cross-platform observers |
 | `OtlDataManager.pas` | Unified waiting with `TWaitFor` |

@@ -34,10 +34,21 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
-///   Last modification : 2026-04-22
-///   Version           : 3.06
+///   Last modification : 2026-04-24
+///   Version           : 3.07
 ///</para><para>
 ///   History:
+///     3.07: 2026-04-24
+///       - Reinstated IOmniTaskControl.MsgWait(wakeMask) on Windows. Tasks
+///         that run legacy code relying on thread-owned Windows messages
+///         (TTimer / SetTimer / window hooks) can chain .MsgWait again;
+///         WaitForEvent routes the wait through TWaitFor.MsgWaitAny and
+///         DispatchEvent drains the thread queue on waMessage via a new
+///         ProcessThreadMessages helper.
+///       - Added a pre-check that raises a clear exception when a
+///         .MsgWait task's wait set exceeds MAXIMUM_WAIT_OBJECTS - 1 (63),
+///         since MsgWaitForMultipleObjectsEx would otherwise silently
+///         return WAIT_FAILED and the task loop would stall.
 ///     3.06: 2026-04-22
 ///       - Pinned the owner's TaskControl (and therefore its executor) via
 ///         a new strong otcOwnerCtrlRef field for the full lifetime of any
@@ -182,6 +193,7 @@ uses
   OtlCommon,
   {$IFDEF MSWINDOWS}
   Winapi.Windows,
+  Winapi.Messages,
   {$ENDIF ~MSWINDOWS}
   System.Generics.Collections,
   System.SysUtils,
@@ -338,7 +350,17 @@ type
     function  Join(const group: IOmniTaskGroup): IOmniTaskControl;
     function  Leave(const group: IOmniTaskGroup): IOmniTaskControl;
     function  MonitorWith(const monitor: IOmniTaskControlMonitor): IOmniTaskControl;
-    function  MsgWait: IOmniTaskControl; deprecated 'No longer needed - task loop uses CV-based waiting';
+    {$IFDEF MSWINDOWS}
+    // Routes the task's wait through MsgWaitForMultipleObjectsEx so that Windows
+    // thread messages (e.g. WM_TIMER from TTimer, window hooks) are delivered to
+    // the task thread. Default wakeMask = QS_ALLEVENTS.
+    //
+    // LIMIT: MsgWaitForMultipleObjectsEx caps at MAXIMUM_WAIT_OBJECTS - 1 = 63
+    // wait handles. If the task's wait set exceeds this at runtime the task loop
+    // raises an exception rather than silently stalling. Keep the number of
+    // comm channels + registered wait objects + terminate handles below 63.
+    function  MsgWait(wakeMask: DWORD = QS_ALLEVENTS): IOmniTaskControl;
+    {$ENDIF MSWINDOWS}
     function  OnMessage(eventDispatcher: TObject): IOmniTaskControl; overload;
     function  OnMessage(eventHandler: TOmniTaskMessageEvent): IOmniTaskControl; overload;
     function  OnMessage(msgID: word; eventHandler: TOmniTaskMessageEvent): IOmniTaskControl; overload;
@@ -639,11 +661,11 @@ type
   {$ENDIF MSWINDOWS}
 
   {$WARN SYMBOL_DEPRECATED OFF}
-  // TOmniTaskControl implements IOmniTaskControl including methods marked
-  // deprecated (Alertable, MsgWait). The compiler reports W1000 at the
-  // forward declaration and at the implementation boundary when resolving
-  // interface-to-class matching. Silence locally; callers still see the
-  // deprecation warning at their own call sites.
+  // TOmniTaskControl implements IOmniTaskControl including the deprecated
+  // Alertable method. The compiler reports W1000 at the forward declaration
+  // and at the implementation boundary when resolving interface-to-class
+  // matching. Silence locally; callers still see the deprecation warning at
+  // their own call sites.
   TOmniTaskControl = class;
   {$WARN SYMBOL_DEPRECATED DEFAULT}
 
@@ -694,6 +716,7 @@ type
     oteWaitObjectList    : TOmniWaitObjectList;
     {$IFDEF MSWINDOWS}
     oteHandleBridges     : TObjectList<THandleBridgeEntry>;
+    oteWakeMask          : DWORD;
     {$ENDIF MSWINDOWS}
     oteWorkerInitialized : IOmniEvent;
     oteWorkerInitOK      : boolean;
@@ -734,6 +757,9 @@ type
     procedure MainMessageLoop(const task: IOmniTask; var msgInfo: TOmniMessageInfo); virtual;
     procedure MessageLoopPayload; virtual;
     procedure ProcessMessages(task: IOmniTask); virtual;
+    {$IFDEF MSWINDOWS}
+    procedure ProcessThreadMessages;
+    {$ENDIF MSWINDOWS}
     procedure RebuildWaitHandles(const task: IOmniTask; var msgInfo: TOmniMessageInfo); virtual;
     function  TimeUntilNextTimer_ms: cardinal; virtual;
     function  WaitForEvent(const msgInfo: TOmniMessageInfo;
@@ -770,6 +796,9 @@ type
     property TaskException: Exception read oteException write oteException;
     property Terminating: boolean read oteTerminating write oteTerminating;
     property Owner_ref: TOmniTaskControl read oteOwner_ref;
+    {$IFDEF MSWINDOWS}
+    property WakeMask: DWORD read oteWakeMask write oteWakeMask;
+    {$ENDIF MSWINDOWS}
     property WorkerInitialized: IOmniEvent read oteWorkerInitialized;
     property WorkerInitOK: boolean read oteWorkerInitOK;
     property WorkerIntf: IOmniWorker read oteWorkerIntf;
@@ -971,7 +1000,17 @@ type
     function  Join(const group: IOmniTaskGroup): IOmniTaskControl;
     function  Leave(const group: IOmniTaskGroup): IOmniTaskControl;
     function  MonitorWith(const monitor: IOmniTaskControlMonitor): IOmniTaskControl;
-    function  MsgWait: IOmniTaskControl; deprecated 'No longer needed - task loop uses CV-based waiting';
+    {$IFDEF MSWINDOWS}
+    // Routes the task's wait through MsgWaitForMultipleObjectsEx so that Windows
+    // thread messages (e.g. WM_TIMER from TTimer, window hooks) are delivered to
+    // the task thread. Default wakeMask = QS_ALLEVENTS.
+    //
+    // LIMIT: MsgWaitForMultipleObjectsEx caps at MAXIMUM_WAIT_OBJECTS - 1 = 63
+    // wait handles. If the task's wait set exceeds this at runtime the task loop
+    // raises an exception rather than silently stalling. Keep the number of
+    // comm channels + registered wait objects + terminate handles below 63.
+    function  MsgWait(wakeMask: DWORD = QS_ALLEVENTS): IOmniTaskControl;
+    {$ENDIF MSWINDOWS}
     function  OnMessage(eventDispatcher: TObject): IOmniTaskControl; overload;
     function  OnMessage(eventHandler: TOmniTaskMessageEvent): IOmniTaskControl; overload;
     function  OnMessage(msgID: word; eventHandler: TOmniTaskMessageEvent): IOmniTaskControl; overload;
@@ -2302,6 +2341,14 @@ begin
     // do-nothing; it is possible that the handle was closed and unregistered but handle array was not rebuilt yet and WaitForEvent returned this error
   else if awaited = waTimeout then
     CheckTimers
+  {$IFDEF MSWINDOWS}
+  else if awaited = waMessage then begin
+    // .MsgWait path: MsgWaitForMultipleObjectsEx reports a pending thread
+    // message. Drain the queue on the task thread so WM_TIMER / posted
+    // messages reach their window procs and the loop can block again.
+    ProcessThreadMessages;
+  end
+  {$ENDIF MSWINDOWS}
   else if awaited <> waAwaited then
     raise Exception.Create('TOmniTaskExecutor.DispatchEvent: Unexpected TWaitResult')
   else begin
@@ -2346,6 +2393,14 @@ begin
     if awaited = waAwaited then
       EmptyMessageQueues(task);
   end;
+  {$IFDEF MSWINDOWS}
+  // If .MsgWait is active, pump any thread messages that may have accumulated
+  // while we were dispatching handles — next MsgWaitForMultipleObjectsEx would
+  // return waMessage for them anyway, draining here keeps the delivery latency
+  // within one iteration.
+  if (tcoMessageWait in Options) and (awaited <> waMessage) then
+    ProcessThreadMessages;
+  {$ENDIF MSWINDOWS}
   Result := true;
 end; { TOmniTaskExecutor.DispatchEvent }
 
@@ -2956,12 +3011,51 @@ begin
   Result := WorkerInitOK;
 end; { TOmniTaskExecutor.WaitForInit }
 
+{$IFDEF MSWINDOWS}
+procedure TOmniTaskExecutor.ProcessThreadMessages;
+var
+  msg: TMsg;
+begin
+  // Drain the task thread's message queue. WM_QUIT must never reach
+  // DispatchMessage — it would unwind the thread via the RTL's default
+  // message-loop convention. We also never let it escape back to the
+  // message loop; the worker / comm channels decide when the task stops.
+  while PeekMessage(msg, 0, 0, 0, PM_REMOVE) and (msg.Message <> WM_QUIT) do begin
+    TranslateMessage(msg);
+    DispatchMessage(msg);
+  end;
+end; { TOmniTaskExecutor.ProcessThreadMessages }
+{$ENDIF MSWINDOWS}
+
 function TOmniTaskExecutor.WaitForEvent(const msgInfo: TOmniMessageInfo;
   timeout_ms: cardinal): TWaitFor.TWaitForResult;
+{$IFDEF MSWINDOWS}
+const
+  CMsgWaitMaxHandles = MAXIMUM_WAIT_OBJECTS - 1; // 63 — MsgWaitForMultipleObjectsEx cap
+{$ENDIF MSWINDOWS}
 begin
   if assigned(WorkerIntf) then
     WorkerIntf.BeforeWait(timeout_ms);
+  {$IFDEF MSWINDOWS}
+  if tcoMessageWait in Options then begin
+    // Pre-check: MsgWaitForMultipleObjectsEx caps at MAXIMUM_WAIT_OBJECTS - 1.
+    // Otherwise the call would return WAIT_FAILED with ERROR_INVALID_PARAMETER
+    // and the task loop would silently stall on waFailed. Raise a clear
+    // diagnostic with the actual handle count so the user knows to trim.
+    if msgInfo.NumWaitHandles > CMsgWaitMaxHandles then
+      raise Exception.CreateFmt(
+        'TOmniTaskExecutor.WaitForEvent: .MsgWait task has %d wait handles, ' +
+        'but MsgWaitForMultipleObjectsEx accepts at most %d. Reduce the number ' +
+        'of comm channels / registered wait objects / terminate handles, or ' +
+        'drop .MsgWait and route messages differently.',
+        [msgInfo.NumWaitHandles, CMsgWaitMaxHandles]);
+    Result := msgInfo.Waiter.MsgWaitAny(timeout_ms, oteWakeMask, 0);
+  end
+  else
+    Result := msgInfo.Waiter.WaitAny(timeout_ms);
+  {$ELSE}
   Result := msgInfo.Waiter.WaitAny(timeout_ms);
+  {$ENDIF MSWINDOWS}
   DrainBackgroundObservers; // Windows: drain pending APCs; POSIX: drain thread-local registry
   {$IF Defined(Debug) and Defined(MSWINDOWS)}
   if Result = waFailed then
@@ -3581,11 +3675,14 @@ begin
   Result := Self;
 end; { TOmniTaskControl.MonitorWith }
 
-function TOmniTaskControl.MsgWait: IOmniTaskControl;
+{$IFDEF MSWINDOWS}
+function TOmniTaskControl.MsgWait(wakeMask: DWORD): IOmniTaskControl;
 begin
-  // No-op: task loop uses CV-based waiting, Windows message pumping removed.
+  Options := Options + [tcoMessageWait];
+  otcExecutor.WakeMask := wakeMask;
   Result := Self;
 end; { TOmniTaskControl.MsgWait }
+{$ENDIF MSWINDOWS}
 
 function TOmniTaskControl.OnMessage(eventDispatcher: TObject): IOmniTaskControl;
 begin
