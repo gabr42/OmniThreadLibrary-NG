@@ -1251,7 +1251,7 @@ Dequeue:
 {$DEFINE USE_MOVEDPTR}
 {$IFDEF DEBUG_OMNI_QUEUE}{$UNDEF USE_MOVEDPTR}{$ENDIF}
 {$IFDEF OTL_OLDCPU}{$UNDEF USE_MOVEDPTR}{$ENDIF}
-{$IFNDEF OTL_HaveCmpx16b}{$DEFINE USE_MOVEDPTR}{$ENDIF} //bus locking not supported, Move is just a move, so use it
+{$IFNDEF OTL_HaveCmpx16b}{$UNDEF USE_MOVEDPTR}{$ENDIF} //bus locking not supported, Move is just a move, so DON'T use it
 
 { TOmniTaggedValue }
 
