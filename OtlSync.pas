@@ -36,9 +36,25 @@
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
 ///   Last modification : 2026-04-25
-///   Version           : 3.05
+///   Version           : 3.06
 ///</para><para>
 ///   History:
+///     3.06: 2026-04-25
+///       - Fixed silent pointer truncation on Windows ARM64EC and POSIX-ARM64.
+///         The 128-bit CAS / Move64 / Move128 / MoveDPtr family was gated
+///         {$IFNDEF CPUX64} for the 32-bit packed-int64 path and {$ELSE CPUX64}
+///         for the 128-bit path. On any 64-bit non-x86_64 target (ARM64EC,
+///         POSIX-ARM64), CPUX64 is undefined so the 32-bit path ran — packing
+///         (pointer, NativeInt) = (8, 8) bytes through `cardinal()` casts into
+///         a single int64, silently truncating both halves to 32 bits. Fix:
+///         change all CPU-bitness-dependent gates to CPU64BITS. CASAlignment
+///         is also now 16 on every 64-bit target, not only x86_64. The
+///         non-Windows fallback InterlockedCompareExchange128 widened from
+///         "POSIX x86_64" to "POSIX 64-bit" so the 128-bit path links on
+///         POSIX-ARM64 too (still global-spinlock; per-instance + cmpxchg16b
+///         `.o` helper are separate follow-ups). Latent on POSIX (containers
+///         don't take the lock-free path off MSWINDOWS); manifest on
+///         Windows-ARM64EC where OTL_HaveCmpx16b is defined.
 ///     3.05: 2026-04-25
 ///       - Fixed shared-observer eviction race in TOmniSynchroObject. With
 ///         multiple waiters on the same TWaitFor, every Wait call adds the
@@ -774,9 +790,9 @@ procedure MFence; inline;
 function CAS8(const oldValue, newValue: byte; var destination): boolean;
 function CAS16(const oldValue, newValue: word; var destination): boolean;
 function CAS32(const oldValue, newValue: cardinal; var destination): boolean; overload;
-{$IFNDEF CPUX64}
+{$IFNDEF CPU64BITS}
 function CAS32(const oldValue: pointer; newValue: pointer; var destination): boolean; overload;
-{$ENDIF ~CPUX64}
+{$ENDIF ~CPU64BITS}
 function CAS64(const oldData, newData: int64; var destination): boolean; overload;
 
 function CAS(const oldValue, newValue: NativeInt; var destination): boolean; overload;
@@ -784,10 +800,10 @@ function CAS(const oldValue, newValue: pointer; var destination): boolean; overl
 function CAS(const oldData: pointer; oldReference: NativeInt; newData: pointer;
   newReference: NativeInt; var destination): boolean; overload;
 
-{$IFNDEF CPUX64}
+{$IFNDEF CPU64BITS}
 procedure Move64(var Source, Destination); overload;
 procedure Move64(newData: pointer; newReference: cardinal; var Destination); overload;
-{$ENDIF ~CPUX64}
+{$ENDIF ~CPU64BITS}
 
 procedure Move128(var Source, Destination);
 procedure MoveDPtr(var Source, Destination); overload;
@@ -813,12 +829,12 @@ uses
   OtlPlatform;
 
 type
-  {$IFDEF CPUX64}
+  {$IFDEF CPU64BITS}
   TInt128 = record
     Lo: int64;
     Hi: int64;
   end;
-  {$ENDIF CPUX64}
+  {$ENDIF CPU64BITS}
 
   TOmniCriticalSection = class(TInterfacedObject, IOmniCriticalSection)
   strict private
@@ -979,15 +995,18 @@ type
 var
   GOmniCSInitializer: TOmniCriticalSection;
 
-{$IF (not Defined(MSWINDOWS)) and Defined(CPUX64)}
-// Temporary non-Windows x86_64 fallback for the Windows API InterlockedCompareExchange128.
-// dcclinux64 does not support inline ASM, so we cannot emit CMPXCHG16B directly. This
-// coarse global-spinlock implementation is *not* lock-free — it defeats the point of
-// the OTL lock-free containers — but it preserves correctness and unblocks compilation
-// and smoke-testing under WSL2.
-// TODO: replace the TInt128-based atomics with a cross-platform design; CMPXCHG16B does
-// not exist on ARM64/Android either, so the callers need redesign before those targets
-// can work.
+{$IF (not Defined(MSWINDOWS)) and Defined(CPU64BITS)}
+// Temporary non-Windows 64-bit fallback for the Windows API InterlockedCompareExchange128.
+// dcclinux64 does not support inline ASM, so we cannot emit CMPXCHG16B directly on
+// x86_64; on POSIX-ARM64 the LDAXP/STLXP / CASP instructions also have no Pascal-level
+// intrinsic accessible from dcclinux64 / dccaarmandroid. This coarse global-spinlock
+// implementation is *not* lock-free — it defeats the point of the OTL lock-free
+// containers — but it preserves correctness so the 128-bit atomics compile and link
+// on every 64-bit POSIX target. Latent on POSIX today (OtlContainers.OTL_HaveCmpx16b
+// is undefined off MSWINDOWS, so the lock-free path isn't taken) — but matters for
+// any future code that calls these primitives directly.
+// TODO: replace with per-instance spinlock + (where available) a CMPXCHG16B `.o`
+// helper linked via {$L} on Linux64 x86_64.
 var
   GInterlockedCompareExchange128Lock: integer = 0;
 
@@ -1103,12 +1122,12 @@ begin
   Result := TInterlocked.CompareExchange(integer(destination), integer(newValue), integer(oldValue)) = integer(oldValue);
 end; { CAS32 }
 
-{$IFNDEF CPUX64}
+{$IFNDEF CPU64BITS}
 function CAS32(const oldValue: pointer; newValue: pointer; var destination): boolean; overload;
 begin
   Result := TInterlocked.CompareExchange(integer(destination), integer(newValue), integer(oldValue)) = integer(oldValue);
 end; { CAS32 }
-{$ENDIF ~CPUX64}
+{$ENDIF ~CPU64BITS}
 
 function CAS64(const oldData, newData: int64; var destination): boolean; overload;
 begin
@@ -1117,7 +1136,7 @@ end; { CAS64 }
 
 function CAS(const oldValue, newValue: NativeInt; var destination): boolean; overload;
 begin
-  {$IFDEF CPUX64}
+  {$IFDEF CPU64BITS}
   Result := TInterlocked.CompareExchange(int64(destination), int64(newValue), int64(oldValue)) = int64(oldValue);
   {$ELSE}
   Result := TInterlocked.CompareExchange(integer(destination), integer(newValue), integer(oldValue)) = integer(oldValue);
@@ -1126,7 +1145,7 @@ end; { CAS }
 
 function CAS(const oldValue, newValue: pointer; var destination): boolean; overload;
 begin
-  {$IFDEF CPUX64}
+  {$IFDEF CPU64BITS}
   Result := TInterlocked.CompareExchange(int64(destination), int64(newValue), int64(oldValue)) = int64(oldValue);
   {$ELSE}
   Result := TInterlocked.CompareExchange(integer(destination), integer(newValue), integer(oldValue)) = integer(oldValue);
@@ -1136,7 +1155,7 @@ end; { CAS }
 //Either 8-byte or 16-byte CAS, depending on the platform; destination must be properly aligned (8- or 16-byte)
 function CAS(const oldData: pointer; oldReference: NativeInt; newData: pointer;
   newReference: NativeInt; var destination): boolean; overload;
-{$IFNDEF CPUX64}
+{$IFNDEF CPU64BITS}
 var
   oldPacked: int64;
   newPacked: int64;
@@ -1147,7 +1166,7 @@ begin
   Int64Rec(newPacked).Hi := cardinal(newReference);
   Result := TInterlocked.CompareExchange(int64(destination), newPacked, oldPacked) = oldPacked;
 end; { CAS }
-{$ELSE CPUX64}
+{$ELSE CPU64BITS}
 var
   comparand: TInt128;
 begin
@@ -1155,11 +1174,11 @@ begin
   comparand.Hi := int64(oldReference);
   Result := InterlockedCompareExchange128(@destination, newReference, int64(newData), @comparand);
 end; { CAS }
-{$ENDIF ~CPUX64}
+{$ENDIF ~CPU64BITS}
 
 { Atomic move operations — pure Pascal, no inline assembly }
 
-{$IFNDEF CPUX64}
+{$IFNDEF CPU64BITS}
 procedure Move64(var Source, Destination); overload;
 //Move 8 bytes atomically from 8-byte aligned Source to Destination
 var
@@ -1178,18 +1197,18 @@ begin
   Int64Rec(packedVal).Hi := newReference;
   TInterlocked.Exchange(int64(Destination), packedVal);
 end; { Move64 }
-{$ENDIF ~CPUX64}
+{$ENDIF ~CPU64BITS}
 
 procedure Move128(var Source, Destination);
 //Move 16 bytes atomically from Source to properly aligned Destination
-{$IFNDEF CPUX64}
+{$IFNDEF CPU64BITS}
 var
   value: int64;
 begin
   value := int64(Source);
   TInterlocked.Exchange(int64(Destination), value);
 end; { Move128 }
-{$ELSE CPUX64}
+{$ELSE CPU64BITS}
 var
   comparand: TInt128;
   newLo    : int64;
@@ -1202,11 +1221,11 @@ begin
   while not InterlockedCompareExchange128(@Destination, newHi, newLo, @comparand) do
     ; //retry — comparand is updated by InterlockedCompareExchange128 on failure
 end; { Move128 }
-{$ENDIF ~CPUX64}
+{$ENDIF ~CPU64BITS}
 
 //Either 8-byte or 16-byte atomic Move, depending on the platform; destination must be properly aligned (8- or 16-byte)
 procedure MoveDPtr(newData: pointer; newReference: NativeInt; var Destination); overload;
-{$IFNDEF CPUX64}
+{$IFNDEF CPU64BITS}
 var
   packedVal: int64;
 begin
@@ -1214,7 +1233,7 @@ begin
   Int64Rec(packedVal).Hi := cardinal(newReference);
   TInterlocked.Exchange(int64(Destination), packedVal);
 end; { MoveDPtr }
-{$ELSE CPUX64}
+{$ELSE CPU64BITS}
 var
   comparand: TInt128;
 begin
@@ -1223,18 +1242,18 @@ begin
   while not InterlockedCompareExchange128(@Destination, newReference, int64(newData), @comparand) do
     ; //retry — comparand is updated by InterlockedCompareExchange128 on failure
 end; { MoveDPtr }
-{$ENDIF ~CPUX64}
+{$ENDIF ~CPU64BITS}
 
 //Either 8-byte or 16-byte atomic Move, depending on the platform; destination must be properly aligned (8- or 16-byte)
 procedure MoveDPtr(var Source, Destination);
-{$IFNDEF CPUX64}
+{$IFNDEF CPU64BITS}
 var
   value: int64;
 begin
   value := int64(Source);
   TInterlocked.Exchange(int64(Destination), value);
 end; { MoveDPtr }
-{$ELSE CPUX64}
+{$ELSE CPU64BITS}
 var
   comparand: TInt128;
   newLo    : int64;
@@ -1247,7 +1266,7 @@ begin
   while not InterlockedCompareExchange128(@Destination, newHi, newLo, @comparand) do
     ; //retry — comparand is updated by InterlockedCompareExchange128 on failure
 end; { MoveDPtr }
-{$ENDIF ~CPUX64}
+{$ENDIF ~CPU64BITS}
 
 function GetCPUTimeStamp: int64;
 begin
@@ -3447,11 +3466,11 @@ end; { TLightweightMREWExImpl.TryBeginWrite }
 initialization
   GOmniCancellationToken := CreateOmniCancellationToken;
   GOmniCSInitializer := TOmniCriticalSection.Create;
-  {$IFDEF CPUX64}
-  CASAlignment := 16; // cmpxchg16b requires 16-byte alignment
+  {$IFDEF CPU64BITS}
+  CASAlignment := 16; // 128-bit CAS requires 16-byte alignment (CMPXCHG16B on x86_64; CASP/LDXP-STXP on ARM64)
   {$ELSE}
   CASAlignment := 8;
-  {$ENDIF CPUX64}
+  {$ENDIF CPU64BITS}
   {$IFDEF CPU64BITS}
   Assert(SizeOf(NativeInt) = SizeOf(int64)); //assumption in TInterlockedEx.Add
   {$ELSE}
