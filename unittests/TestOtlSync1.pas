@@ -182,6 +182,26 @@ type
     procedure TestDifferentThreadRaises;
   end;
 
+  [TestFixture]
+  TestAtomic128 = class(TOtlTestBase)
+  public
+    {$IFDEF CPU64BITS}
+    [Test]
+    // Probes the AtomicCmpExchange128 compiler intrinsic directly. Confirms
+    // dcc{64,linux64,arm64ec,aarmandroid} all expose it and emit a real
+    // 128-bit atomic (CMPXCHG16B on x86_64; CASP / LDXP-STXP on ARM64).
+    // 64-bit-only — on 32-bit there's no 128-bit atomic primitive at all.
+    procedure TestIntrinsic;
+    {$ENDIF CPU64BITS}
+    [Test]
+    // Probes OtlSync.CAS (the 5-arg pointer/reference overload) which OTL
+    // containers use as their primary lock-free CAS. On 64-bit it routes
+    // through AtomicCmpExchange128; on 32-bit it packs into a single int64
+    // and uses TInterlocked.CompareExchange. Both paths must round-trip
+    // matching/non-matching comparands correctly.
+    procedure TestOtlSyncCAS;
+  end;
+
 implementation
 
 { TestOtlSync }
@@ -1287,5 +1307,97 @@ begin
   synch.WaitFor('done');
   Assert.AreEqual<integer>(1, raised.Value, 'Check from different thread raised exception');
 end;
+
+{ TestAtomic128 }
+
+{$IFDEF CPU64BITS}
+type
+  // Layout matches Winapi.Windows.TLong128 — Lo at offset 0, Hi at offset 8.
+  // `align 16` is required: CMPXCHG16B and CASP / LDXP-STXP all need
+  // 16-byte-aligned destination operands.
+  TAtomic128 = record
+    Lo: int64;
+    Hi: int64;
+  end align 16;
+
+procedure TestAtomic128.TestIntrinsic;
+var
+  dest, cmp: TAtomic128;
+  ok       : boolean;
+begin
+  Assert.AreEqual<integer>(16, SizeOf(TAtomic128), 'TAtomic128 size');
+  Assert.AreEqual<integer>(0, NativeInt(@dest) mod 16, '@dest 16-byte aligned');
+  Assert.AreEqual<integer>(0, NativeInt(@cmp)  mod 16, '@cmp  16-byte aligned');
+
+  // matching comparand → CAS succeeds, dest updated
+  dest.Lo := $1111111111111111;
+  dest.Hi := $2222222222222222;
+  cmp.Lo  := $1111111111111111;
+  cmp.Hi  := $2222222222222222;
+  ok := AtomicCmpExchange128(dest, $4444444444444444, $3333333333333333, cmp);
+  Assert.IsTrue(ok, 'matching comparand returns true');
+  Assert.AreEqual<int64>($3333333333333333, dest.Lo, 'dest.Lo := ExchangeLow');
+  Assert.AreEqual<int64>($4444444444444444, dest.Hi, 'dest.Hi := ExchangeHigh');
+
+  // stale comparand → CAS fails, dest unchanged, comparand updated
+  cmp.Lo := Int64($9999999999999999);
+  cmp.Hi := Int64($8888888888888888);
+  ok := AtomicCmpExchange128(dest, $7777777777777777, $6666666666666666, cmp);
+  Assert.IsFalse(ok, 'stale comparand returns false');
+  Assert.AreEqual<int64>($3333333333333333, dest.Lo, 'dest.Lo unchanged');
+  Assert.AreEqual<int64>($4444444444444444, dest.Hi, 'dest.Hi unchanged');
+  Assert.AreEqual<int64>($3333333333333333, cmp.Lo,  'cmp.Lo := current dest.Lo');
+  Assert.AreEqual<int64>($4444444444444444, cmp.Hi,  'cmp.Hi := current dest.Hi');
+end;
+{$ENDIF CPU64BITS}
+
+procedure TestAtomic128.TestOtlSyncCAS;
+{$IFDEF CPU64BITS}
+type
+  TDest = record
+    Data: pointer;
+    Tag : NativeInt;
+  end align 16;
+{$ELSE CPU64BITS}
+type
+  // 32-bit packed-int64 layout. OtlSync.CAS at this width writes to an int64
+  // via TInterlocked.CompareExchange; the destination must be 8-byte aligned.
+  TDest = packed record
+    case integer of
+      0: (Data: pointer; Tag: NativeInt);
+      1: (Packed_: int64);
+  end;
+{$ENDIF CPU64BITS}
+var
+  dest    : TDest;
+  oldData : pointer;
+  oldRef  : NativeInt;
+  newData : pointer;
+  newRef  : NativeInt;
+  ok      : boolean;
+begin
+  oldData := pointer($1234);
+  oldRef  := NativeInt($5678);
+  newData := pointer($ABCD);
+  newRef  := NativeInt($EF01);
+
+  dest.Data := oldData;
+  dest.Tag  := oldRef;
+
+  // matching → CAS succeeds
+  ok := OtlSync.CAS(oldData, oldRef, newData, newRef, dest);
+  Assert.IsTrue(ok, 'matching CAS returns true');
+  Assert.AreEqual<pointer>(newData, dest.Data, 'dest.Data := newData');
+  Assert.AreEqual<NativeInt>(newRef, dest.Tag, 'dest.Tag := newRef');
+
+  // stale comparand (we still pass oldData/oldRef) → CAS fails, dest unchanged
+  ok := OtlSync.CAS(oldData, oldRef, pointer($DEAD), NativeInt($BEEF), dest);
+  Assert.IsFalse(ok, 'stale CAS returns false');
+  Assert.AreEqual<pointer>(newData, dest.Data, 'dest.Data unchanged after failed CAS');
+  Assert.AreEqual<NativeInt>(newRef, dest.Tag, 'dest.Tag unchanged after failed CAS');
+end;
+
+initialization
+  TDUnitX.RegisterTestFixture(TestAtomic128);
 
 end.

@@ -36,9 +36,21 @@
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
 ///   Last modification : 2026-04-25
-///   Version           : 3.06
+///   Version           : 3.07
 ///</para><para>
 ///   History:
+///     3.07: 2026-04-25
+///       - Replaced the POSIX 64-bit InterlockedCompareExchange128 global-
+///         spinlock fallback with a direct call to the AtomicCmpExchange128
+///         compiler intrinsic. The intrinsic is exposed by dcclinux64 and
+///         dccaarmandroid (verified by the new TestOtlSync1.TestAtomic128
+///         fixture and an earlier standalone probe on Android64 ARM64 +
+///         Linux64 x86_64). Earlier source comment claimed the intrinsic
+///         was unavailable on POSIX — that was incorrect. With the spinlock
+///         gone, every 64-bit Delphi target now has true lock-free 128-bit
+///         CAS via the same code path. `GInterlockedCompareExchange128Lock`
+///         deleted (was the global serialisation point). Also added
+///         `align 16` to TInt128 for defensive alignment.
 ///     3.06: 2026-04-25
 ///       - Fixed silent pointer truncation on Windows ARM64EC and POSIX-ARM64.
 ///         The 128-bit CAS / Move64 / Move128 / MoveDPtr family was gated
@@ -830,10 +842,14 @@ uses
 
 type
   {$IFDEF CPU64BITS}
+  // 128-bit aligned record passed to AtomicCmpExchange128 (POSIX) or
+  // Winapi.Windows.InterlockedCompareExchange128 (Windows). Alignment is
+  // mandatory: CMPXCHG16B (x86_64) and CASP / LDXP-STXP (ARM64) all
+  // require 16-byte-aligned operands.
   TInt128 = record
     Lo: int64;
     Hi: int64;
-  end;
+  end align 16;
   {$ENDIF CPU64BITS}
 
   TOmniCriticalSection = class(TInterfacedObject, IOmniCriticalSection)
@@ -996,40 +1012,25 @@ var
   GOmniCSInitializer: TOmniCriticalSection;
 
 {$IF (not Defined(MSWINDOWS)) and Defined(CPU64BITS)}
-// Temporary non-Windows 64-bit fallback for the Windows API InterlockedCompareExchange128.
-// dcclinux64 does not support inline ASM, so we cannot emit CMPXCHG16B directly on
-// x86_64; on POSIX-ARM64 the LDAXP/STLXP / CASP instructions also have no Pascal-level
-// intrinsic accessible from dcclinux64 / dccaarmandroid. This coarse global-spinlock
-// implementation is *not* lock-free — it defeats the point of the OTL lock-free
-// containers — but it preserves correctness so the 128-bit atomics compile and link
-// on every 64-bit POSIX target. Latent on POSIX today (OtlContainers.OTL_HaveCmpx16b
-// is undefined off MSWINDOWS, so the lock-free path isn't taken) — but matters for
-// any future code that calls these primitives directly.
-// TODO: replace with per-instance spinlock + (where available) a CMPXCHG16B `.o`
-// helper linked via {$L} on Linux64 x86_64.
-var
-  GInterlockedCompareExchange128Lock: integer = 0;
-
+// Non-Windows 64-bit shim for Winapi.Windows.InterlockedCompareExchange128.
+// Routes to AtomicCmpExchange128, the dcc compiler intrinsic available on
+// every 64-bit Delphi target (including dcclinux64 and dccaarmandroid —
+// despite earlier doc claims to the contrary). The intrinsic emits the
+// right native primitive per CPU: `lock cmpxchg16b` on x86_64,
+// `casp` / `ldaxp`+`stlxp` on ARM64. Verified correct via
+// `TestOtlSync1.TestAtomic128.TestIntrinsic` on every 64-bit target.
+//
+// Replaces the earlier global-spinlock fallback (commit history:
+// "non-Windows x86_64 fallback") which serialised every 128-bit CAS across
+// the whole process and crippled lock-free container throughput on POSIX.
 function InterlockedCompareExchange128(Destination: Pointer;
   ExchangeHigh, ExchangeLow: int64; Comparand: Pointer): Boolean;
-var
-  dst: ^TInt128 absolute Destination;
-  cmp: ^TInt128 absolute Comparand;
+type
+  PInt128 = ^TInt128;
 begin
-  while TInterlocked.CompareExchange(GInterlockedCompareExchange128Lock, 1, 0) <> 0 do
-    TThread.Yield;
-  try
-    if (dst^.Lo = cmp^.Lo) and (dst^.Hi = cmp^.Hi) then begin
-      dst^.Lo := ExchangeLow;
-      dst^.Hi := ExchangeHigh;
-      Result := true;
-    end
-    else begin
-      cmp^.Lo := dst^.Lo;
-      cmp^.Hi := dst^.Hi;
-      Result := false;
-    end;
-  finally TInterlocked.Exchange(GInterlockedCompareExchange128Lock, 0); end;
+  Result := AtomicCmpExchange128(PInt128(Destination)^,
+                                 ExchangeHigh, ExchangeLow,
+                                 PInt128(Comparand)^);
 end; { InterlockedCompareExchange128 }
 {$ENDIF}
 
