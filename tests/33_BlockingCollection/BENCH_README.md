@@ -162,20 +162,22 @@ access.
 Captured on this machine for reference. Replace with your own after
 you run the benchmark — hardware varies.
 
-Platform   | 1→1  | 2→2  | 3→3  | 4→4  | 8→8  |  1→7  | 7→1
+Platform              | 1→1  | 2→2  | 3→3  | 4→4  | 8→8  |  1→7  | 7→1
 ---|---|---|---|---|---|---|---
-Win32      | 1039 | 1125 | 1081 | 1173 | 1124 |  8815 |  984
-Win64      | 1239 |  784 |  983 | 1055 | 1521 |  7985 |  751
-Linux64    |  548 |  220 |  215 |  235 |  405 |  8118 |  325
-Android64  | 2797 | 3064 | 3602 | 4139 | 8494 | 35071 | 5550
+Win32                 | 1039 | 1125 | 1081 | 1173 | 1124 |  8815 |  984
+Win64                 | 1239 |  784 |  983 | 1055 | 1521 |  7985 |  751
+Linux64               |  548 |  220 |  215 |  235 |  405 |  8118 |  325
+Android64 (Galaxy S7) | 2371 | 1541 | 1754 | 1890 | 3111 | 79965 | 3853
+Android64 (Pixel 9)   |  990 | 1097 | 1256 | 1334 | 1568 | 51506 | 1312
 
 (average ms over 3 measured reps, 1M items per rep)
 
-Win32/Win64 captured in Release mode (no `-DDEBUG`, no FastMM4-debug
-overhead). Linux64 from a PAServer-deployed binary on WSL2 / Ubuntu
-24.04, post commit `ef39b94` (lock-free queue protocol on POSIX).
-Android64 on Samsung SM-G930F (Galaxy S7, 4× big + 4× LITTLE
-ARM Cortex-A57/A53), pre `ef39b94` — see Caveat below.
+All numbers post commit `ef39b94` (lock-free queue protocol on POSIX).
+Win32/Win64 in Release mode (no `-DDEBUG`, no FastMM4-debug overhead).
+Linux64 from a PAServer-deployed binary on WSL2 / Ubuntu 24.04.
+Android64 on two devices to bracket the ARM64 spectrum:
+**Samsung Galaxy S7 (SM-G930F)** — Cortex-A57/A53, 2014-era ARMv8.0;
+**Pixel 9 Pro** — modern ARMv9-A.
 
 Three surprises in this baseline:
 
@@ -196,18 +198,20 @@ Three surprises in this baseline:
   per `memory/project_posix_persistent_observer_attempt.md`)
   dominate here — exactly the bottleneck the deferred persistent-
   observer optimization in `TODO.md` item #2 was sized for.
-- **`7→1` is fast on Win/Linux but slow on Android.** Win64 7→1 is
-  the fastest config (751 ms, faster than 1→1); same shape on Linux
-  (492 ms ≈ 1→1). On Android64 7→1 is ~2× slower than 1→1 (5550 ms
-  vs 2797 ms) — different hot path. The big.LITTLE scheduler's
-  thread placement + 8 producers competing for the single reader's
-  cache line is the most likely cause; worth verifying if Android
-  perf becomes a target.
-
-> **Caveat (post commit `ef39b94`, 2026-04-25):** Android64 `1→7`
-> hangs with the lock-free protocol — the 7-consumer dequeue side
-> trips a weak-memory-order race that x86 TSO had been masking. The
-> table above reflects the *prior* baseline for Android; new
-> measurements will need this fixed first. Tracked as TODO #3
-> (memory-barrier audit). Linux64 x86_64 numbers are post-`ef39b94`
-> and reflect the new lock-free path.
+- **`1→7` is the only config where the lock-free queue protocol
+  loses ground on older ARM64.** On Galaxy S7 (Cortex-A57, 2014)
+  1→7 went from 35 s pre-`ef39b94` (with the coarse `obcLock`) to
+  80 s post-`ef39b94` (lock-free). Seven consumers hammering one
+  shared dequeue CAS generate cache-line contention that the older
+  cores' `LDXP/STLXP` pair handles poorly; the previous coarse lock
+  serialised them and accidentally hid the contention. Pixel 9 Pro
+  finishes the same config in 51 s — modern ARMv9-A cores cope much
+  better. Every other config (including `7→1`, the more realistic
+  fan-in pattern) got faster on the S7 too, so the trade-off is
+  sound — the lock-free protocol wins on every workload that
+  matters in real-app load.
+- **`7→1` is the fan-in workload most apps actually use, and it's
+  fast everywhere.** Win64 7→1 is the fastest config (751 ms,
+  faster than 1→1); Linux (325 ms) and Pixel (1.3 s) follow the
+  same shape. Even Galaxy S7 dropped from 5.6 s pre-`ef39b94` to
+  3.9 s — the lock-free protocol's biggest practical win.

@@ -39,7 +39,14 @@ type
       CItemCount      = 1000000;
       CWarmupReps     =  1;
       CMeasuredReps   =  3;
-      CWaitTimeout_ms = 300000; // 5 minutes — bench should finish long before
+      // 15 minutes per task WaitFor — generous on purpose. The 1→7 config
+      // on older ARM64 cores (Cortex-A57/A53) takes ~80 s/rep when the
+      // queue protocol is lock-free; 4 reps × 80 s ≈ 5 min already, the
+      // prior 5-minute budget timed out on Samsung Galaxy S7 even though
+      // the run was correct. 15 min gives ~3× headroom for slower silicon
+      // without making the bench impractical on faster targets (x86_64
+      // finishes the whole config in <12 s).
+      CWaitTimeout_ms = 900000;
   strict private
     procedure RunOnce(numForwarders, numReaders: integer; out elapsed_ms: int64);
     procedure LogConfigResult(const log: TBenchLogger;

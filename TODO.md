@@ -74,48 +74,24 @@ identify what is re-signalling them during `MSG_START_TEST` dispatch.
 Context: `memory/project_posix_persistent_observer_attempt.md` (full retry
 history, including current-state-of-revert pointers).
 
-### 3. Add memory barriers to the lock-free queue protocol for ARM64
+### 3. ~~Lock-free queue spinlock fallback~~ — resolved
 
-`OtlContainers.pas`'s lock-free protocol (`PopLink` / `PushLink` /
-`InsertLink` / `RemoveLink` and the tagged-pointer CAS sites) does
-multiple separate reads of `Reference` and `PData` between CAS
-operations. On x86/x86_64 (TSO) those reads see writes from other
-threads in a globally consistent order without explicit barriers, so
-the protocol is correct as-written. On ARM64 (Linux64-ARM64,
-Android64-ARM64, macOS-ARM64) the weaker memory model breaks the
-implicit ordering — under high consumer-side contention readers can
-observe stale `PData` after seeing the matching `Reference`, and the
-retry loop can fail to make progress.
+Resolved by commit `b91711a` (`OtlSync.InterlockedCompareExchange128`
+now calls `AtomicCmpExchange128` directly on every 64-bit target,
+eliminating the global spinlock) and commit `ef39b94`
+(`OtlContainers` no longer carries the coarse `obsLock` / `obqLock` /
+`obcLock` fallback paths). Same lock-free protocol now runs on
+Windows, Linux64, and Android64 ARM64.
 
-Repro (committed `ef39b94`, 2026-04-25): `bench_33` 1→7 on Android64
-(Samsung SM-G930F, Cortex-A57/A53). Configs 1→1 through 8→8 finish;
-1→7 hits the bench's 5-minute `WaitFor` timeout with "Reader 0 did
-not finish". Linux64 x86_64 runs 1→7 cleanly (8 s) — same code, no
-weak-memory-order issue. Reverting `ef39b94` would also fix Android
-but loses the ~2× POSIX-x86_64 speedup measured.
-
-What needs to happen:
-
-1. Audit every multi-step CAS retry loop in `OtlContainers.pas` and
-   identify pairs of reads / writes that need explicit ordering.
-2. Use acquire-load / release-store or insert `MFence`-equivalent
-   barriers (Delphi exposes `MemoryBarrier` / `TInterlocked.MemoryBarrier`
-   — emits no-op on x86 TSO, `DMB ISH` on ARM64).
-3. Re-run `bench_33` 1→7 on Android64 to verify the hang is gone, and
-   on Linux64 x86_64 to confirm no measurable perf regression.
-
-References for the protocol's invariants:
-
-- `TOmniBaseBoundedStack.PopLink` / `PushLink`: the `Reference` /
-  `PData` pair on the chain head/tail.
-- `TOmniBaseBoundedQueue.InsertLink` / `RemoveLink`: same shape on
-  ring-buffer cells.
-- `TOmniBaseQueue.Enqueue` / `Dequeue` (head/tail tagged pointers):
-  state-machine transitions on `(Slot, Tag)` pair.
-
-This entry replaces the older "spinlock fallback" item — that's
-resolved as of `b91711a` (use `AtomicCmpExchange128` everywhere).
-Now the next layer of correctness on weak-memory-order targets.
+Briefly suspected (yesterday) that ARM64's weaker memory ordering
+might require explicit barriers — `bench_33` 1→7 on Galaxy S7 looked
+like a hang. Re-tested with a longer `CWaitTimeout_ms`: it just
+takes ~80 s/rep on those older Cortex-A57 cores (the lock-free
+protocol's worst-case workload, 7 consumers contending on one
+dequeue CAS). Modern Pixel 9 Pro completes the same config in 51 s.
+No correctness issue — just a perf characteristic of older ARM64
+silicon under highly asymmetric contention. The 5-minute bench
+timeout was bumped to 15 minutes in the same cleanup commit.
 
 ### 4. Profile Linux64 ~2.5× speedup vs Win64 on `bench_33` balanced configs
 
