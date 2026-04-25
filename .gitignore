@@ -91,3 +91,9 @@ benchmarks/*/ARM64EC/
 benchmarks/*/Android64/
 benchmarks/*/*.lnk
 benchmarks/*/*.exp
+
+tests/33_BlockingCollection/bench_33_mobile.classes/
+
+tests/33_BlockingCollection/bench_33_mobile/bin/
+
+tests/33_BlockingCollection/CompiledResources/

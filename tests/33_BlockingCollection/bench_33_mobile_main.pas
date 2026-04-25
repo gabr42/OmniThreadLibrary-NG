@@ -1,4 +1,4 @@
-unit bench_33_mobile_main;
+﻿unit bench_33_mobile_main;
 
 // FMX variant of the TOmniBlockingCollection benchmark. Auto-runs on form
 // show, streams results via OTL_DIAG so `adb logcat` captures them on

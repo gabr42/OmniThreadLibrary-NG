@@ -11,31 +11,35 @@ object frmBench33Mobile: TfrmBench33Mobile
   DesignerMasterStyle = 0
   object lblStatus: TLabel
     Align = Top
-    Size.Width = 360.000000000000000000
-    Size.Height = 32.000000000000000000
-    Size.PlatformDefault = False
     StyledSettings = [Family, Size, FontColor]
-    TextSettings.HorzAlign = Center
-    TextSettings.Font.Style = [fsBold]
-    Text = 'Starting bench_33...'
     Margins.Left = 8.000000000000000000
     Margins.Top = 8.000000000000000000
     Margins.Right = 8.000000000000000000
     Margins.Bottom = 4.000000000000000000
+    Position.X = 8.000000000000000000
+    Position.Y = 8.000000000000000000
+    Size.Width = 344.000000000000000000
+    Size.Height = 32.000000000000000000
+    Size.PlatformDefault = False
+    TextSettings.Font.StyleExt = {00070000000000000004000000}
+    TextSettings.HorzAlign = Center
+    Text = 'Starting bench_33...'
+    TabOrder = 1
   end
   object memResults: TMemo
-    Align = Client
-    Size.Width = 360.000000000000000000
-    Size.Height = 608.000000000000000000
-    Size.PlatformDefault = False
-    StyledSettings = [Family, Size, FontColor, Style]
+    Touch.InteractiveGestures = [Pan, LongTap, DoubleTap]
+    DataDetectorTypes = []
     ReadOnly = True
-    ShowScrollBars = True
-    WordWrap = False
-    TabOrder = 0
+    Align = Client
     Margins.Left = 8.000000000000000000
     Margins.Top = 4.000000000000000000
     Margins.Right = 8.000000000000000000
     Margins.Bottom = 8.000000000000000000
+    Size.Width = 344.000000000000000000
+    Size.Height = 584.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 0
+    Viewport.Width = 340.000000000000000000
+    Viewport.Height = 580.000000000000000000
   end
 end
