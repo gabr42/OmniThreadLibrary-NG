@@ -95,6 +95,68 @@ Approaches:
 
 Start with (1) since it's the most direct port.
 
+### 4. Profile Linux64 ~2.5× speedup vs Win64 on `bench_33` balanced configs
+
+`bench_33` 2026-04-25 baseline (`tests/33_BlockingCollection/BENCH_README.md`):
+
+Config | Win64 (ms) | Linux64 (ms) | ratio
+---|---|---|---
+1→1 | 1239 | 401 | 3.1×
+2→2 |  784 | 432 | 1.8×
+3→3 |  983 | 424 | 2.3×
+4→4 | 1055 | 465 | 2.3×
+8→8 | 1521 | 695 | 2.2×
+
+Both numbers are Release-mode builds. Initial hypotheses ruled out:
+
+- **FastMM4-debug overhead.** Win32/Win64 Release without `-DDEBUG`
+  give the same numbers as the 2026-04-24 baseline.
+- **Lock-free CAS vs POSIX spinlock fallback.** Win32 rebuilt with
+  `OTL_HaveCmpx16b` undefined (forcing the same spinlock fallback
+  Linux uses on `OtlContainers`) only added 0–30% overhead vs the
+  CMPXCHG16B path — Win32 1→1 went from 1039 ms to 1167 ms, 8→8
+  from 1124 ms to 1455 ms. Linux64 still beats Win32-with-spinlock
+  by ~2.5–3× on those same configs (401 vs 1167; 695 vs 1455). So
+  the gap is in the surrounding code (sync primitives, scheduler,
+  codegen), not in the queue's contention strategy.
+
+The gap is real, large, and consistent across configs. Worth
+understanding before shipping pre-alpha because it implies Win64 has
+avoidable overhead in the balanced-pipeline hot path.
+
+Likely contributors to investigate, in order:
+
+1. **Synchronization primitives.** Linux uses pthread futex (cheap
+   uncontended fast path, syscall only on contention). Windows
+   `TConditionVariableCS.WaitFor` goes through `TMonitor.Wait` →
+   per-thread semaphore (`MonitorSupport.NewWaitObject`) — a syscall
+   per wait even when uncontended. With many short waits (the
+   bench's hot path is `TryDequeue` failure → `WaitAny` → wake →
+   retry), the syscall-per-wait cost stacks up.
+2. **Cond var design.** On Windows, `TConditionVariableCS.Release`
+   eventually calls `WakeConditionVariableProc` (NT cv) but
+   `TMonitor.Pulse` uses semaphores. Bench may be hitting the
+   non-NT-cv path. Worth verifying with a profiler.
+3. **Compiler codegen.** Both `dcc64` and `dcclinux64` are LLVM-
+   based, but with different backends and inlining heuristics.
+   `OtlCollections.TryAdd` / `TryTake` are the inner-loop functions
+   — disassembling both for `4→4` would expose any obvious gap.
+4. **Memory allocator.** Mostly ruled out at the Delphi-MM level
+   (FastMM4-debug-off didn't move Windows numbers). But glibc
+   `malloc` vs Windows heap could still differ on the queue-block
+   path. Lower priority than (1) and (2).
+
+Note that `1→7` flips direction (Linux is *slower*: 10.7 s vs Win64
+7.9 s). That config's bottleneck is `AddObserver` / `RemoveObserver`
+churn under POSIX — a separate problem already tracked in item #2
+above. The two findings are likely independent.
+
+Concrete next action: build both targets with `-O3 -fno-omit-frame-
+pointer` (Linux) / `--profile` (Windows), capture flame graphs of a
+4→4 run, compare time spent in `WaitAny` / `TryDequeue` /
+`AddObserver`. Bench source unchanged — same `.dpr` runs both
+platforms.
+
 ---
 
 ## Post pre-alpha

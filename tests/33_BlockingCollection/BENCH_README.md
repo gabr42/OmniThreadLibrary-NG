@@ -157,14 +157,37 @@ should show up most visibly on `8→8` and on POSIX, where the
 spinlock fallback in `OtlContainers.pas` currently serialises
 access.
 
-## Baseline (2026-04-24)
+## Baseline (2026-04-25)
 
 Captured on this machine for reference. Replace with your own after
 you run the benchmark — hardware varies.
 
-Platform | 1→1 | 2→2 | 3→3 | 4→4 | 8→8 | 1→7 | 7→1
+Platform | 1→1 | 2→2 | 3→3 | 4→4 | 8→8 |  1→7 | 7→1
 ---|---|---|---|---|---|---|---
-Win32   | 1055 | 1153 | 1198 | 1163 | 1168 | 8983 | 1009
-Win64   | 1003 | 1116 |  995 |  935 | 1433 | 7085 |  769
+Win32    | 1039 | 1125 | 1081 | 1173 | 1124 |  8815 |  984
+Win64    | 1239 |  784 |  983 | 1055 | 1521 |  7985 |  751
+Linux64  |  401 |  432 |  424 |  465 |  695 | 10722 |  492
 
 (average ms over 3 measured reps, 1M items per rep)
+
+Win32/Win64 captured in Release mode (no `-DDEBUG`, no FastMM4-debug
+overhead). Linux64 from a PAServer-deployed binary on WSL2 / Ubuntu
+24.04, built against `OtlSync.pas` v3.05.
+
+Two surprises in this baseline:
+
+- **Linux64 is ~2.5× faster than Win64 on balanced configs.** Initial
+  guess was FastMM4-debug overhead, but Release builds without
+  FastMM4 give the same Win numbers — so the gap is real and not from
+  the allocator. Likely contributors: Linux's pthread futex-based
+  primitives (cheap fast path) vs Windows `TMonitor` going through
+  semaphores, plus dcclinux64's LLVM codegen on shared inlines.
+  Worth profiling on a follow-up pass.
+- **`1→7` flips direction.** ~14× balanced on Linux (10.7 s) vs
+  ~6–8× on Windows. With one producer feeding seven readers, the
+  channel runs dry constantly and all seven readers hammer
+  `FTakeWaiter.WaitAny`. POSIX `AddObserver` / `RemoveObserver` per-
+  wait costs (~440 µs/wait per
+  `memory/project_posix_persistent_observer_attempt.md`) dominate
+  here — exactly the bottleneck the deferred persistent-observer
+  optimization in `TODO.md` item #2 was sized for.
