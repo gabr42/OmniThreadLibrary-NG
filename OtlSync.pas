@@ -36,9 +36,25 @@
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
 ///   Last modification : 2026-04-25
-///   Version           : 3.04
+///   Version           : 3.05
 ///</para><para>
 ///   History:
+///     3.05: 2026-04-25
+///       - Fixed shared-observer eviction race in TOmniSynchroObject. With
+///         multiple waiters on the same TWaitFor, every Wait call adds the
+///         singleton FSynchClient via AddObserver and removes it via
+///         RemoveObserver. AddObserver dedups (no-op if already present) but
+///         RemoveObserver was unconditional — so when one waiter returned
+///         from Wait, its RemoveObserver evicted the observer used by all
+///         the others. Subsequent signals fired AfterSignal against an empty
+///         observer list, never reached FCondVar.ReleaseAll, and the still-
+///         sleeping waiters stayed parked forever. Fix: refcount each
+///         observer attach via FObserverRefCount: TDictionary; AddObserver
+///         increments, RemoveObserver decrements and only physically removes
+///         when count hits zero. The 3.04 ReleaseAll fix masked this for
+///         simple 2→2 cases (both waiters were active when the signal fired)
+///         but the underlying race surfaced again at 3→3 in bench_33 once
+///         one reader returned ahead of the others.
 ///     3.04: 2026-04-25
 ///       - Fixed missed-wake race when multiple readers share a single TWaitFor
 ///         on POSIX. TSynchroClient.AfterSignal called FCondVar.Release (wake
@@ -846,14 +862,21 @@ type
     procedure AckKernelConsumed; virtual;
     {$ENDIF}
   strict protected
-    FBase     : TSynchroObject;
-    FOwnsBase : boolean;
-    FLock     : TSpinLock;
-    FObservers: TList<IOmniSynchroObserver>;
-    FData     : TArray<TObject>;
+    FBase           : TSynchroObject;
+    FOwnsBase       : boolean;
+    FLock           : TSpinLock;
+    FObservers      : TList<IOmniSynchroObserver>;
+    // Per-observer attach count. Multiple TWaitFor waiters share a singleton
+    // FSynchClient; each Wait call AddObserver-then-RemoveObserver. Without
+    // refcounting, a returning waiter's RemoveObserver evicts the observer
+    // even though other waiters are still sleeping — they never wake when
+    // the next signal fires. FObservers stays in sync with FObserverRefCount:
+    // a synchro is in FObservers iff its refcount is > 0.
+    FObserverRefCount: TDictionary<IOmniSynchroObserver, integer>;
+    FData           : TArray<TObject>;
     [Volatile]
-    FRefCount : integer;
-    FShareLock: IOmniCriticalSection;
+    FRefCount       : integer;
+    FShareLock      : IOmniCriticalSection;
   private
     function QueryInterface(const IID: TGUID; out Obj): HResult; stdcall;
     function _AddRef: Integer; stdcall;
@@ -2918,7 +2941,8 @@ begin
     FShareLock := AShareLock
   else
     FLock := TSpinLock.Create(False);
-  FObservers := TList<IOmniSynchroObserver>.Create
+  FObservers := TList<IOmniSynchroObserver>.Create;
+  FObserverRefCount := TDictionary<IOmniSynchroObserver, integer>.Create;
 end; { TOmniSynchroObject.Create }
 
 destructor TOmniSynchroObject.Destroy;
@@ -2933,6 +2957,7 @@ begin
     if FOwnsBase then
       FreeAndNil(FBase);
     FObservers.Free;
+    FObserverRefCount.Free;
   end;
   inherited;
 end; { TOmniSynchroObject.Destroy }
@@ -3112,22 +3137,35 @@ begin
 end; { TOmniSynchroObject.Acquire }
 
 procedure TOmniSynchroObject.AddObserver(const Observer: IOmniSynchroObserver);
+var
+  refCount: integer;
 begin
   with EnterSpinLock do begin
-    if FObservers.IndexOf(Observer) = -1 then
+    if FObserverRefCount.TryGetValue(Observer, refCount) then
+      FObserverRefCount[Observer] := refCount + 1
+    else begin
       FObservers.Add(Observer);
-    SetLength(FData, FObservers.Count);
+      FObserverRefCount.Add(Observer, 1);
+      SetLength(FData, FObservers.Count);
+    end;
   end;
 end; { TOmniSynchroObject.AddObserver }
 
 procedure TOmniSynchroObject.RemoveObserver(const Observer: IOmniSynchroObserver);
+var
+  refCount: integer;
 begin
   with EnterSpinLock do begin
-    if FObservers.Count = 0 then
+    if not FObserverRefCount.TryGetValue(Observer, refCount) then
       Exit;
-    FObservers.Remove(Observer);
-    Observer.DereferenceSynchObj(self, FRefCount > 0);
-    SetLength(FData, FObservers.Count)
+    if refCount > 1 then
+      FObserverRefCount[Observer] := refCount - 1
+    else begin
+      FObservers.Remove(Observer);
+      FObserverRefCount.Remove(Observer);
+      Observer.DereferenceSynchObj(self, FRefCount > 0);
+      SetLength(FData, FObservers.Count);
+    end;
   end;
 end; { TOmniSynchroObject.RemoveObserver }
 
