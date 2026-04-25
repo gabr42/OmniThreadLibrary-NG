@@ -30,10 +30,17 @@
 ///<remarks><para>
 ///   Author            : Primoz Gabrijelcic
 ///   Creation date     : 2010-07-01
-///   Last modification : 2026-04-12
-///   Version           : 3.01
+///   Last modification : 2026-04-25
+///   Version           : 3.02
 ///</para><para>
 ///   History:
+///     3.02: 2026-04-25
+///       - Removed OTL_HaveCmpx16b. The lock-free 128-bit-CAS path it gated
+///         is now reachable on every supported target (32-bit via 8-byte
+///         TInterlocked.CompareExchange, 64-bit via AtomicCmpExchange128
+///         compiler intrinsic), so the flag had no remaining off-state.
+///         OtlContainers' `{$IFNDEF OTL_HaveCmpx16b}` paths (the obcLock
+///         coarse-locking fallback) are deleted as part of the same change.
 ///     3.01: 2026-04-12
 ///       - Removed all transitional defines (OTL_CountdownHasSpinCount, etc.) — always true on Delphi 11+.
 ///     3.0: 2026-04-11
@@ -88,10 +95,7 @@
 // Platform-specific defines
 
 {$IFDEF MSWINDOWS}
-  {$DEFINE OTL_HaveCmpx16b}  // Opt-in 128-bit CAS fast path (Windows x86/x64 only)
   {$DEFINE OTL_HasAPC}        // Gates QueueUserAPC-based fast path on Windows
-{$ELSE}
-  {$UNDEF OTL_HaveCmpx16b}
 {$ENDIF}
 
 // On non-Windows platforms, platform-independent code paths are mandatory.

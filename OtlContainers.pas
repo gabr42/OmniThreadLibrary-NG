@@ -1,6 +1,7 @@
-///<summary>Microlocking containers. Part of the OmniThreadLibrary project.</summary>
-///<remarks>Bus-locked (lock-free) path active when OTL_HaveCmpx16b is defined (Windows x86/x64).
-///Critical-section fallback on all other platforms.</remarks>
+﻿///<summary>Microlocking containers. Part of the OmniThreadLibrary project.</summary>
+///<remarks>Lock-free everywhere. The 128-bit-CAS primitive is provided by
+///OtlSync.CAS / MoveDPtr — TInterlocked.CompareExchange (8 bytes) on 32-bit,
+///AtomicCmpExchange128 compiler intrinsic (16 bytes) on 64-bit.</remarks>
 ///<author>Primoz Gabrijelcic, GJ</author>
 ///<license>
 ///This software is distributed under the BSD license.
@@ -37,10 +38,21 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Sean B. Durkin, Claude AI
 ///   Creation date     : 2008-07-13
-///   Last modification : 2026-04-14
-///   Version           : 4.01
+///   Last modification : 2026-04-25
+///   Version           : 4.02
 ///</para><para>
 ///   History:
+///     4.02: 2026-04-25
+///       - Removed the OTL_HaveCmpx16b dual-path. The lock-free 128-bit-CAS
+///         primitive is now reachable on every supported target via
+///         OtlSync.CAS / MoveDPtr (TInterlocked.CompareExchange on 32-bit,
+///         AtomicCmpExchange128 compiler intrinsic on 64-bit), so the
+///         coarse-locking fallback paths in TOmniBaseBoundedStack /
+///         TOmniBaseBoundedQueue / TOmniBaseQueue are gone. Per-instance
+///         critical sections (obsLock, obqLock, obcLock) and their
+///         Acquire/Release calls deleted; the inline procs are kept as
+///         no-ops for ABI compatibility with callers. Same lock-free
+///         protocol now runs on Windows, Linux64, and Android64 ARM64.
 ///     4.01: 2026-04-14
 ///       - Fixed PropagateNotifications loop iterating only the first enum value
 ///         (Low to Low instead of Low to High).
@@ -214,7 +226,6 @@ type
     obsNumElements  : integer;
     obsPublicChainP : PReferencedPtr;
     obsRecycleChainP: PReferencedPtr;
-    obsLock         : IOmniCriticalSection;
   class var
     class var obsIsInitialized: integer;                 //0=false, 1=true
     class var obsTaskPopLoops : NativeInt;
@@ -263,7 +274,6 @@ type
     obqPublicRingMem    : pointer;
     obqRecycleRingBuffer: POmniRingBuffer;
     obqRecycleRingMem   : pointer;
-    obqLock             : IOmniCriticalSection;
   class var
     class var obqIsInitialized  : integer;              //0=false, 1=true
     class var obqTaskInsertLoops: NativeInt;             //default is false
@@ -344,7 +354,6 @@ type
     obcMemStack   : TOmniBaseBoundedStack;
     obcNumSlots   : integer;
     obcTailPointer: POmniTaggedPointer;
-    obcLock       : IOmniCriticalSection;
   strict protected
     {$IFDEF DEBUG_OMNI_QUEUE}
     procedure Assert(condition: boolean);
@@ -461,7 +470,6 @@ end; { RoundUpTo }
 constructor TOmniBaseBoundedStack.Create;
 begin
   inherited Create;
-  obsLock := CreateOmniCriticalSection;
 end; { TOmniBaseBoundedStack.Create }
 
 destructor TOmniBaseBoundedStack.Destroy;
@@ -472,16 +480,14 @@ end; { TOmniBaseBoundedStack.Destroy }
 
 procedure TOmniBaseBoundedStack.Acquire; //inline
 begin
-  {$IFNDEF OTL_HaveCmpx16b}
-  obsLock.Acquire;
-  {$ENDIF ~OTL_HaveCmpx16b}
+  // No-op: kept for ABI compatibility with callers; the protocol is
+  // fully lock-free now (was a coarse obsLock-based fallback when
+  // OTL_HaveCmpx16b was undefined on POSIX).
 end; { TOmniBaseBoundedStack.Acquire }
 
 procedure TOmniBaseBoundedStack.Release; //inline
 begin
-  {$IFNDEF OTL_HaveCmpx16b}
-  obsLock.Release;
-  {$ENDIF ~OTL_HaveCmpx16b}
+  // No-op: see Acquire.
 end; { TOmniBaseBoundedStack.Release }
 
 procedure TOmniBaseBoundedStack.Empty;
@@ -638,7 +644,6 @@ end; { TOmniBaseBoundedStack.Pop }
 class function TOmniBaseBoundedStack.PopLink(var chain: TReferencedPtr): POmniLinkedData;
 //nil << Link.Next << Link.Next << ... << Link.Next
 //                                            ^------ < chainHead
-{$IFDEF OTL_HaveCmpx16b}
 var
   AtStartReference: NativeInt;
   CurrentReference: NativeInt;
@@ -646,9 +651,7 @@ var
   ThreadReference : NativeInt;
 label
   TryAgain;
-{$ENDIF OTL_HaveCmpx16b}
 begin
-  {$IFDEF OTL_HaveCmpx16b}
   ThreadReference := TThread.CurrentThread.ThreadID + 1;        //Reference.bit0 := 1
   with chain do begin
 TryAgain:
@@ -670,12 +673,6 @@ TryAgain:
     else if not CAS(Result, ThreadReference, Result.Next, 0, chain) then
       goto TryAgain;
   end; //with chain
-  {$ELSE ~OTL_HaveCmpx16b}
-  if not assigned(chain.PData) then
-    Exit(nil);
-  Result := chain.PData;
-  chain.PData := Result^.Next;
-  {$ENDIF ~OTL_HaveCmpx16b}
 end; { TOmniBaseBoundedStack.PopLink }
 
 function TOmniBaseBoundedStack.Push(const value): boolean;
@@ -694,13 +691,10 @@ begin
 end; { TOmniBaseBoundedStack.Push }
 
 class procedure TOmniBaseBoundedStack.PushLink(const link: POmniLinkedData; var chain: TReferencedPtr);
-{$IFDEF OTL_HaveCmpx16b}
 var
   PMemData   : pointer;
   TaskCounter: NativeInt;
-{$ENDIF OTL_HaveCmpx16b}
 begin
-  {$IFDEF OTL_HaveCmpx16b}
   with chain do begin
     for TaskCounter := 0 to obsTaskPushLoops do
       if (Reference AND 1 = 0) then
@@ -710,10 +704,6 @@ begin
       link.Next := PMemData;
     until TInterlockedEx.CAS(PMemData, link, PData);
   end;
-  {$ELSE ~OTL_HaveCmpx16b}
-  link.Next := chain.PData;
-  chain.PData := link;
-  {$ENDIF ~OTL_HaveCmpx16b}
 end; { TOmniBaseBoundedStack.PushLink }
 
 { TOmniBoundedStack }
@@ -770,7 +760,6 @@ end; { TOmniBoundedStack.Push }
 constructor TOmniBaseBoundedQueue.Create;
 begin
   inherited Create;
-  obqLock := CreateOmniCriticalSection;
 end; { TOmniBaseBoundedQueue.Create }
 
 destructor TOmniBaseBoundedQueue.Destroy;
@@ -783,16 +772,12 @@ end; { TOmniBaseBoundedQueue.Destroy }
 
 procedure TOmniBaseBoundedQueue.Acquire; //inline
 begin
-  {$IFNDEF OTL_HaveCmpx16b}
-  obqLock.Acquire;
-  {$ENDIF ~OTL_HaveCmpx16b}
+  // No-op: see TOmniBaseBoundedStack.Acquire for context.
 end; { TOmniBaseBoundedQueue.Acquire }
 
 procedure TOmniBaseBoundedQueue.Release; //inline
 begin
-  {$IFNDEF OTL_HaveCmpx16b}
-  obqLock.Release;
-  {$ENDIF ~OTL_HaveCmpx16b}
+  // No-op: see TOmniBaseBoundedStack.Acquire for context.
 end; { TOmniBaseBoundedQueue.Release }
 
 function TOmniBaseBoundedQueue.Dequeue(var value): boolean;
@@ -895,18 +880,13 @@ class procedure TOmniBaseBoundedQueue.InsertLink(const data: pointer; const ring
 var
   CurrentLastIn   : PReferencedPtr;
   NewLastIn       : PReferencedPtr;
-  {$IFDEF OTL_HaveCmpx16b}
   AtStartReference: NativeInt;
   CurrentReference: NativeInt;
   TaskCounter     : NativeInt;
   ThreadReference : NativeInt;
-  {$ENDIF OTL_HaveCmpx16b}
-{$IFDEF OTL_HaveCmpx16b}
 label
   TryAgain;
-{$ENDIF OTL_HaveCmpx16b}
 begin
-  {$IFDEF OTL_HaveCmpx16b}
   ThreadReference := TThread.CurrentThread.ThreadID + 1;        //Reference.bit0 := 1
   with ringBuffer^ do begin
 TryAgain:
@@ -936,15 +916,6 @@ TryAgain:
     if not CAS(CurrentLastIn, ThreadReference, NewLastIn, 0, LastIn) then
       goto TryAgain;
   end;
-
-  {$ELSE ~OTL_HaveCmpx16b}
-  CurrentLastIn := ringBuffer^.LastIn.PData;
-  CurrentLastIn^.PData := data;
-  NewLastIn := pointer(NativeInt(CurrentLastIn) + SizeOf(TReferencedPtr));
-  if NativeInt(NewLastIn) > NativeInt(ringBuffer^.EndBuffer) then
-    NewLastIn := ringBuffer^.StartBuffer;
-  ringBuffer^.LastIn.PData := NewLastIn;
-  {$ENDIF ~OTL_HaveCmpx16b}
 end; { TOmniBaseBoundedQueue.InsertLink }
 
 function TOmniBaseBoundedQueue.IsEmpty: boolean;
@@ -1034,18 +1005,13 @@ class function TOmniBaseBoundedQueue.RemoveLink(const ringBuffer: POmniRingBuffe
 var
   CurrentFirstIn        : pointer;
   NewFirstIn            : pointer;
-  {$IFDEF OTL_HaveCmpx16b}
   AtStartReference      : NativeInt;
   CurrentReference      : NativeInt;
   Reference             : NativeInt;
   TaskCounter           : NativeInt;
-  {$ENDIF OTL_HaveCmpx16b}
-{$IFDEF OTL_HaveCmpx16b}
 label
   TryAgain;
-{$ENDIF OTL_HaveCmpx16b}
 begin
-  {$IFDEF OTL_HaveCmpx16b}
   Reference := TThread.CurrentThread.ThreadID + 1;              //Reference.bit0 := 1
   with ringBuffer^ do begin
 TryAgain:
@@ -1082,17 +1048,6 @@ TryAgain:
     if not CAS(CurrentFirstIn, Reference, NewFirstIn, 0, FirstIn) then
       goto TryAgain;
   end;
-
-  {$ELSE ~OTL_HaveCmpx16b}
-  CurrentFirstIn := ringBuffer^.FirstIn.PData;
-  if CurrentFirstIn = ringBuffer^.LastIn.PData then
-    Exit(nil);
-  Result := PReferencedPtr(ringBuffer^.FirstIn.PData)^.PData;
-  NewFirstIn := pointer(NativeInt(CurrentFirstIn) + SizeOf(TReferencedPtr));
-  if NativeInt(NewFirstIn) > NativeInt(ringBuffer^.EndBuffer) then
-    NewFirstIn := ringBuffer^.StartBuffer;
-  ringBuffer^.FirstIn.PData := NewFirstIn;
-  {$ENDIF ~OTL_HaveCmpx16b}
 end; { TOmniBaseBoundedQueue.RemoveLink }
 
 { TOmniBoundedQueue }
@@ -1251,19 +1206,12 @@ Dequeue:
 {$DEFINE USE_MOVEDPTR}
 {$IFDEF DEBUG_OMNI_QUEUE}{$UNDEF USE_MOVEDPTR}{$ENDIF}
 {$IFDEF OTL_OLDCPU}{$UNDEF USE_MOVEDPTR}{$ENDIF}
-{$IFNDEF OTL_HaveCmpx16b}{$UNDEF USE_MOVEDPTR}{$ENDIF} //bus locking not supported, Move is just a move, so DON'T use it
 
 { TOmniTaggedValue }
 
 function TOmniTaggedValue.CASTag(oldTag, newTag: TOmniQueueTag): boolean;
 begin
-  {$IFDEF OTL_HaveCmpx16b}
   Result := CAS8(Ord(oldTag), Ord(newTag), Tag);
-  {$ELSE}
-  Result := (Tag = oldTag);
-  if Result then
-    Tag := newTag;
-  {$ENDIF ~OTL_HaveCmpx16b}
 end; { TOmniTaggedValue.CASTag }
 
 { TOmniTaggedPointer }
@@ -1272,25 +1220,12 @@ function TOmniTaggedPointer.CAS(
   oldSlot: POmniTaggedValue; oldTag: TOmniQueueTag;
   newSlot: POmniTaggedValue; newTag: TOmniQueueTag): boolean;
 begin
-  {$IFDEF OTL_HaveCmpx16b}
   Result := OtlSync.CAS(oldSlot, NativeInt(oldTag), newSlot, NativeInt(newTag), Self);
-  {$ELSE}
-  Result := (Slot = oldSlot) and (Tag = oldTag);
-  if Result then begin
-    Slot := newSlot;
-    Tag := newTag;
-  end;
-  {$ENDIF ~OTL_HaveCmpx16b}
 end; { TOmniTaggedPointer.CAS }
 
 procedure TOmniTaggedPointer.Move(newSlot: POmniTaggedValue; newTag: TOmniQueueTag);
 begin
-  {$IFDEF OTL_HaveCmpx16b}
   MoveDPtr(newSlot, ord(newTag), Self);
-  {$ELSE}
-  Slot := newSlot;
-  Tag := newTag;
-  {$ENDIF OTL_HaveCmpx16b}
 end; { TOmniTaggedPointer.Move }
 
 { TOmniBaseQueue }
@@ -1313,7 +1248,6 @@ begin
     PartitionMemory(memory);
     Assert(obcMemStack.Push(memory));
   end;
-  obcLock := CreateOmniCriticalSection;
   Initialize;
 end; { TOmniBaseQueue.Create }
 
@@ -1336,9 +1270,7 @@ end; { TOmniBaseQueue.Destroy }
 
 procedure TOmniBaseQueue.Acquire; //inline
 begin
-  {$IFNDEF OTL_HaveCmpx16b}
-  obcLock.Acquire;
-  {$ENDIF OTL_HaveCmpx16b}
+  // No-op: see TOmniBaseBoundedStack.Acquire for context.
 end; { TOmniBaseQueue.Acquire }
 
 function TOmniBaseQueue.NextSlot(slot: POmniTaggedValue): POmniTaggedValue; //inline
@@ -1349,9 +1281,7 @@ end; { TOmniBaseQueue.NextSlot }
 
 procedure TOmniBaseQueue.Release; //inline
 begin
-  {$IFNDEF OTL_HaveCmpx16b}
-  obcLock.Release;
-  {$ENDIF OTL_HaveCmpx16b}
+  // No-op: see TOmniBaseBoundedStack.Acquire for context.
 end; { TOmniBaseQueue.Release }
 
 function TOmniBaseQueue.AllocateBlock: POmniTaggedValue;
@@ -1898,8 +1828,6 @@ initialization
   Assert(SizeOf(pointer) = SizeOf(NativeInt));
   Assert(SizeOf(TOmniTaggedValue) = {$IFDEF CPU64BITS}3{$ELSE}4{$ENDIF}*SizeOf(pointer));
   Assert(SizeOf(TOmniTaggedPointer) = 2*SizeOf(pointer));
-  {$IFDEF OTL_HaveCmpx16b}
   InitializeTimingInfo;
-  {$ENDIF OTL_HaveCmpx16b}
 end.
 
