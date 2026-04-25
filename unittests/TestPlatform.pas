@@ -28,11 +28,11 @@ type
     {$IF Defined(LINUX) or Defined(ANDROID)}
     [Test]
     procedure TestPosixSetThreadAffinityRestrictsAndRestores;
-    {$IFEND}
+    {$ENDIF}
     {$IF Defined(MACOS) and not Defined(LINUX) and not Defined(ANDROID)}
     [Test]
     procedure TestMacOSThreadAffinityIsNoOp;
-    {$IFEND}
+    {$ENDIF}
   end;
 
 implementation
@@ -196,7 +196,7 @@ begin
   Assert.AreEqual(before, after,
     Format('Affinity was not restored (before="%s", after="%s")', [before, after]));
 end;
-{$IFEND}
+{$ENDIF}
 
 {$IF Defined(MACOS) and not Defined(LINUX) and not Defined(ANDROID)}
 procedure TPlatformTest.TestMacOSThreadAffinityIsNoOp;
@@ -209,6 +209,6 @@ begin
   Assert.AreEqual(before, TPlatform.ThreadAffinity,
     'macOS SetThreadAffinity must be a no-op');
 end;
-{$IFEND}
+{$ENDIF}
 
 end.

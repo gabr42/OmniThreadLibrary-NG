@@ -77,7 +77,7 @@ uses
   Posix.Base,
   Posix.Errno,
   Posix.SysTypes,
-  {$IFEND}
+  {$ENDIF}
   System.Classes,
   System.Diagnostics,
   System.SysUtils;
@@ -172,7 +172,7 @@ function sched_getaffinity(pid: pid_t; cpusetsize: size_t;
 function sched_setaffinity(pid: pid_t; cpusetsize: size_t;
   cpuset: PCpuSet): Integer; cdecl;
   external libc name _PU + 'sched_setaffinity';
-{$IFEND}
+{$ENDIF}
 
 { exports }
 
@@ -221,7 +221,7 @@ var
 var
   cpuSet: TCpuSet;
   rc    : integer;
-{$IFEND}
+{$ENDIF}
 begin
   {$IFDEF MSWINDOWS}
   GetProcessAffinityMask(GetCurrentProcess, processAffinityMask, systemAffinityMask);
@@ -246,7 +246,7 @@ begin
   // advisory on macOS, unavailable on iOS). Report "all processors" as a
   // stable fallback so callers see a non-empty string.
   Result := Copy(CCPUIDs, 1, TThread.ProcessorCount);
-  {$IFEND}
+  {$ENDIF}
 end; { TPlatform.GetThreadAffinity }
 
 class function TPlatform.GetThreadID: TThreadID;
@@ -265,7 +265,7 @@ var
 var
   cpuSet: TCpuSet;
   rc    : integer;
-{$IFEND}
+{$ENDIF}
 begin
   {$IFDEF MSWINDOWS}
   GetProcessAffinityMask(GetCurrentProcess, processAffinityMask, systemAffinityMask);
@@ -286,7 +286,7 @@ begin
   end;
   {$ELSE}
   // macOS / iOS: no-op (see GetThreadAffinity).
-  {$IFEND}
+  {$ENDIF}
 end; { TPlatform.SetThreadAffinity }
 
 initialization
