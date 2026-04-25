@@ -166,25 +166,28 @@ Platform   | 1→1  | 2→2  | 3→3  | 4→4  | 8→8  |  1→7  | 7→1
 ---|---|---|---|---|---|---|---
 Win32      | 1039 | 1125 | 1081 | 1173 | 1124 |  8815 |  984
 Win64      | 1239 |  784 |  983 | 1055 | 1521 |  7985 |  751
-Linux64    |  401 |  432 |  424 |  465 |  695 | 10722 |  492
+Linux64    |  548 |  220 |  215 |  235 |  405 |  8118 |  325
 Android64  | 2797 | 3064 | 3602 | 4139 | 8494 | 35071 | 5550
 
 (average ms over 3 measured reps, 1M items per rep)
 
 Win32/Win64 captured in Release mode (no `-DDEBUG`, no FastMM4-debug
 overhead). Linux64 from a PAServer-deployed binary on WSL2 / Ubuntu
-24.04. Android64 on Samsung SM-G930F (Galaxy S7, 4× big + 4× LITTLE
-ARM Cortex-A57/A53). All built against `OtlSync.pas` v3.05.
+24.04, post commit `ef39b94` (lock-free queue protocol on POSIX).
+Android64 on Samsung SM-G930F (Galaxy S7, 4× big + 4× LITTLE
+ARM Cortex-A57/A53), pre `ef39b94` — see Caveat below.
 
 Three surprises in this baseline:
 
-- **Linux64 is ~2.5× faster than Win64 on balanced configs.** Initial
-  guess was FastMM4-debug overhead, but Release builds without
-  FastMM4 give the same Win numbers — so the gap is real and not from
-  the allocator. Likely contributors: Linux's pthread futex-based
-  primitives (cheap fast path) vs Windows `TMonitor` going through
-  semaphores, plus dcclinux64's LLVM codegen on shared inlines.
-  Worth profiling on a follow-up pass — tracked in `TODO.md` item #4.
+- **Linux64 is now 3-5× faster than Win64 on balanced configs.**
+  After `ef39b94` removed the POSIX-side coarse locking from the
+  queue, balanced configs (2→2 .. 8→8) drop to 200-400 ms vs Win64's
+  1000-1500 ms. Initial gap (pre-`ef39b94`) was ~2.5× and survived
+  ruling out FastMM4-debug overhead. Possible remaining contributors:
+  Linux's pthread futex-based primitives (cheap fast path) vs
+  Windows `TMonitor` going through semaphores, plus dcclinux64's
+  LLVM codegen on shared inlines. Worth profiling on a follow-up
+  pass — tracked in `TODO.md` item #4.
 - **`1→7` is brutal on POSIX.** ~14× balanced on Linux (10.7 s),
   ~10× on Android (35 s, with one rep at 51 s) vs ~6–8× on Windows.
   With one producer feeding seven readers, the channel runs dry
@@ -200,3 +203,11 @@ Three surprises in this baseline:
   thread placement + 8 producers competing for the single reader's
   cache line is the most likely cause; worth verifying if Android
   perf becomes a target.
+
+> **Caveat (post commit `ef39b94`, 2026-04-25):** Android64 `1→7`
+> hangs with the lock-free protocol — the 7-consumer dequeue side
+> trips a weak-memory-order race that x86 TSO had been masking. The
+> table above reflects the *prior* baseline for Android; new
+> measurements will need this fixed first. Tracked as TODO #3
+> (memory-barrier audit). Linux64 x86_64 numbers are post-`ef39b94`
+> and reflect the new lock-free path.

@@ -74,26 +74,48 @@ identify what is re-signalling them during `MSG_START_TEST` dispatch.
 Context: `memory/project_posix_persistent_observer_attempt.md` (full retry
 history, including current-state-of-revert pointers).
 
-### 3. Replace lock-free-container spinlock fallback with cross-platform CAS
+### 3. Add memory barriers to the lock-free queue protocol for ARM64
 
-`OtlContainers.pas` lock-free queue / stack rely on 128-bit CAS. On Windows x64
-this is `InterlockedCompareExchange128` (CMPXCHG16B). On POSIX and non-x86
-(ARM64, ARM64EC) the fallback is a global spinlock-protected critical section —
-semantically correct but NOT lock-free; throughput under contention drops to
-single-writer. Matters for pre-alpha users who profiled lock-free progress on
-Windows and now deploy on Linux / Android.
+`OtlContainers.pas`'s lock-free protocol (`PopLink` / `PushLink` /
+`InsertLink` / `RemoveLink` and the tagged-pointer CAS sites) does
+multiple separate reads of `Reference` and `PData` between CAS
+operations. On x86/x86_64 (TSO) those reads see writes from other
+threads in a globally consistent order without explicit barriers, so
+the protocol is correct as-written. On ARM64 (Linux64-ARM64,
+Android64-ARM64, macOS-ARM64) the weaker memory model breaks the
+implicit ordering — under high consumer-side contention readers can
+observe stale `PData` after seeing the matching `Reference`, and the
+retry loop can fail to make progress.
 
-TODO marker: `OtlSync.pas:954`.
+Repro (committed `ef39b94`, 2026-04-25): `bench_33` 1→7 on Android64
+(Samsung SM-G930F, Cortex-A57/A53). Configs 1→1 through 8→8 finish;
+1→7 hits the bench's 5-minute `WaitFor` timeout with "Reader 0 did
+not finish". Linux64 x86_64 runs 1→7 cleanly (8 s) — same code, no
+weak-memory-order issue. Reverting `ef39b94` would also fix Android
+but loses the ~2× POSIX-x86_64 speedup measured.
 
-Approaches:
+What needs to happen:
 
-1. ARM64 `LDXP` / `STXP` intrinsics for 128-bit CAS (closest analogue to
-   CMPXCHG16B).
-2. Redesign containers around 64-bit CAS + version counter in a tagged pointer
-   (hard with 48-bit virtual addresses on some ARM64).
-3. Per-thread hazard-pointer reclamation.
+1. Audit every multi-step CAS retry loop in `OtlContainers.pas` and
+   identify pairs of reads / writes that need explicit ordering.
+2. Use acquire-load / release-store or insert `MFence`-equivalent
+   barriers (Delphi exposes `MemoryBarrier` / `TInterlocked.MemoryBarrier`
+   — emits no-op on x86 TSO, `DMB ISH` on ARM64).
+3. Re-run `bench_33` 1→7 on Android64 to verify the hang is gone, and
+   on Linux64 x86_64 to confirm no measurable perf regression.
 
-Start with (1) since it's the most direct port.
+References for the protocol's invariants:
+
+- `TOmniBaseBoundedStack.PopLink` / `PushLink`: the `Reference` /
+  `PData` pair on the chain head/tail.
+- `TOmniBaseBoundedQueue.InsertLink` / `RemoveLink`: same shape on
+  ring-buffer cells.
+- `TOmniBaseQueue.Enqueue` / `Dequeue` (head/tail tagged pointers):
+  state-machine transitions on `(Slot, Tag)` pair.
+
+This entry replaces the older "spinlock fallback" item — that's
+resolved as of `b91711a` (use `AtomicCmpExchange128` everywhere).
+Now the next layer of correctness on weak-memory-order targets.
 
 ### 4. Profile Linux64 ~2.5× speedup vs Win64 on `bench_33` balanced configs
 
