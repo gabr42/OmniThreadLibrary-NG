@@ -35,10 +35,21 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
-///   Last modification : 2026-04-17
-///   Version           : 3.03
+///   Last modification : 2026-04-25
+///   Version           : 3.04
 ///</para><para>
 ///   History:
+///     3.04: 2026-04-25
+///       - Fixed missed-wake race when multiple readers share a single TWaitFor
+///         on POSIX. TSynchroClient.AfterSignal called FCondVar.Release (wake
+///         one) on the false→true transition; with N readers on the same
+///         FTakeWaiter, only one woke. The others stayed blocked forever — a
+///         manual-reset event remained signalled but the cond var never
+///         re-fired. Fix: switch to ReleaseAll (broadcast) for both
+///         FOneSignalled and FAllSignalled transitions; each waiter then
+///         re-tests under FGate independently. Reproduced via bench_33 on
+///         Linux64 (one reader stuck in TryTake.WaitAny after CompleteAdding);
+///         all 313 unit tests still pass on Win32/Win64, 308/311 on Linux64.
 ///     3.03: 2026-04-17
 ///       - Cross-platform build: compiles for Linux64 (dcclinux64) and Windows
 ///         ARM64EC (dccarm64ec) in addition to Win32/Win64.
@@ -2229,13 +2240,17 @@ begin
       newCount := TInterlocked.Decrement(FController.FSignalledCount);
     // False→true transition on the signaller brings the total from
     // newCount-1 to newCount. If newCount = 1 the waiter's FOneSignalled
-    // just transitioned from "none signalled" to "some signalled" — wake.
+    // just transitioned from "none signalled" to "some signalled" — wake
+    // ALL waiters (multiple readers may share a single FTakeWaiter).
+    // Release wakes only one waiter; ReleaseAll broadcasts so every
+    // sleeping reader gets to re-test under FGate. Each waiter then
+    // either confirms its condition or returns to wait independently.
     if postState and (newCount = 1) then
-      FController.FOneSignalled.FCondVar.Release;
+      FController.FOneSignalled.FCondVar.ReleaseAll;
     // FAllSignalled transitions to signalled only when every synch
-    // object is signalled at once.
+    // object is signalled at once. Same multi-waiter rationale applies.
     if postState and (newCount = FController.FSynchObjects.Count) then
-      FController.FAllSignalled.FCondVar.Release;
+      FController.FAllSignalled.FCondVar.ReleaseAll;
   finally FreeAndNil(Data); end;
 end; { TWaitFor.TSynchroClient.AfterSignal }
 

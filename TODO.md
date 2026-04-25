@@ -12,69 +12,46 @@ discussion or external input.
 
 ## Pre-alpha priority
 
-### 1. Investigate Linux64 `bench_33` silent exit on any multi-worker config
+### 1. Fix WSL manual-link TLS layout (4 GiB-per-thread mmap on bench_33)
 
-**Precise repro** (deterministic, 1000 items is enough — not memory-related):
+The deadlock that originally manifested as a "silent exit" on multi-worker
+configs was the missed-wake race in `TSynchroClient.AfterSignal` (fixed
+2026-04-25; see `OtlSync.pas` history `3.04`). The bench now runs cleanly
+through 1→1 and 2→2 but is OOM-killed (`EXIT=9`) somewhere during 3→3 or
+later. Diagnosed: each thread's `Sysinit::AllocTlsBuffer` mmaps ~4 GiB
+because `GetTlsSize` returns `@TlsLast - @TlsStart`, and our WSL-link
+binary has the symbols laid out backwards (`TlsLast` 8 bytes *before*
+`TlsStart`), so the size becomes -8 → 4 294 967 288 as `Cardinal`. With
+~6 worker threads × 4 GiB each, RSS hits 24 GiB and the OOM killer fires.
 
-1. In `bench_33_shared.pas`, temporarily set `CItemCount = 1000` and
-   `Configs = [Create(1,1), Create(2,1)]`.
-2. Rebuild: `dcclinux64 ...` + `cp *.o → /c/tmp_otl_link/Linux64/Debug/`
-   + `linkit_bench_33.sh`.
-3. Run: `wsl -- /mnt/c/tmp_otl_link/Linux64/Debug/bench_33_console`.
-4. Observe: `1→1` completes all 4 runs cleanly (~360 ms each). `2→1`
-   prints `[trace 2x1 readers started]` from the main thread, then the
-   process exits with code 1 **before any worker code runs** (no
-   worker-side Writeln emerges even when the workers have a first-line
-   stdout trace).
+`unittests/Linux64/Debug/ConsoleTestRunner` is laid out correctly
+(`TlsStart` low, `TlsLast` high, ~2.5 KiB region) — only the
+bench's link is broken. Real users on Delphi-bundled Linux deployment
+won't hit this; it's specific to the WSL manual-link harness in
+`C:\tmp_otl_link\linkit_bench_33.sh` (and `linkit.sh`).
 
-**Observations so far**:
+Likely fix: a small linker script (or `--defsym`) that anchors
+`_ZN7Sysinit8TlsStartE` and `_ZN7Sysinit7TlsLastE` to the start and end
+of the threadvar region. Rough sketch:
 
-- Fails on any config where one collection has multiple concurrent
-  producers OR multiple concurrent consumers: `2→1`, `1→2`, `2→2`, and
-  presumably larger. Does NOT fail on `1→1`.
-- Reproduces with 1000 items and 1M items equally — not memory-related.
-- Process exits with code 1, but:
-  - No exception message reaches `main`'s outer `try/except`.
-  - `gdb -ex "catch signal SIGSEGV SIGABRT SIGBUS SIGILL" -ex run` —
-    no signal fires.
-  - `gdb -ex "catch syscall exit_group" -ex "commands" ... -ex run` —
-    catchpoint doesn't emit a backtrace either; the inferior just ends.
-  - `strace -e signal` produces only per-thread `+++ exited with 0 +++`;
-    no SIGSEGV / SIGABRT before the main thread disappears.
-  - Worker threads DO spawn (`[New Thread LWP N]` appears in gdb), but
-    a first-line stdout trace inside the worker never reaches the log
-    on the failing configs — suggesting workers are torn down before
-    executing.
-- Ruled out:
-  - `.Unobserved` vs plain `.Run` — same failure either way.
-  - `Add` vs `TryAdd` on chan/dst collections — same failure (a real
-    `ECollectionCompleted` race did exist; it's fixed in commit
-    `9ab5228`, but the Linux crash is unrelated).
-  - Concurrent `Writeln` from worker threads — bench still crashes
-    with worker-side Writeln removed entirely.
+```ld
+SECTIONS {
+  .data : {
+    PROVIDE(_ZN7Sysinit8TlsStartE = .);
+    *(.data.threadvar .data.threadvar.*)
+    PROVIDE(_ZN7Sysinit7TlsLastE = .);
+  } > /* default */
+}
+```
 
-**Likely areas to explore**:
+The exact section name depends on what the Delphi `dcclinux64` `.o`
+files actually use for threadvars — `nm`/`objdump` on `System.o` and
+`SysInit.o` will reveal it. Verify with
+`nm bench_33_console | grep -E "TlsStart|TlsLast"` (TlsStart should be
+at lower address than TlsLast) and a fresh RSS sample
+(`/c/tmp_otl_link/bench33_early_rss.sh`).
 
-1. OTL task teardown on POSIX when dedicated-thread tasks are created
-   in rapid back-to-back batches (each `RunOnce` spawns N+M fresh
-   TThread instances; over 4 runs that's 20-30 thread create/destroy
-   cycles per config). Look for Linux-only cleanup races in
-   `TOmniTaskControl.Destroy` / `TOmniThread.Terminate` /
-   `TOmniUnobservedCleanupThread`.
-2. `TBlockingCollection` concurrent Take/TryAdd on the POSIX lock-free
-   fallback (adjacent to item 2). Try reproducing with raw
-   `TOmniBlockingCollection` + `TThread` (no OTL task layer) — if that
-   crashes too, the container is at fault; if it doesn't, the task
-   layer is.
-3. Enable `ulimit -c unlimited`, set
-   `/proc/sys/kernel/core_pattern=core.%p` (or equivalent in the
-   bench's cwd), and post-mortem-debug the core via `gdb bench
-   core.<pid>`. This should give the real crash site even when
-   in-process gdb misses the signal.
-
-**Scaffolding**: `C:\tmp_otl_link\make_bench_33_lnk_win.py`,
-`linkit_bench_33.sh`, `gdb_bench33.sh`, `gdb_catch_any.sh`,
-`strace_bench33.sh` — all set up and working.
+Not a runtime/library bug — this entry tracks build-harness work only.
 
 ### 2. Resume POSIX `TWaitFor` persistent-observer optimization
 
