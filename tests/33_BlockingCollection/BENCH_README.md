@@ -162,19 +162,21 @@ access.
 Captured on this machine for reference. Replace with your own after
 you run the benchmark — hardware varies.
 
-Platform | 1→1 | 2→2 | 3→3 | 4→4 | 8→8 |  1→7 | 7→1
+Platform   | 1→1  | 2→2  | 3→3  | 4→4  | 8→8  |  1→7  | 7→1
 ---|---|---|---|---|---|---|---
-Win32    | 1039 | 1125 | 1081 | 1173 | 1124 |  8815 |  984
-Win64    | 1239 |  784 |  983 | 1055 | 1521 |  7985 |  751
-Linux64  |  401 |  432 |  424 |  465 |  695 | 10722 |  492
+Win32      | 1039 | 1125 | 1081 | 1173 | 1124 |  8815 |  984
+Win64      | 1239 |  784 |  983 | 1055 | 1521 |  7985 |  751
+Linux64    |  401 |  432 |  424 |  465 |  695 | 10722 |  492
+Android64  | 2797 | 3064 | 3602 | 4139 | 8494 | 35071 | 5550
 
 (average ms over 3 measured reps, 1M items per rep)
 
 Win32/Win64 captured in Release mode (no `-DDEBUG`, no FastMM4-debug
 overhead). Linux64 from a PAServer-deployed binary on WSL2 / Ubuntu
-24.04, built against `OtlSync.pas` v3.05.
+24.04. Android64 on Samsung SM-G930F (Galaxy S7, 4× big + 4× LITTLE
+ARM Cortex-A57/A53). All built against `OtlSync.pas` v3.05.
 
-Two surprises in this baseline:
+Three surprises in this baseline:
 
 - **Linux64 is ~2.5× faster than Win64 on balanced configs.** Initial
   guess was FastMM4-debug overhead, but Release builds without
@@ -182,12 +184,19 @@ Two surprises in this baseline:
   the allocator. Likely contributors: Linux's pthread futex-based
   primitives (cheap fast path) vs Windows `TMonitor` going through
   semaphores, plus dcclinux64's LLVM codegen on shared inlines.
-  Worth profiling on a follow-up pass.
-- **`1→7` flips direction.** ~14× balanced on Linux (10.7 s) vs
-  ~6–8× on Windows. With one producer feeding seven readers, the
-  channel runs dry constantly and all seven readers hammer
-  `FTakeWaiter.WaitAny`. POSIX `AddObserver` / `RemoveObserver` per-
-  wait costs (~440 µs/wait per
-  `memory/project_posix_persistent_observer_attempt.md`) dominate
-  here — exactly the bottleneck the deferred persistent-observer
-  optimization in `TODO.md` item #2 was sized for.
+  Worth profiling on a follow-up pass — tracked in `TODO.md` item #4.
+- **`1→7` is brutal on POSIX.** ~14× balanced on Linux (10.7 s),
+  ~10× on Android (35 s, with one rep at 51 s) vs ~6–8× on Windows.
+  With one producer feeding seven readers, the channel runs dry
+  constantly and all seven readers hammer `FTakeWaiter.WaitAny`.
+  POSIX `AddObserver` / `RemoveObserver` per-wait costs (~440 µs/wait
+  per `memory/project_posix_persistent_observer_attempt.md`)
+  dominate here — exactly the bottleneck the deferred persistent-
+  observer optimization in `TODO.md` item #2 was sized for.
+- **`7→1` is fast on Win/Linux but slow on Android.** Win64 7→1 is
+  the fastest config (751 ms, faster than 1→1); same shape on Linux
+  (492 ms ≈ 1→1). On Android64 7→1 is ~2× slower than 1→1 (5550 ms
+  vs 2797 ms) — different hot path. The big.LITTLE scheduler's
+  thread placement + 8 producers competing for the single reader's
+  cache line is the most likely cause; worth verifying if Android
+  perf becomes a target.
