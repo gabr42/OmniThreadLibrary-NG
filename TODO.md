@@ -154,18 +154,20 @@ This task is the triage pass — for each, decide (a) keep as future idea, (b)
 close because superseded, (c) promote to its own entry here. Not the
 implementation.
 
-### 5. Recheck legacy NEXTGEN / MSWINDOWS IFDEFs in `OtlCommon.pas`
+### 5. ~~Recheck legacy NEXTGEN / MSWINDOWS IFDEFs in `OtlCommon.pas`~~ — done
 
-Lines 1823, 1827, 1847, 1851 have TODOs marked *"\*\*\* Recheck IFDEFs"*.
-These guard `TOmniValue` variant-array handling paths. `NEXTGEN` (the old
-ARC-based mobile compiler) is gone in Delphi 11+; anything gated by `{$IFNDEF
-NEXTGEN}` now always compiles and should be revisited. Also audit the
-adjacent `{$IFDEF MSWINDOWS}` guards — per
-`memory/project_linux_port_status.md`, several MSWINDOWS guards around pure
-language features turned out to be ancient leftovers that silently broke
-Linux.
+Resolved 2026-04-26 (`OtlCommon.pas` v3.02). Three blocks of stale
+guards in `TOmniValue.Create` / `CreateNamed` removed:
 
-Not blocking pre-alpha.
+- `{$IFNDEF NEXTGEN}` around `vtChar` / `vtString` cases — NEXTGEN
+  is gone in Delphi 11+, so the guards always evaluated to true.
+- `{$IFDEF MSWINDOWS}` around `vtAnsiString` / `vtWideString` /
+  `vtPChar` — the `vt*` TVarRec constants are universal; the only
+  Windows-specific helper was `StrPasA(VPChar)` (lives in
+  `System.AnsiStrings`, Windows-only). Replaced with the universal
+  `string(AnsiString(VPChar))` cast which works on every platform.
+
+Verified Win32/Win64/Linux64/ARM64EC all build + run clean.
 
 ---
 

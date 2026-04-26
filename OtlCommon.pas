@@ -35,10 +35,21 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, scarre, Sean B. Durkin, HHasenack, Claude AI
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-04-14
-///   Version           : 3.01
+///   Last modification : 2026-04-26
+///   Version           : 3.02
 ///</para><para>
 ///   History:
+///     3.02: 2026-04-26
+///       - Removed stale {$IFNDEF NEXTGEN} / {$IFDEF MSWINDOWS} guards
+///         around vtChar / vtString / vtAnsiString / vtWideString / vtPChar
+///         cases in TOmniValue.Create / CreateNamed. NEXTGEN was the
+///         pre-Delphi-11 ARC mobile compiler (gone in 11+); the vt* TVarRec
+///         constants are universal in modern Delphi. Replaced StrPasA(VPChar)
+///         with the universal `string(AnsiString(VPChar))` cast — StrPasA
+///         only exists on Windows (System.AnsiStrings) which was the actual
+///         reason the MSWINDOWS guard was there. Verified Win32/Win64/
+///         Linux64/ARM64EC all build clean and the unit tests pass on every
+///         runnable platform.
 ///     3.01: 2026-04-14
 ///       - Fixed TOmniValueContainer.Grow off-by-one: last element was lost
 ///         on array growth (loop iterated to High-1 instead of High).
@@ -1782,15 +1793,11 @@ begin
           vtInterface:     ovc.Add(IInterface(VInterface));
           vtInt64:         ovc.Add(VInt64^);
           vtUnicodeString: ovc.Add(string(VUnicodeString));
-        {$IFNDEF NEXTGEN}
           vtChar:          ovc.Add(string(VChar));
           vtString:        ovc.Add(string(VString^));
-        {$ENDIF NEXTGEN}
-        {$IFDEF MSWINDOWS}
           vtAnsiString:    ovc.Add(AnsiString(VAnsiString));
           vtWideString:    ovc.Add(WideString(VWideString));
-          vtPChar:         ovc.Add(string(StrPasA(VPChar)));
-        {$ENDIF MSWINDOWS}
+          vtPChar:         ovc.Add(string(AnsiString(VPChar)));
         else
           raise Exception.Create ('TOmniValue.Create: invalid data type')
         end; //case
@@ -1820,15 +1827,11 @@ begin
           case VType of
             vtVariant:       name := string(VVariant^);
             vtUnicodeString: name := string(VUnicodeString);
-          {$IFNDEF NEXTGEN}  // TODO : *** Recheck IFDEFs
             vtChar:          name := string(VChar);
             vtString:        name := string(VString^);
-          {$ENDIF NEXTGEN}
-          {$IFDEF MSWINDOWS} // TODO : *** Recheck IFDEFs
             vtAnsiString:    name := string(VAnsiString);
             vtWideString:    name := WideString(VWideString);
-            vtPChar:         name := string(StrPasA(VPChar));
-          {$ENDIF MSWINDOWS}
+            vtPChar:         name := string(AnsiString(VPChar));
           else
             raise Exception.Create ('TOmniValue.CreateNamed: invalid name type')
           end //case
@@ -1844,15 +1847,11 @@ begin
             vtInterface:     ovc.Add(IInterface(VInterface), name);
             vtInt64:         ovc.Add(VInt64^, name);
             vtUnicodeString: ovc.Add(string(VUnicodeString), name);
-          {$IFNDEF NEXTGEN}  // TODO : *** Recheck IFDEFs
             vtChar:          ovc.Add(string(VChar), name);
             vtString:        ovc.Add(string(VString^), name);
-          {$ENDIF NEXTGEN}
-          {$IFDEF MSWINDOWS} // TODO : *** Recheck IFDEFs
             vtAnsiString:    ovc.Add(AnsiString(VAnsiString), name);
             vtWideString:    ovc.Add(WideString(VWideString), name);
-            vtPChar:         ovc.Add(string(StrPasA(VPChar)), name);
-          {$ENDIF MSWINDOWS}
+            vtPChar:         ovc.Add(string(AnsiString(VPChar)), name);
           else
             raise Exception.Create ('TOmniValue.CreateNamed: invalid data type')
           end; //case
