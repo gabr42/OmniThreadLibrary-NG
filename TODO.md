@@ -74,53 +74,33 @@ identify what is re-signalling them during `MSG_START_TEST` dispatch.
 Context: `memory/project_posix_persistent_observer_attempt.md` (full retry
 history, including current-state-of-revert pointers).
 
-### 3. ~~Lock-free queue spinlock fallback~~ — resolved
+### 3. Profile Linux64 3–5× speedup vs Win64 on `bench_33` balanced configs
 
-Resolved by commit `b91711a` (`OtlSync.InterlockedCompareExchange128`
-now calls `AtomicCmpExchange128` directly on every 64-bit target,
-eliminating the global spinlock) and commit `ef39b94`
-(`OtlContainers` no longer carries the coarse `obsLock` / `obqLock` /
-`obcLock` fallback paths). Same lock-free protocol now runs on
-Windows, Linux64, and Android64 ARM64.
-
-Briefly suspected (yesterday) that ARM64's weaker memory ordering
-might require explicit barriers — `bench_33` 1→7 on Galaxy S7 looked
-like a hang. Re-tested with a longer `CWaitTimeout_ms`: it just
-takes ~80 s/rep on those older Cortex-A57 cores (the lock-free
-protocol's worst-case workload, 7 consumers contending on one
-dequeue CAS). Modern Pixel 9 Pro completes the same config in 51 s.
-No correctness issue — just a perf characteristic of older ARM64
-silicon under highly asymmetric contention. The 5-minute bench
-timeout was bumped to 15 minutes in the same cleanup commit.
-
-### 4. Profile Linux64 ~2.5× speedup vs Win64 on `bench_33` balanced configs
-
-`bench_33` 2026-04-25 baseline (`tests/33_BlockingCollection/BENCH_README.md`):
+`bench_33` baseline post commit `ef39b94` (lock-free queue protocol
+on every 64-bit target, see `tests/33_BlockingCollection/BENCH_README.md`):
 
 Config | Win64 (ms) | Linux64 (ms) | ratio
 ---|---|---|---
-1→1 | 1239 | 401 | 3.1×
-2→2 |  784 | 432 | 1.8×
-3→3 |  983 | 424 | 2.3×
-4→4 | 1055 | 465 | 2.3×
-8→8 | 1521 | 695 | 2.2×
+1→1 | 1239 |  548 | 2.3×
+2→2 |  784 |  220 | 3.6×
+3→3 |  983 |  215 | 4.6×
+4→4 | 1055 |  235 | 4.5×
+8→8 | 1521 |  405 | 3.8×
+1→7 | 7985 | 8118 | parity
+7→1 |  751 |  325 | 2.3×
 
-Both numbers are Release-mode builds. Initial hypotheses ruled out:
+Both Release-mode builds. Hypotheses ruled out earlier:
 
 - **FastMM4-debug overhead.** Win32/Win64 Release without `-DDEBUG`
-  give the same numbers as the 2026-04-24 baseline.
-- **Lock-free CAS vs POSIX spinlock fallback.** Win32 rebuilt with
-  `OTL_HaveCmpx16b` undefined (forcing the same spinlock fallback
-  Linux uses on `OtlContainers`) only added 0–30% overhead vs the
-  CMPXCHG16B path — Win32 1→1 went from 1039 ms to 1167 ms, 8→8
-  from 1124 ms to 1455 ms. Linux64 still beats Win32-with-spinlock
-  by ~2.5–3× on those same configs (401 vs 1167; 695 vs 1455). So
-  the gap is in the surrounding code (sync primitives, scheduler,
-  codegen), not in the queue's contention strategy.
+  give the same numbers as the original baseline.
+- **Lock-free CAS vs the old POSIX spinlock fallback.** Resolved
+  by commits `b91711a` + `ef39b94`. Both targets now run the same
+  lock-free protocol, so the gap can't be the queue's contention
+  strategy — it's in the surrounding code.
 
-The gap is real, large, and consistent across configs. Worth
-understanding before shipping pre-alpha because it implies Win64 has
-avoidable overhead in the balanced-pipeline hot path.
+The gap is real, large, and consistent across balanced configs.
+Worth understanding before shipping pre-alpha because it implies
+Win64 has avoidable overhead in the balanced-pipeline hot path.
 
 Likely contributors to investigate, in order:
 
@@ -144,10 +124,10 @@ Likely contributors to investigate, in order:
    `malloc` vs Windows heap could still differ on the queue-block
    path. Lower priority than (1) and (2).
 
-Note that `1→7` flips direction (Linux is *slower*: 10.7 s vs Win64
-7.9 s). That config's bottleneck is `AddObserver` / `RemoveObserver`
-churn under POSIX — a separate problem already tracked in item #2
-above. The two findings are likely independent.
+Note that `1→7` is now at parity (was Linux-slower pre-`ef39b94`,
+because the spinlock fallback hurt POSIX disproportionately on
+asymmetric workloads). The remaining `1→7` cost is the
+`AddObserver` / `RemoveObserver` churn already tracked in item #2.
 
 Concrete next action: build both targets with `-O3 -fno-omit-frame-
 pointer` (Linux) / `--profile` (Windows), capture flame graphs of a
