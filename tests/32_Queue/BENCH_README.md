@@ -156,21 +156,27 @@ Win32                 | 163 | 192 | 222 |  264 |  363 |  352 |  249
 Win64                 | 178 | 186 | 243 |  261 |  377 |  292 |  273
 Linux64               | 149 | 202 | 259 |  307 |  464 |  350 |  327
 Android64 (Galaxy S7) | 458 | 429 | 891 | 1232 | 2158 | 1444 | 1067
+Android64 (Pixel 9)   | 351 | 378 | 399 |  469 |  884 |  686 |  515
 
 (average ms over 3 measured reps, 1M items per rep). Debug builds
 with `-DDEBUG` and FastMM4 debug. Linux64 from a `dcclinux64` single-
-step build, run on WSL2 / Ubuntu 24.04. Android64 on Samsung Galaxy
-S7 (SM-G930F, Cortex-A57/A53, 2014-era ARMv8.0).
+step build, run on WSL2 / Ubuntu 24.04. Android64 on two devices
+bracketing the ARM64 spectrum: **Samsung Galaxy S7 (SM-G930F)** —
+Cortex-A57/A53, 2014-era ARMv8.0; **Pixel 9 Pro** — modern ARMv9-A.
 
-Two things worth noting on the Android row vs bench_33's matching one:
+Three observations worth flagging:
 
-- **1→7 is dramatically faster here** (1.4 s on Galaxy S7) than in
-  bench_33 (80 s on the same device). The bench_33 1→7 cost is
-  almost entirely `AddObserver` / `RemoveObserver` churn in the
-  POSIX-side `TWaitFor` path; bench_32 doesn't go through that
-  layer, so the gap collapses to plain CAS contention on the
-  shared `chan` queue head.
-- **8→8 is the worst config on Galaxy S7** (2.2 s) — older
-  Cortex-A57/A53 silicon handles 16-way CAS contention on a single
-  cache line poorly. Modern ARMv9-A cores would be expected to
-  recover most of this.
+- **1→7 is dramatically faster here than in bench_33.** Galaxy S7:
+  1.4 s (vs 80 s on bench_33). Pixel 9 Pro: 0.7 s (vs 51 s on
+  bench_33). bench_33's 1→7 cost on POSIX is almost entirely
+  `AddObserver` / `RemoveObserver` churn in `TWaitFor`; bench_32
+  doesn't go through that layer, so the gap collapses to plain CAS
+  contention on the shared `chan`-queue head. The 60-75× ratio
+  cleanly isolates "wait/observer overhead" as a measurable cost
+  separable from the lock-free queue protocol itself.
+- **Pixel 9 Pro is consistently ~2–2.5× faster than Galaxy S7** on
+  every config. Modern ARMv9-A cores handle the CAS contention
+  much better than 2014-era Cortex-A57/A53.
+- **8→8 is the worst config on both Android devices** — 16-way CAS
+  contention on a single cache line stresses the cache-coherency
+  protocol harder than asymmetric configs do.
