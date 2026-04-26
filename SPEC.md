@@ -65,8 +65,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 
 #### 1.2.2 Redesign 5-parameter CAS (CMPXCHG16B) dependency
 - [x] Win32: Pack pointer+reference into Int64, use `TInterlocked.CompareExchange(Int64)`
-- [x] Win64: Use `Winapi.Windows.InterlockedCompareExchange128` (RTL-declared)
-- [x] Non-Windows: Spinlock fallback (containers have non-lock-free path when `OTL_HaveCmpx16b` is undef)
+- [x] Win64 / Linux64 / Android64 (ARM64) / Windows ARM64EC: Use `AtomicCmpExchange128` intrinsic — lowers to `CMPXCHG16B` on x86-64 and `LDXP/STXP` on ARM64. Lock-free on every supported 64-bit target. (Originally Win64 used `Winapi.Windows.InterlockedCompareExchange128` and non-Windows had a spinlock fallback; commits `b91711a` + `ef39b94` (2026-04-26) unified everything onto the intrinsic and dropped the `OTL_HaveCmpx16b` dual-path.)
 - [x] CAS8/CAS16: Byte-in-word CAS technique with retry loop
 
 #### 1.2.3 Unify TOmniTransitionEvent
@@ -110,7 +109,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] Always allocate critical section locks (fields unconditional; Acquire/Release conditional)
 - [x] Remove automatic `OTL_OLDCPU` for Win32 (SSE2 is baseline for Delphi 11+)
 - [x] Make initialization size assertions unconditional
-- **Deferred**: Truly lock-free non-128-bit-CAS fallback (hazard pointers or index-based 64-bit CAS) — significant algorithmic redesign, deferred past Phase 1
+- ~~**Deferred**: Truly lock-free non-128-bit-CAS fallback (hazard pointers or index-based 64-bit CAS) — significant algorithmic redesign, deferred past Phase 1~~ — **obsolete** (commits `b91711a` + `ef39b94`, 2026-04-26): every supported 64-bit target has `AtomicCmpExchange128` available (CMPXCHG16B on x86-64, LDXP/STXP on ARM64), so the lock-free 128-bit-CAS path runs on Win64, Linux64, Android64, and Windows ARM64EC. No fallback is needed; no platform requires it.
 
 ### 1.4 OtlCollections.pas — Blocking collection
 **Files**: `OtlCollections.pas`
@@ -676,10 +675,10 @@ Phase 5: Cleanup & testing (ongoing, but final push here)
 ### Platform matrix
 | Platform | Build | Test | Status | Notes |
 |----------|-------|------|--------|-------|
-| Windows Win32 | Local | Local (ConsoleTestRunner) | Primary | 242/242 passing |
-| Windows Win64 | Local | Local (ConsoleTestRunner) | Primary | 242/242 passing |
-| Linux64 | Local (WSL-linked) | Local (WSL) | Secondary | 235/235 passing + 3 ignored |
-| Android64 | Local (`build_android.bat`) | Device (Samsung, ARM64) | Secondary | 169/169 passing; FMX GUI runner (`OtlAndroidTests.dpr`) |
-| Windows ARM64EC | Local (compile-only smoke) | — | Smoke | No runtime on dev box; `CompileAllUnits` + `ConsoleTestRunner` compile cleanly |
+| Windows Win32 | Local (`dcc32`) | Local (ConsoleTestRunner) | Primary | 314/314 passing (2026-04-26) |
+| Windows Win64 | Local (`dcc64`) | Local (ConsoleTestRunner) | Primary | 315/315 passing (2026-04-26) |
+| Linux64 | Local (`dcclinux64` single-step, see CLAUDE.md § Linux64) | Local (WSL) | Secondary | 308/311 passing + 3 POSIX-only ignores (2026-04-24); +2 atomic-128 tests added 2026-04-26 not yet re-verified live |
+| Android64 | Local (`build_android.bat`) | Device (Samsung Galaxy S7 + Pixel 9 Pro, ARM64) | Secondary | 308/311 passing + 3 POSIX-only ignores (2026-04-24); FMX GUI runner (`OtlAndroidTests.dpr`); `TestRunControlReleased` is a known timing flake on slower devices |
+| Windows ARM64EC | Local (`dccarm64ec`, compile-only smoke) | — | Smoke | No runtime on dev box; `CompileAllUnits` + `ConsoleTestRunner` compile cleanly |
 | macOS ARM64 | — | — | Deferred | |
 | iOS | — | — | Deferred | |
