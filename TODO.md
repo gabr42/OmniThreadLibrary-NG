@@ -12,46 +12,23 @@ discussion or external input.
 
 ## Pre-alpha priority
 
-### 1. Fix WSL manual-link TLS layout (4 GiB-per-thread mmap on bench_33)
+### 1. ~~Fix WSL manual-link TLS layout~~ — obsolete
 
-The deadlock that originally manifested as a "silent exit" on multi-worker
-configs was the missed-wake race in `TSynchroClient.AfterSignal` (fixed
-2026-04-25; see `OtlSync.pas` history `3.04`). The bench now runs cleanly
-through 1→1 and 2→2 but is OOM-killed (`EXIT=9`) somewhere during 3→3 or
-later. Diagnosed: each thread's `Sysinit::AllocTlsBuffer` mmaps ~4 GiB
-because `GetTlsSize` returns `@TlsLast - @TlsStart`, and our WSL-link
-binary has the symbols laid out backwards (`TlsLast` 8 bytes *before*
-`TlsStart`), so the size becomes -8 → 4 294 967 288 as `Cardinal`. With
-~6 worker threads × 4 GiB each, RSS hits 24 GiB and the OOM killer fires.
+The TLS-layout bug only ever lived in the WSL manual-link harness
+(`C:\tmp_otl_link\linkit*.sh`). With the SDK at
+`c:\Users\gabr\Documents\Embarcadero\Studio\SDKs\ubuntu24.04.sdk`
+populated, Delphi's bundled `ld-linux.exe` can do the link itself —
+no WSL detour, no TLS bug.
 
-`unittests/Linux64/Debug/ConsoleTestRunner` is laid out correctly
-(`TlsStart` low, `TlsLast` high, ~2.5 KiB region) — only the
-bench's link is broken. Real users on Delphi-bundled Linux deployment
-won't hit this; it's specific to the WSL manual-link harness in
-`C:\tmp_otl_link\linkit_bench_33.sh` (and `linkit.sh`).
+Working CLI invocation (commit 2026-04-26): pass `--syslibroot` at
+the SDK and `--libpath` listing both the SDK lib dirs and Delphi's
+`lib\linux64\release` (for the `librtlhelper.a` family). See
+`CLAUDE.md` § Linux64. `bench_33_console` and `ConsoleTestRunner`
+both build clean via this path; bench peak RSS dropped from 25 GiB
+(WSL-link with the broken TLS layout) to 165 MiB.
 
-Likely fix: a small linker script (or `--defsym`) that anchors
-`_ZN7Sysinit8TlsStartE` and `_ZN7Sysinit7TlsLastE` to the start and end
-of the threadvar region. Rough sketch:
-
-```ld
-SECTIONS {
-  .data : {
-    PROVIDE(_ZN7Sysinit8TlsStartE = .);
-    *(.data.threadvar .data.threadvar.*)
-    PROVIDE(_ZN7Sysinit7TlsLastE = .);
-  } > /* default */
-}
-```
-
-The exact section name depends on what the Delphi `dcclinux64` `.o`
-files actually use for threadvars — `nm`/`objdump` on `System.o` and
-`SysInit.o` will reveal it. Verify with
-`nm bench_33_console | grep -E "TlsStart|TlsLast"` (TlsStart should be
-at lower address than TlsLast) and a fresh RSS sample
-(`/c/tmp_otl_link/bench33_early_rss.sh`).
-
-Not a runtime/library bug — this entry tracks build-harness work only.
+The legacy WSL manual-link harness can be retired. No remaining
+work — entry kept as a record so the repro recipe survives.
 
 ### 2. Resume POSIX `TWaitFor` persistent-observer optimization
 

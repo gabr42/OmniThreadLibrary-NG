@@ -44,30 +44,38 @@ cd unittests
 
 Delphi 11 is identical with `e:\Delphi\22.0\bin\dcc32.exe`.
 
-### Linux64 (Delphi 13.1 only; WSL link required)
+### Linux64 (Delphi 13.1 only)
 
-Delphi's bundled `ld-linux.exe` cannot resolve Linux system libraries,
-so the compile step emits `.o` files and we link via WSL's native `ld`.
+Single-step compile + link via `dcclinux64`. Requires a populated
+PAServer SDK at `c:\Users\gabr\Documents\Embarcadero\Studio\SDKs\ubuntu24.04.sdk`
+(synced from a real Linux box once via the IDE — it pulls down libc,
+libgcc, libpthread, etc.). With `--syslibroot` and `--libpath`
+pointing at it plus Delphi's `lib\linux64\release` (for the
+`librtlhelper.a` family), Delphi's bundled `ld-linux.exe` resolves
+all symbols on its own.
 
 ```bash
 cd unittests
-# Step 1: compile (link step will fail — that's expected)
-"C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\dcclinux64.exe" ConsoleTestRunner.dpr -B "-U..;../FastMM4" "-NSSystem;Data;Xml" -DDEBUG -CC -E"./Linux64/Debug" -NU"./Linux64/Debug"
+"C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\dcclinux64.exe" ConsoleTestRunner.dpr \
+  -B "-U..;../FastMM4" "-NSSystem;Data;Xml" -DDEBUG -CC \
+  -E"./Linux64/Debug" -NU"./Linux64/Debug" \
+  --syslibroot:"C:/Users/gabr/Documents/Embarcadero/Studio/SDKs/ubuntu24.04.sdk" \
+  --libpath:"C:/Users/gabr/Documents/Embarcadero/Studio/SDKs/ubuntu24.04.sdk/usr/lib/x86_64-linux-gnu;C:/Users/gabr/Documents/Embarcadero/Studio/SDKs/ubuntu24.04.sdk/lib/x86_64-linux-gnu;C:/Users/gabr/Documents/Embarcadero/Studio/SDKs/ubuntu24.04.sdk/usr/lib/gcc/x86_64-linux-gnu/13;C:/Program Files (x86)/Embarcadero/Studio/37.0/lib/linux64/debug;C:/Program Files (x86)/Embarcadero/Studio/37.0/lib/linux64/release"
 
-# Step 2: sync fresh .o files to staging, then link via WSL
-cp -f ./Linux64/Debug/*.o /c/tmp_otl_link/Linux64/Debug/
-MSYS_NO_PATHCONV=1 WSLENV= wsl -- bash /mnt/c/tmp_otl_link/linkit.sh
-
-# Step 3: run the ELF under WSL
-wsl /mnt/c/tmp_otl_link/Linux64/Debug/ConsoleTestRunner
+# Run via WSL (binary on Windows side, executed by Linux kernel through 9P).
+# H: is a subst not visible to WSL; copy to /mnt/c first or stage on a
+# WSL-accessible path.
+cp ./Linux64/Debug/ConsoleTestRunner /c/tmp_otl_link/CTR_delphi_built
+MSYS_NO_PATHCONV=1 WSLENV= wsl -- /mnt/c/tmp_otl_link/CTR_delphi_built
 ```
 
 Notes:
 - Drop `System.Win;Winapi;Vcl.*` from `-NS`; keep `System;Data;Xml`.
   Add `-CC` for the console target.
-- `linkit.sh` does **not** auto-sync `.o` files — without the `cp` step
-  the link uses stale objects and source changes appear to have no
-  effect.
+- The legacy WSL manual-link harness in `C:\tmp_otl_link\linkit.sh` is
+  retained for reference but no longer the recommended path — it had
+  a TLS-layout bug (4 GiB-per-thread mmap) that Delphi-bundled-link
+  doesn't have. Remove the harness when no test still depends on it.
 - Not available on Delphi 11/12 (missing Linux RTL libs).
 
 ### Android64 (Delphi 13.1 only; FMX GUI runner)
