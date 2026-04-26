@@ -126,21 +126,87 @@ impact when off.
 
 ## Post pre-alpha
 
-### 3. Make OTL tasks implicitly owned (eliminate `Unobserved`)
+### 3. ~~Make OTL tasks implicitly owned (eliminate `Unobserved`)~~ — won't do
 
-`OtlTaskControl.pas:170` author TODO: *"The whole Unobserved mess should go
-away - task should be implicitly owned ALWAYS"*.
+Closed 2026-04-26 after impact analysis. Original author TODO at
+`OtlTaskControl.pas:170`: *"The whole Unobserved mess should go away
+- task should be implicitly owned ALWAYS"*. Comment removed in the
+same commit.
 
-Current model requires callers to chain `.Unobserved` when they don't hold the
-task reference. Most `CreateTask(...).Run` users forget, which is how commits
-`c3d531d` and `24a5162` originated. Architectural change — defer until
-post-pre-alpha, but capture the invariant so related bugs don't get papered
-over in the meantime.
+The change sounds clean (every task auto-owns itself, `.Unobserved`
+becomes a no-op alias) but it would silently break a real, observable
+behavior of the current model:
 
-Design sketch: every task acquires an internal self-reference at `Run`, drops
-it at termination; no external reference needed to keep it alive; `.Unobserved`
-becomes a no-op alias. Risk: the lifetime contract changes for every caller,
-needs a careful migration with a compatibility mode.
+**Today's contract (precise):** when the last `IOmniTaskControl`
+reference drops, `TOmniTaskControl.Destroy` runs and calls `Terminate`
+→ `Stop` + `WaitFor(INFINITE)`. The dropping thread *blocks* until
+the task body exits. Tasks that poll `task.Terminated` exit cleanly;
+tasks that don't, run to completion while the dropping thread blocks.
+This is **synchronous cooperative cancellation gated on ref-count**,
+not asynchronous fire-and-forget.
+
+`FTask := nil` is therefore a real cancellation primitive that real
+code relies on — destructors of forms / classes that hold an
+`IOmniTaskControl` field don't need explicit `.Terminate` because
+field destruction does it for them.
+
+**Under the proposal:** `FTask := nil` returns immediately, the task
+keeps running. No more hung destructors — but also no more implicit
+cancellation. Callers must remember `.Terminate` themselves.
+
+The new failure mode is *invisible* (silent zombie tasks consuming
+pool slots, possibly accessing freed owners) where the old failure
+mode was *visible* (hung shutdown). On balance the migration trades
+one footgun for a worse one.
+
+Risk-categorised survey of the test suite + bench/demo code (47
+files):
+
+- **Pattern A — explicit `.Unobserved.Run`** (~6-20 sites): no change.
+- **Pattern B — loop spawn with `.Unobserved`** (2-5 sites): no change.
+- **Pattern C — stored field + explicit `.Terminate`** (e.g.
+  `test_2_TwoWayHello`, `test_22_TerminationTest`, ~6-20 sites):
+  explicit `.Terminate` paths keep working, but error paths that nil
+  the field without calling `.Terminate` first leak the task.
+- **Pattern D — array of stored refs** (`test_10_Containers`,
+  `test_33_BlockingCollection`, etc.): same as C.
+- **Pattern E — `Monitor(...).Run` without storing** (~6-20 sites):
+  no change (monitor holds the ref).
+
+Patterns C and D are the medium-risk class; "high risk" would be
+intentional drop-to-cancel patterns, which exist in the wild.
+
+Other concrete failure modes the change would introduce:
+
+1. **Long-running tasks ignoring the Stop signal.** Today the
+   destructor's `WaitFor` blocks visibly. Under the proposal, the
+   task keeps running silently — invisible bug.
+2. **GUI form lifetime.** Forms whose `OnDestroy` doesn't explicitly
+   `.Terminate` rely on the field-drop cancellation. Under the
+   proposal the form is freed but the task keeps running, possibly
+   accessing freed members or sending messages to a freed form.
+3. **Test isolation.** A test that drops the ref without
+   `.Terminate` currently leaves a clean slate (destructor blocks).
+   Under the proposal tasks can leak across tests, producing flaky
+   cross-test interference.
+4. **Recursive task creation.** Parent task spawns children via
+   local refs. If parent throws, current code cancels children
+   (ref-count drop). Under the proposal children outlive parent.
+5. **`InstallUnobservedCommDispatcher` overhead applied universally.**
+   Currently paid only by opt-in tasks; under the proposal every
+   task pays it.
+
+If a redesign happens later, it should:
+- Be gated by `{$DEFINE OTL_LEGACY_REFCOUNT_CANCEL}` for at least
+  one major version, defaulting ON
+- Ship with a documented lint pattern: every `IOmniTaskControl`
+  field that gets nil'd must have a preceding explicit `.Terminate`
+- Validate against real-app code, not just OTL's own tests
+
+For now: status quo. The current model has been load-tested by years
+of real OTL usage; trading a known footgun for an unproven one is a
+net loss without concrete user demand. Re-open if real-app reports
+during pre-alpha surface a concrete user need.
 
 ### 4. ~~Triage `OtlParallel` design-question TODOs~~ — done
 

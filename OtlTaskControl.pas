@@ -167,8 +167,6 @@
 ///  - CancellationToken,
 ///    http://blogs.msdn.com/pfxteam/archive/2009/06/22/9791840.aspx
 
-// TODO 1 -oPrimoz Gabrijelcic : The whole Unobserved mess should go away - task should be implicitly owned ALWAYS
-
 // TODO 3 -oPrimoz Gabrijelcic : Add general way to map unique ID into a task controller/task interface.
 // TODO 3 -oPrimoz Gabrijelcic : ChainTo options 'only on success', 'only on fault' (http://blogs.msdn.com/pfxteam/archive/2010/02/09/9960735.aspx)
 
