@@ -250,3 +250,19 @@ Verified Win32/Win64/Linux64/ARM64EC all build + run clean.
   if a concrete plan based on (a) gdb-watchpoint hunt for the mystery
   signaller, (b) per-Wait observer model with batched locking, or
   (c) eventfd+epoll primitive replacement is on the table.
+
+  **Reference cost (2026-04-26).** Captured bench_33 (TOmniBlocking-
+  Collection) vs bench_32 (raw TOmniBaseQueue) at the same workload
+  shape on two Android devices. The 1→7 row isolates the
+  wait/observer overhead, since 1→7 is the only config where a
+  starved consumer hammers `TWaitFor.WaitAny`:
+
+  | Device | bench_33 1→7 | bench_32 1→7 | Ratio |
+  |---|---:|---:|---:|
+  | Galaxy S7 (Cortex-A57/A53) | 79,965 ms | 1,444 ms | **57×** |
+  | Pixel 9 Pro (ARMv9-A)      | 51,506 ms |   686 ms | **75×** |
+
+  That ratio is approximately the upper bound of what a successful
+  persistent-observer / batched-lock / eventfd redesign could
+  recover on POSIX 1→7. Even halving that cost would be a major
+  win on real-app fan-out workloads with starved consumers.
