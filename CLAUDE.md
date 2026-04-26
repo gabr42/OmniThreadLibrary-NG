@@ -64,18 +64,17 @@ cd unittests
 
 # Run via WSL (binary on Windows side, executed by Linux kernel through 9P).
 # H: is a subst not visible to WSL; copy to /mnt/c first or stage on a
-# WSL-accessible path.
-cp ./Linux64/Debug/ConsoleTestRunner /c/tmp_otl_link/CTR_delphi_built
-MSYS_NO_PATHCONV=1 WSLENV= wsl -- /mnt/c/tmp_otl_link/CTR_delphi_built
+# WSL-accessible path. C:\Temp is a fine throwaway location.
+cp ./Linux64/Debug/ConsoleTestRunner /c/Temp/CTR
+MSYS_NO_PATHCONV=1 WSLENV= wsl -- /mnt/c/Temp/CTR
 ```
 
 Notes:
 - Drop `System.Win;Winapi;Vcl.*` from `-NS`; keep `System;Data;Xml`.
   Add `-CC` for the console target.
-- The legacy WSL manual-link harness in `C:\tmp_otl_link\linkit.sh` is
-  retained for reference but no longer the recommended path — it had
-  a TLS-layout bug (4 GiB-per-thread mmap) that Delphi-bundled-link
-  doesn't have. Remove the harness when no test still depends on it.
+- An earlier WSL manual-link harness lived at `C:\tmp_otl_link\` and
+  was retired 2026-04-26 (it had a TLS-layout bug that caused
+  4 GiB-per-thread mmaps). Don't bring it back.
 - Not available on Delphi 11/12 (missing Linux RTL libs).
 
 ### Android64 (Delphi 13.1 only; FMX GUI runner)

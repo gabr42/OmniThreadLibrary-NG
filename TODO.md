@@ -15,20 +15,19 @@ discussion or external input.
 ### 1. ~~Fix WSL manual-link TLS layout~~ — obsolete
 
 The TLS-layout bug only ever lived in the WSL manual-link harness
-(`C:\tmp_otl_link\linkit*.sh`). With the SDK at
-`c:\Users\gabr\Documents\Embarcadero\Studio\SDKs\ubuntu24.04.sdk`
+(formerly at `C:\tmp_otl_link\`, deleted 2026-04-26). With the SDK
+at `c:\Users\gabr\Documents\Embarcadero\Studio\SDKs\ubuntu24.04.sdk`
 populated, Delphi's bundled `ld-linux.exe` can do the link itself —
 no WSL detour, no TLS bug.
 
-Working CLI invocation (commit 2026-04-26): pass `--syslibroot` at
-the SDK and `--libpath` listing both the SDK lib dirs and Delphi's
-`lib\linux64\release` (for the `librtlhelper.a` family). See
-`CLAUDE.md` § Linux64. `bench_33_console` and `ConsoleTestRunner`
-both build clean via this path; bench peak RSS dropped from 25 GiB
-(WSL-link with the broken TLS layout) to 165 MiB.
+Working CLI invocation (commit `030e47e`, 2026-04-26): pass
+`--syslibroot` at the SDK and `--libpath` listing both the SDK lib
+dirs and Delphi's `lib\linux64\release` (for the `librtlhelper.a`
+family). See `CLAUDE.md` § Linux64. `bench_33_console` and
+`ConsoleTestRunner` both build clean via this path; bench peak RSS
+dropped from 25 GiB (WSL-link with the broken TLS layout) to 165 MiB.
 
-The legacy WSL manual-link harness can be retired. No remaining
-work — entry kept as a record so the repro recipe survives.
+No remaining work — entry kept as a record.
 
 ### 2. Resume POSIX `TWaitFor` persistent-observer optimization
 
@@ -39,10 +38,11 @@ Linux in the same pathology: stuck `FState=true` on `oteCommRebuildHandles`
 (idx=1) and `Task.Comm.NewMessageEvent` (idx=2) that never get consumed. Static
 analysis of every `SetEvent` call site didn't pin the mystery signaller.
 
-Concrete next action: attach gdb under WSL —
+Concrete next action: build `bench_pingpong` via the Linux64 single-step
+path (`CLAUDE.md` § Linux64), copy to `/c/Temp/`, attach gdb under WSL —
 
 ```bash
-MSYS_NO_PATHCONV=1 wsl -- gdb /mnt/c/tmp_otl_link/Linux64/Debug/bench_pingpong
+MSYS_NO_PATHCONV=1 wsl -- gdb /mnt/c/Temp/bench_pingpong
 ```
 
 — breakpoint `TOmniEvent.SetEvent` filtered to the two offending instances, and
