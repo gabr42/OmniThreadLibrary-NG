@@ -124,6 +124,55 @@ impact when off.
 
 ---
 
+## Pre-release priority
+
+### POSIX `TWaitFor` persistent-observer optimization
+
+Elevated 2026-04-26 from "deferred indefinitely" — user explicitly
+asked to fix it before the OTL-NG release (the post-pre-alpha real-app
+validation phase started 2026-04-26; release follows).
+
+Five attempts (2026-04-23 through 2026-04-26) all hung Linux
+identically. Full retry history and three+ proposed redesign paths
+in `memory/project_posix_persistent_observer_attempt.md`. Pick up only
+with a concrete plan based on:
+
+- **(a)** gdb-watchpoint hunt for the mystery signaller in
+  `bench_pingpong` — cheapest first probe, narrows down what's
+  resignalling `oteCommRebuildHandles` / `Task.Comm.NewMessageEvent`
+  during attempt 1-3's stuck-FState bench hang;
+- **(b)** per-Wait observer model with **batched lock acquisition**
+  in `AddObserver` / `RemoveObserver` — keeps the observer lifecycle
+  unchanged, just amortises the spinlock cost across multiple
+  observers in one critical section. Cheaper than (a) + (c), avoids
+  the persistent-attachment pathology entirely;
+- **(c)** eventfd + epoll primitive replacement on Linux. Largest
+  undertaking but cleanest end state.
+
+**Reference cost — what a successful redesign would buy
+(2026-04-26).** Captured bench_33 (TOmniBlockingCollection) vs
+bench_32 (raw TOmniBaseQueue) at the same workload shape on two
+Android devices. The 1→7 row isolates the wait/observer overhead,
+since 1→7 is the only config where a starved consumer hammers
+`TWaitFor.WaitAny`:
+
+| Device | bench_33 1→7 | bench_32 1→7 | Ratio |
+|---|---:|---:|---:|
+| Galaxy S7 (Cortex-A57/A53) | 79,965 ms | 1,444 ms | **57×** |
+| Pixel 9 Pro (ARMv9-A)      | 51,506 ms |   686 ms | **75×** |
+
+That ratio is approximately the upper bound of what a successful
+persistent-observer / batched-lock / eventfd redesign could recover
+on POSIX 1→7. Even halving that cost would be a major win on
+real-app fan-out workloads with starved consumers — the most common
+producer-consumer shape in real code.
+
+Any redesign should bring bench_33 1→7 on Pixel/Linux into the same
+order of magnitude as bench_32 1→7 on the same device. That's the
+acceptance criterion.
+
+---
+
 ## Post pre-alpha
 
 ### 3. ~~Make OTL tasks implicitly owned (eliminate `Unobserved`)~~ — won't do
@@ -242,27 +291,5 @@ Verified Win32/Win64/Linux64/ARM64EC all build + run clean.
   `SPEC.md:424`.
 - macOS / iOS / WinARM64 runtime — targeted but unverified; no test runner
   configured.
-- POSIX `TWaitFor` persistent-observer optimization — five attempts
-  (2026-04-23 through 2026-04-26), all hang Linux identically. The
-  ~440 µs/wait perf win on POSIX is not worth more drills without a
-  redesign. Full retry history and three+ proposed redesign paths in
-  `memory/project_posix_persistent_observer_attempt.md`. Pick up only
-  if a concrete plan based on (a) gdb-watchpoint hunt for the mystery
-  signaller, (b) per-Wait observer model with batched locking, or
-  (c) eventfd+epoll primitive replacement is on the table.
-
-  **Reference cost (2026-04-26).** Captured bench_33 (TOmniBlocking-
-  Collection) vs bench_32 (raw TOmniBaseQueue) at the same workload
-  shape on two Android devices. The 1→7 row isolates the
-  wait/observer overhead, since 1→7 is the only config where a
-  starved consumer hammers `TWaitFor.WaitAny`:
-
-  | Device | bench_33 1→7 | bench_32 1→7 | Ratio |
-  |---|---:|---:|---:|
-  | Galaxy S7 (Cortex-A57/A53) | 79,965 ms | 1,444 ms | **57×** |
-  | Pixel 9 Pro (ARMv9-A)      | 51,506 ms |   686 ms | **75×** |
-
-  That ratio is approximately the upper bound of what a successful
-  persistent-observer / batched-lock / eventfd redesign could
-  recover on POSIX 1→7. Even halving that cost would be a major
-  win on real-app fan-out workloads with starved consumers.
+- ~~POSIX `TWaitFor` persistent-observer optimization~~ — promoted
+  to **Pre-release priority** 2026-04-26 (see above).
