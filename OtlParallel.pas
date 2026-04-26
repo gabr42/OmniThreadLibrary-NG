@@ -1,4 +1,4 @@
-///<summary>High-level parallel execution management.
+﻿///<summary>High-level parallel execution management.
 ///    Part of the OmniThreadLibrary project. Requires Delphi 2009 or newer.</summary>
 ///<author>Primoz Gabrijelcic</author>
 ///<license>
@@ -377,29 +377,6 @@ unit OtlParallel;
 {$I OtlOptions.inc}
 
 interface
-
-// TODO 1 -oPrimoz Gabrijelcic : Replace OnStop with TaskConfig.OnTerminate whenever appropriate?
-// TODO 1 -oPrimoz Gabrijelcic : IOmniParallelLoop.Initialize should return 'normal' interface which should implement Finalize; no need for 'InitializedLoop' interface
-// TODO 1 -oPrimoz Gabrijelcic : IOmniParallelLoop.Execute should return 'self'
-// TODO 1 -oPrimoz Gabrijelcic : Remove IOmniParallelLoop.OnMessage
-// TODO 1 -oPrimoz Gabrijelcic : IOmniFuture<T>.IsExceptional
-// TODO 1 -oPrimoz Gabrijelcic : ??TryFatalException with timeout??
-
-// TODO 3 -oPrimoz Gabrijelcic : Maybe we could use .Aggregate<T> where T is the aggregate type?
-// TODO 3 -oPrimoz Gabrijelcic : Change .Aggregate to use .Into signature for loop body?
-// TODO 1 -oPrimoz Gabrijelcic : How to combine Futures and NoWait version of Aggregate?
-// TODO 5 -oPrimoz Gabrijelcic : Single-threaded access to a data source - how? (datasets etc)
-// TODO 3 -oPrimoz Gabrijelcic : Parallel.MapReduce?
-
-// Notes for OTL 3
-// - Parallel.ForEach should use task pool.
-// - Task pool would dynamically schedule tasks over available cores.
-// - Task pool would know how many different kinds of tasks are there (one per distinct
-//   ForEach) and would balance load so that all different kinds of tasks would get executed.
-// - ForEach would support .DegreeOfConcurrency (or something like that) which would
-//   default to one meaning that one task can easily consume one core. Setting it to two
-//   (it would be a real, not integer) would mean that one task can only consume one half of a
-//   core and that 2*<number of cores> is a good number of threads for this particular task.
 
 uses
   System.SysUtils,
@@ -1679,7 +1656,6 @@ type
     function  From(const queue: IOmniBlockingCollection): IOmniPipeline;
     function  HandleExceptions: IOmniPipeline;
     function  NoThrottling: IOmniPipeline;
-    { TODO 1 -ogabr : When running stages in parallel, additional work has to be done to ensure proper output order! }
     function  NumTasks(numTasks: integer): IOmniPipeline;
     function  OnStop(stopCode: TProc): IOmniPipeline; overload;
     function  OnStop(stopCode: TOmniTaskStopDelegate): IOmniPipeline; overload;

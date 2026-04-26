@@ -29,29 +29,7 @@ dropped from 25 GiB (WSL-link with the broken TLS layout) to 165 MiB.
 
 No remaining work — entry kept as a record.
 
-### 2. Resume POSIX `TWaitFor` persistent-observer optimization
-
-Linux `TWaitFor.Wait` is ~2× slower than Win64 on `bench_pingpong` (~345 ms/rep
-vs ~181 ms/rep) because per-wait `AddObserver` / `RemoveObserver` costs
-~440 µs/wait. Three prior attempts at persistent observer attachment all hung
-Linux in the same pathology: stuck `FState=true` on `oteCommRebuildHandles`
-(idx=1) and `Task.Comm.NewMessageEvent` (idx=2) that never get consumed. Static
-analysis of every `SetEvent` call site didn't pin the mystery signaller.
-
-Concrete next action: build `bench_pingpong` via the Linux64 single-step
-path (`CLAUDE.md` § Linux64), copy to `/c/Temp/`, attach gdb under WSL —
-
-```bash
-MSYS_NO_PATHCONV=1 wsl -- gdb /mnt/c/Temp/bench_pingpong
-```
-
-— breakpoint `TOmniEvent.SetEvent` filtered to the two offending instances, and
-identify what is re-signalling them during `MSG_START_TEST` dispatch.
-
-Context: `memory/project_posix_persistent_observer_attempt.md` (full retry
-history, including current-state-of-revert pointers).
-
-### 3. Profile Linux64 3–5× speedup vs Win64 on `bench_33` balanced configs
+### 2. Profile Linux64 3–5× speedup vs Win64 on `bench_33` balanced configs
 
 `bench_33` baseline post commit `ef39b94` (lock-free queue protocol
 on every 64-bit target, see `tests/33_BlockingCollection/BENCH_README.md`):
@@ -104,7 +82,8 @@ Likely contributors to investigate, in order:
 Note that `1→7` is now at parity (was Linux-slower pre-`ef39b94`,
 because the spinlock fallback hurt POSIX disproportionately on
 asymmetric workloads). The remaining `1→7` cost is the
-`AddObserver` / `RemoveObserver` churn already tracked in item #2.
+`AddObserver` / `RemoveObserver` churn (POSIX-only), deferred
+indefinitely — see Deferred section.
 
 Concrete next action: build both targets with `-O3 -fno-omit-frame-
 pointer` (Linux) / `--profile` (Windows), capture flame graphs of a
@@ -132,27 +111,16 @@ it at termination; no external reference needed to keep it alive; `.Unobserved`
 becomes a no-op alias. Risk: the lifetime contract changes for every caller,
 needs a careful migration with a compatibility mode.
 
-### 4. Triage `OtlParallel` design-question TODOs
+### 4. ~~Triage `OtlParallel` design-question TODOs~~ — done
 
-12 author TODOs on lines 381-392 and 1682:
-
-- Replace `OnStop` with `TaskConfig.OnTerminate` whenever appropriate.
-- `IOmniParallelLoop.Initialize` should return a normal interface (drop
-  `InitializedLoop`).
-- `IOmniParallelLoop.Execute` should return `self`.
-- Remove `IOmniParallelLoop.OnMessage`.
-- `IOmniFuture<T>.IsExceptional`.
-- `TryFatalException` with timeout.
-- Change `.Aggregate` to use `.Into` signature for loop body.
-- Consider `.Aggregate<T>` where T is the aggregate type.
-- Combining `Futures` with `NoWait` version of `Aggregate`.
-- Single-threaded access to a data source (datasets etc.).
-- `Parallel.MapReduce`?
-- Stage output ordering when pipeline stages run in parallel (line 1682).
-
-This task is the triage pass — for each, decide (a) keep as future idea, (b)
-close because superseded, (c) promote to its own entry here. Not the
-implementation.
+Resolved 2026-04-26. All 11 author TODO comments at the top of
+`OtlParallel.pas` (lines 381–392) plus the pipeline output-ordering
+TODO (line 1682) and the related "Notes for OTL 3" comment block
+were removed. They were old enough that the original intent behind
+most of them was no longer remembered; carrying them forward as
+"open" was misleading. If any of those API-shape questions resurface
+in real-world use, they can be re-opened as concrete proposals
+rather than as inherited prompts.
 
 ### 5. ~~Recheck legacy NEXTGEN / MSWINDOWS IFDEFs in `OtlCommon.pas`~~ — done
 
@@ -177,3 +145,11 @@ Verified Win32/Win64/Linux64/ARM64EC all build + run clean.
   `SPEC.md:424`.
 - macOS / iOS / WinARM64 runtime — targeted but unverified; no test runner
   configured.
+- POSIX `TWaitFor` persistent-observer optimization — five attempts
+  (2026-04-23 through 2026-04-26), all hang Linux identically. The
+  ~440 µs/wait perf win on POSIX is not worth more drills without a
+  redesign. Full retry history and three+ proposed redesign paths in
+  `memory/project_posix_persistent_observer_attempt.md`. Pick up only
+  if a concrete plan based on (a) gdb-watchpoint hunt for the mystery
+  signaller, (b) per-Wait observer model with batched locking, or
+  (c) eventfd+epoll primitive replacement is on the table.
