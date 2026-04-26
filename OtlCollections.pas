@@ -261,7 +261,8 @@ implementation
 
 uses
   System.Classes,
-  System.Diagnostics;
+  System.Diagnostics,
+  OtlBenchProbe;
 
 { TOmniBlockingCollectionEnumerator }
 
@@ -570,7 +571,11 @@ function TOmniBlockingCollection.TryAdd(const value: TOmniValue): boolean;
 var
   waitResult: TWaitFor.TWaitForResult;
   signaller : IOmniSynchro;
+{$IFDEF OTL_BENCH_PROBE}
+  probeT0: int64;
+{$ENDIF}
 begin
+  {$IFDEF OTL_BENCH_PROBE}ProbeStart(probeT0);{$ENDIF}
   obcAddCountAndCompleted.Increment;
   try
     // IsCompleted can not change during the execution of this function
@@ -594,7 +599,10 @@ begin
       obcCollection.Enqueue(value);
       obcApproxCount.Increment;
     end;
-  finally obcAddCountAndCompleted.Decrement; end;
+  finally
+    obcAddCountAndCompleted.Decrement;
+    {$IFDEF OTL_BENCH_PROBE}ProbeStop(ProbeTryAdd, probeT0);{$ENDIF}
+  end;
 end; { TOmniBlockingCollection.TryAdd }
 
 function TOmniBlockingCollection.TryTake(var value: TOmniValue;
@@ -603,6 +611,9 @@ var
   stopWatch: TStopWatch;
   awaited  : TWaitFor.TWaitForResult;
   signaller: IOmniSynchro;
+{$IFDEF OTL_BENCH_PROBE}
+  probeT0: int64;
+{$ENDIF}
 
   function TimeLeft_ms: cardinal;
   var
@@ -620,6 +631,7 @@ var
   end; { TimeLeft_ms }
 
 begin
+  {$IFDEF OTL_BENCH_PROBE}ProbeStart(probeT0);{$ENDIF}
   if obcCollection.TryDequeue(value) then
     Result := true
   else begin // must be executed even if timeout_ms = 0 or the algorithm will break
@@ -655,6 +667,7 @@ begin
   end;
   if Result and obcReraiseExceptions and value.IsException then
     raise value.AsException;
+  {$IFDEF OTL_BENCH_PROBE}ProbeStop(ProbeTryTake, probeT0);{$ENDIF}
 end; { TOmniBlockingCollection.TryTake }
 
 end.

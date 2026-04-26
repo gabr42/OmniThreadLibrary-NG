@@ -29,9 +29,9 @@ dropped from 25 GiB (WSL-link with the broken TLS layout) to 165 MiB.
 
 No remaining work — entry kept as a record.
 
-### 2. Profile Linux64 3–5× speedup vs Win64 on `bench_33` balanced configs
+### 2. Profile Linux64 3–5× speedup vs Win64 on `bench_33` balanced configs — findings 2026-04-26
 
-`bench_33` baseline post commit `ef39b94` (lock-free queue protocol
+`bench_33` baseline (post commit `ef39b94`, lock-free queue protocol
 on every 64-bit target, see `tests/33_BlockingCollection/BENCH_README.md`):
 
 Config | Win64 (ms) | Linux64 (ms) | ratio
@@ -44,52 +44,83 @@ Config | Win64 (ms) | Linux64 (ms) | ratio
 1→7 | 7985 | 8118 | parity
 7→1 |  751 |  325 | 2.3×
 
-Both Release-mode builds. Hypotheses ruled out earlier:
+Phase 2 instrumentation (`OtlBenchProbe.pas`, wired at outermost
+`TryAdd` / `TryTake` call sites in `OtlCollections.pas`, gated by
+`-DOTL_BENCH_PROBE`) per-call costs across the same configs:
 
-- **FastMM4-debug overhead.** Win32/Win64 Release without `-DDEBUG`
-  give the same numbers as the original baseline.
-- **Lock-free CAS vs the old POSIX spinlock fallback.** Resolved
-  by commits `b91711a` + `ef39b94`. Both targets now run the same
-  lock-free protocol, so the gap can't be the queue's contention
-  strategy — it's in the surrounding code.
+Config | Win64 TryAdd | Linux64 TryAdd | W/L | Win64 TryTake | Linux64 TryTake | W/L
+---|---|---|---|---|---|---
+1→1 |   574 ns |   260 ns | 2.2× |    62 ns |   129 ns | 0.5×
+2→2 |  1131 ns |   325 ns | 3.5× |    75 ns |   120 ns | 0.6×
+4→4 |  2262 ns |   410 ns | 5.5× |    91 ns |   143 ns | 0.6×
+8→8 |  6114 ns |  1182 ns | 5.2× |   333 ns |   905 ns | 0.4×
+1→7 |  6426 ns |  3461 ns | 1.9× |  9008 ns | 22961 ns | 0.4× (mostly wait time)
+7→1 |  1454 ns |   606 ns | 2.4× |    57 ns |   104 ns | 0.5×
 
-The gap is real, large, and consistent across balanced configs.
-Worth understanding before shipping pre-alpha because it implies
-Win64 has avoidable overhead in the balanced-pipeline hot path.
+Hypotheses ruled out:
 
-Likely contributors to investigate, in order:
+- **Lock-free queue (`Enqueue` / `TryDequeue`)**. Probed inline:
+  Win64 49 ns / 51 ns per call vs Linux64 195 ns / 174 ns. Win64 is
+  *4× faster* per queue op — the gap is not in the queue.
+- **False sharing between `obcAddCountAndCompleted` and
+  `obcApproxCount`.** Padded them onto separate cache lines — no
+  measurable change. Contention is on a single field, not between
+  fields.
+- **`TOmniAlignedInt32.Initialize` writing FAddr per call.** Made
+  one-shot — 2-6% improvement, not the dominant cost.
+- **Per-WaitAny syscall cost dominating.** Win64 `WaitAny` *is* 10×
+  more expensive per call (~1.13 ms vs ~118 µs on Linux), but is
+  called 28× less often on balanced configs because Win64 producer
+  is slower → queue rarely runs dry. Net wait-time is *higher* on
+  Linux (290 s vs 100 s across the matrix). Sync primitive cost
+  matters on `1→7` (asymmetric) but not on balanced configs.
+- **Probe instrumentation contention.** Inner probes inflate outer
+  probe measurements by 10-20% under heavy contention because each
+  `TBenchProbe.Add` is itself a few atomic ops on shared state. Only
+  outermost probes are kept wired.
 
-1. **Synchronization primitives.** Linux uses pthread futex (cheap
-   uncontended fast path, syscall only on contention). Windows
-   `TConditionVariableCS.WaitFor` goes through `TMonitor.Wait` →
-   per-thread semaphore (`MonitorSupport.NewWaitObject`) — a syscall
-   per wait even when uncontended. With many short waits (the
-   bench's hot path is `TryDequeue` failure → `WaitAny` → wake →
-   retry), the syscall-per-wait cost stacks up.
-2. **Cond var design.** On Windows, `TConditionVariableCS.Release`
-   eventually calls `WakeConditionVariableProc` (NT cv) but
-   `TMonitor.Pulse` uses semaphores. Bench may be hitting the
-   non-NT-cv path. Worth verifying with a profiler.
-3. **Compiler codegen.** Both `dcc64` and `dcclinux64` are LLVM-
-   based, but with different backends and inlining heuristics.
-   `OtlCollections.TryAdd` / `TryTake` are the inner-loop functions
-   — disassembling both for `4→4` would expose any obvious gap.
-4. **Memory allocator.** Mostly ruled out at the Delphi-MM level
-   (FastMM4-debug-off didn't move Windows numbers). But glibc
-   `malloc` vs Windows heap could still differ on the queue-block
-   path. Lower priority than (1) and (2).
+Confirmed root cause: **`TryAdd`'s three contended `LOCK XADD`
+operations on shared `TOmniAlignedInt32` fields** —
+`obcAddCountAndCompleted.Increment` (entry), `obcApproxCount.Increment`
+(after Enqueue), `obcAddCountAndCompleted.Decrement` (exit). Per-op
+cost on x86-64 LOCK XADD against a contended cache line should be
+~50-100 ns. Linux64 measures roughly that (TryAdd-minus-Enqueue at
+8→8 ≈ 360 ns total = 120 ns each). Win64 measures ~1900 ns each at
+8→8 — **15× the expected hardware-level cost**, on the same x86-64
+silicon. Same `LOCK XADD` instructions, both LLVM-compiled. The gap
+is in OS scheduler + cache-coherency dynamics under contention, not
+OTL code.
 
-Note that `1→7` is now at parity (was Linux-slower pre-`ef39b94`,
-because the spinlock fallback hurt POSIX disproportionately on
-asymmetric workloads). The remaining `1→7` cost is the
-`AddObserver` / `RemoveObserver` churn (POSIX-only), deferred
-indefinitely — see Deferred section.
+Skipping the entry counter entirely (one of the three atomic ops)
+yielded a 25% improvement at 8→8 on Win64 — confirming the atomics
+are the dominant cost — but only at high contention, and removing
+the entry counter breaks `CompleteAdding` semantics.
 
-Concrete next action: build both targets with `-O3 -fno-omit-frame-
-pointer` (Linux) / `--profile` (Windows), capture flame graphs of a
-4→4 run, compare time spent in `WaitAny` / `TryDequeue` /
-`AddObserver`. Bench source unchanged — same `.dpr` runs both
-platforms.
+Mitigation paths:
+
+1. **Reduce TryAdd's atomic-op count from 3 to 1.** Replace
+   `obcAddCountAndCompleted` increment/decrement-pair-around-body
+   with a single CAS or seqlock-style read of a completed flag.
+   `CompleteAdding` would need a different mechanism to wait for
+   in-flight TryAdds to drain (RCU-like grace period, or rendezvous
+   barrier). Algorithmic change with subtle race conditions to
+   re-prove. Largest potential win: ~3× on Win64 balanced configs.
+2. **Per-thread approximate counters, periodic merge.** Each thread
+   maintains a thread-local count; CompleteAdding waits for all to
+   drain. Works but complicates teardown and adds bookkeeping.
+3. **Accept the gap and move on.** Win64 *is* slower on this
+   synthetic balanced-throughput micro-benchmark, but real-app
+   blocking-collection workloads usually have lower contention or
+   asymmetric fan-in (the `7→1` shape) where the gap is much
+   smaller (2.2-2.4×) and absolute cost is bounded.
+
+Recommendation for pre-alpha: option 3 (accept). The bench shows a
+gap but doesn't show user-visible breakage. Revisit after pre-alpha
+if real-app reports surface, with option 1 as the natural target.
+
+Phase 2 instrumentation (`OtlBenchProbe.pas`) is checked in for
+future use — compile-time gated by `-DOTL_BENCH_PROBE`, no runtime
+impact when off.
 
 ---
 

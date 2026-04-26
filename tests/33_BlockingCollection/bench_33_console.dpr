@@ -7,9 +7,12 @@ program bench_33_console;
 
 {$APPTYPE CONSOLE}
 
+{$I OtlOptions.inc}
+
 uses
   {$IFDEF MSWINDOWS}FastMM4,{$ENDIF}
   System.SysUtils,
+  {$IFDEF OTL_BENCH_PROBE}OtlBenchProbe,{$ENDIF}
   bench_33_shared in 'bench_33_shared.pas';
 
 procedure PrintPlatform;
@@ -24,16 +27,30 @@ end;
 procedure Run;
 var
   runner: TBench33Runner;
+  log   : TBenchLogger;
+{$IFDEF OTL_BENCH_PROBE}
+  onCfgBegin: TBenchConfigHook;
+  onCfgEnd  : TBenchConfigHook;
+{$ENDIF}
 begin
+  log :=
+    procedure(const msg: string)
+    begin
+      Writeln(msg);
+      Flush(Output); // Linux RTL block-buffers stdout when redirected
+    end;
   runner := TBench33Runner.Create;
   try
     PrintPlatform;
-    runner.RunAll(
-      procedure(const msg: string)
-      begin
-        Writeln(msg);
-        Flush(Output); // Linux RTL block-buffers stdout when redirected
-      end);
+    {$IFDEF OTL_BENCH_PROBE}
+    onCfgBegin := procedure(const _log: TBenchLogger)
+                  begin OtlBenchProbe.ResetAll; end;
+    onCfgEnd   := procedure(const _log: TBenchLogger)
+                  begin OtlBenchProbe.ReportAll(_log); _log(''); end;
+    runner.RunAll(log, onCfgBegin, onCfgEnd);
+    {$ELSE}
+    runner.RunAll(log);
+    {$ENDIF}
   finally FreeAndNil(runner); end;
 end;
 

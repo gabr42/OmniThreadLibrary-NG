@@ -21,10 +21,12 @@ uses
   OtlTaskControl,
   OtlSync,
   OtlContainers,
+  {$IFDEF OTL_BENCH_PROBE}OtlBenchProbe,{$ENDIF}
   OtlCollections;
 
 type
   TBenchLogger = reference to procedure(const msg: string);
+  TBenchConfigHook = reference to procedure(const log: TBenchLogger);
 
   TBench33Config = record
     Forwarders: integer;
@@ -53,7 +55,8 @@ type
       const cfg: TBench33Config; const runs_ms: TArray<int64>);
   public
     class function Configs: TArray<TBench33Config>; static;
-    procedure RunAll(const log: TBenchLogger);
+    procedure RunAll(const log: TBenchLogger; const onConfigBegin: TBenchConfigHook = nil;
+      const onConfigEnd: TBenchConfigHook = nil);
   end;
 
 implementation
@@ -251,7 +254,8 @@ begin
     [cfg.Label_, avg, minVal, maxVal, joined]));
 end;
 
-procedure TBench33Runner.RunAll(const log: TBenchLogger);
+procedure TBench33Runner.RunAll(const log: TBenchLogger; const onConfigBegin: TBenchConfigHook;
+  const onConfigEnd: TBenchConfigHook);
 var
   cfg      : TBench33Config;
   elapsed  : int64;
@@ -266,6 +270,9 @@ begin
 
   totalSW := TStopwatch.StartNew;
   for cfg in Configs do begin
+    if assigned(onConfigBegin) then
+      onConfigBegin(log);
+
     // Warm-up runs — JIT / cache / pool-startup effects. Results discarded.
     for i := 1 to CWarmupReps do
       RunOnce(cfg.Forwarders, cfg.Readers, elapsed);
@@ -277,6 +284,9 @@ begin
     end;
 
     LogConfigResult(log, cfg, runs_ms);
+
+    if assigned(onConfigEnd) then
+      onConfigEnd(log);
   end;
 
   log('');
