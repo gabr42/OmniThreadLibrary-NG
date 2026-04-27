@@ -1504,11 +1504,20 @@ var
   sync          : TSynchroObject;
   taskException : Exception;
   unobservedRef : IOmniTaskControl;
+{$IFDEF OTL_TRACE_PROBE}
+  uid: int64;
+{$ENDIF}
 begin
+  {$IFDEF OTL_TRACE_PROBE}
+  if assigned(otSharedInfo_ref) then uid := otSharedInfo_ref.UniqueID else uid := 0;
+  TraceMark('exec.enter', uid);
+  {$ENDIF}
   otCleanupLock.EnterWriteLock;
   try
-    if otTerminateWillCallExecute and (not calledFromTerminate) then
+    if otTerminateWillCallExecute and (not calledFromTerminate) then begin
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.earlyExit', uid);{$ENDIF}
       Exit;
+    end;
     otExecuting := true;
   finally otCleanupLock.ExitWriteLock; end;
   otThreadID := TThread.CurrentThread.ThreadID;
@@ -1520,9 +1529,12 @@ begin
         SetThreadName(otSharedInfo_ref.TaskName);
         if (tcoForceExecution in otExecutor_ref.Options) or (not Terminated) then
         try
+          {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.bodyCall.before', uid);{$ENDIF}
           otExecutor_ref.Asy_Execute(Self);
+          {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.bodyCall.after', uid);{$ENDIF}
         except
           on E: Exception do begin
+            {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.bodyCall.except', uid);{$ENDIF}
             taskException := Exception(AcquireExceptionObject);
             FilterException(taskException);
             if assigned(taskException) then
@@ -1530,7 +1542,9 @@ begin
           end;
         end;
       finally
+        {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.innerFinally', uid);{$ENDIF}
         otCleanupLock.EnterWriteLock;
+        {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.innerFinally.lockAcq', uid);{$ENDIF}
         if assigned(otSharedInfo_ref.ChainTo) and
            (otSharedInfo_ref.ChainIgnoreErrors or (otExecutor_ref.ExitCode = EXIT_OK))
         then
@@ -1540,7 +1554,9 @@ begin
         otSharedInfo_ref.Stopped := true;
         // with internal monitoring this will not be processed if the task controller owner is also shutting down
         sync := nil;
+        {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.monLock.before', uid);{$ENDIF}
         otSharedInfo_ref.MonitorLock.Acquire;
+        {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.monLock.after', uid);{$ENDIF}
         try
           sync := otSharedInfo_ref.MonitorLock.SyncObj;
           if assigned(otSharedInfo_ref.Monitor) then
@@ -1554,24 +1570,33 @@ begin
           hasBgObserver := assigned(otSharedInfo_ref.BackgroundObserver);
           if hasBgObserver then
             IOmniContainerBackgroundObserver(otSharedInfo_ref.BackgroundObserver).Notify;
+          {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.relRef.before', uid);{$ENDIF}
           unobservedRef := otSharedInfo_ref.ReleaseUnobservedRef;
+          {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.relRef.after', uid, ord(assigned(unobservedRef)));{$ENDIF}
           otSharedInfo_ref := nil;
         finally
           if assigned(sync) then
             sync.Release;
+          {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.monLock.released', uid);{$ENDIF}
         end;
       end;
     finally
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.outerFinally', uid);{$ENDIF}
       //Task controller could die any time now. Make sure we're not using shared
       //structures anymore.
       otExecutor_ref   := nil;
       otParameters_ref := nil;
       otSharedInfo_ref := nil;
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.eventSet.before', uid);{$ENDIF}
       eventTerminate.SetEvent;
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.eventSet.after', uid);{$ENDIF}
     end;
     if assigned(chainTo) then
       chainTo.Run; // TODO 1 -oPrimoz Gabrijelcic : Should InternalExecute the chained task in the same thread (should work when run in a pool)
-  finally otCleanupLock.ExitWriteLock; end;
+  finally
+    otCleanupLock.ExitWriteLock;
+    {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.cleanupLock.released', uid);{$ENDIF}
+  end;
   // Queue unobserved ref for deferred release AFTER all events are signaled
   // and locks released, so the cleanup thread's destructor call doesn't need
   // to wait for this thread to finish its cleanup.
@@ -1581,11 +1606,12 @@ begin
   // before scheduling release, so Unobserved tasks deliver OnTerminated
   // reliably even when the owner thread is slow to drain. The call is
   // idempotent (see TOmniTaskControl.ForwardTaskTerminated).
+  {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.preIfBlock', uid, ord(assigned(unobservedRef)));{$ENDIF}
   if assigned(unobservedRef) then begin
     if hasBgObserver then begin
-      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.fwdTerm.before', UniqueID);{$ENDIF}
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.fwdTerm.before', uid);{$ENDIF}
       (unobservedRef as IOmniTaskControlInternals).ForwardTaskTerminated;
-      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.fwdTerm.after', UniqueID);{$ENDIF}
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.fwdTerm.after', uid);{$ENDIF}
     end;
     // If this task installed a lightweight comm dispatcher (Unobserved
     // without an explicit OnMessage/OnTerminated monitor), flush it now so
@@ -1593,9 +1619,9 @@ begin
     // before the cleanup thread releases us. Otherwise Destroy nils the
     // dispatcher and any not-yet-run ForceQueue'd drain closures become
     // no-ops — the last few callbacks would silently disappear.
-    {$IFDEF OTL_TRACE_PROBE}TraceMark('task.finalDisp.before', UniqueID);{$ENDIF}
+    {$IFDEF OTL_TRACE_PROBE}TraceMark('task.finalDisp.before', uid);{$ENDIF}
     (unobservedRef as IOmniTaskControlInternals).FinalizeUnobservedCommDispatcher;
-    {$IFDEF OTL_TRACE_PROBE}TraceMark('task.finalDisp.after', UniqueID);{$ENDIF}
+    {$IFDEF OTL_TRACE_PROBE}TraceMark('task.finalDisp.after', uid);{$ENDIF}
     // OtlTaskControl.finalization may have freed GUnobservedCleanup while a
     // pool worker is still finishing InternalExecute here (Pipeline.WaitFor
     // returns on opShutDownComplete, which a stage task sets before its
@@ -1606,16 +1632,16 @@ begin
     // to run on this worker thread.
     var cleanup := GUnobservedCleanup;
     if assigned(cleanup) then begin
-      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.schedRelease.before', UniqueID);{$ENDIF}
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.schedRelease.before', uid);{$ENDIF}
       cleanup.ScheduleRelease(unobservedRef);
-      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.schedRelease.after', UniqueID);{$ENDIF}
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.schedRelease.after', uid);{$ENDIF}
     end
     else begin
-      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.inlineRelease', UniqueID);{$ENDIF}
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.inlineRelease', uid);{$ENDIF}
       unobservedRef := nil;
     end;
   end;
-  {$IFDEF OTL_TRACE_PROBE}TraceMark('task.exec-exit', UniqueID);{$ENDIF}
+  {$IFDEF OTL_TRACE_PROBE}TraceMark('task.exec-exit', uid);{$ENDIF}
 end; { TOmniTask.InternalExecute }
 
 procedure TOmniTask.Invoke(remoteFunc: TOmniTaskInvokeFunction);
