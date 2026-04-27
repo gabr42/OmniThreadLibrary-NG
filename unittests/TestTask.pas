@@ -907,9 +907,13 @@ procedure TestITaskControl.TestFatalExceptionFromWorker;
 // surface as task.FatalException. Covers the etWorker executor path
 // (the anonymous-proc test above exercises etProcedure).
 var
-  task: IOmniTaskControl;
+  task  : IOmniTaskControl;
+  worker: IOmniWorker;
 begin
-  task := CreateTask(TRaisingWorker.Create, 'FatalException-worker').Run;
+  // D11/D12 won't auto-cast a TOmniWorker class instance to IOmniWorker
+  // inside CreateTask's overload set; assign through a typed local first.
+  worker := TRaisingWorker.Create;
+  task := CreateTask(worker, 'FatalException-worker').Run;
   try
     task.Comm.Send(MSG_RAISE, 0);
     Assert.IsTrue(task.WaitFor(5000), 'Task did not terminate');
@@ -929,14 +933,17 @@ procedure TestITaskControl.TestDetachExceptionTransfersOwnership;
 // reads return nil. Caller must Free the returned exception —
 // FastMM4's leak tracker will catch a miss.
 var
+  delegate: TOmniTaskDelegate;
   detached: Exception;
   task    : IOmniTaskControl;
 begin
-  task := CreateTask(
-    procedure (const tsk: IOmniTask)
-    begin
-      raise EWorkerTestException.Create('detachable');
-    end, 'DetachException').Run;
+  // D11/D12 fail overload resolution when an inline anonymous procedure is
+  // passed directly to CreateTask; bind to a typed local first.
+  delegate := procedure (const tsk: IOmniTask)
+              begin
+                raise EWorkerTestException.Create('detachable');
+              end;
+  task := CreateTask(delegate, 'DetachException').Run;
   try
     Assert.IsTrue(task.WaitFor(5000), 'Task did not terminate');
     Assert.IsNotNull(task.FatalException, 'Pre-detach FatalException nil');
@@ -961,13 +968,14 @@ procedure RunRaisingTaskAndWait;
 // the test procedure exits (same quirk documented in
 // TestBlockingCollection1.FillOmniValueWithOwnedObject).
 var
-  task: IOmniTaskControl;
+  delegate: TOmniTaskDelegate;
+  task    : IOmniTaskControl;
 begin
-  task := CreateTask(
-    procedure (const tsk: IOmniTask)
-    begin
-      raise ECountedWorkerException.Create('auto-freed');
-    end, 'FatalException-autofree').Run;
+  delegate := procedure (const tsk: IOmniTask)
+              begin
+                raise ECountedWorkerException.Create('auto-freed');
+              end;
+  task := CreateTask(delegate, 'FatalException-autofree').Run;
   try
     Assert.IsTrue(task.WaitFor(5000), 'Task did not terminate');
     Assert.IsNotNull(task.FatalException,
@@ -996,13 +1004,14 @@ end;
 
 procedure TestITaskControl.TestNoExceptionMeansNilFatalException;
 var
-  task: IOmniTaskControl;
+  delegate: TOmniTaskDelegate;
+  task    : IOmniTaskControl;
 begin
-  task := CreateTask(
-    procedure (const tsk: IOmniTask)
-    begin
-      // Normal exit — no raise.
-    end, 'NoFatal').Run;
+  delegate := procedure (const tsk: IOmniTask)
+              begin
+                // Normal exit — no raise.
+              end;
+  task := CreateTask(delegate, 'NoFatal').Run;
   try
     Assert.IsTrue(task.WaitFor(5000), 'Task did not terminate');
     Assert.IsNull(task.FatalException,

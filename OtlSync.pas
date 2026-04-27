@@ -1689,15 +1689,28 @@ end; { Atomic<I,T>.Initialize }
 
 function TLightweightMREWEx.GetLockOwner: TThreadID; //inline
 begin
-  // No-op CompareExchange is portable: overloads exist for both Cardinal
-  // (Windows TThreadID) and UInt64 (POSIX pthread_t). TInterlocked.Read
-  // has neither Cardinal nor generic overload.
+  // No-op CompareExchange is portable on D12+: overloads exist for both
+  // Cardinal (Windows TThreadID) and UInt64 (POSIX pthread_t). D11 lacks
+  // the Cardinal overload — TInterlocked.CompareExchange falls through to
+  // the Pointer overload and the compiler complains "Cardinal and Pointer".
+  // Cast through Integer (TThreadID = Cardinal on Windows; both 4-byte
+  // and the var-typecast is layout-safe). D11 does not target POSIX with
+  // OTL-NG so the Windows-only path is sufficient.
+  {$IF CompilerVersion >= 36} // D12+
   Result := TInterlocked.CompareExchange(FLockOwner, TThreadID(0), TThreadID(0));
+  {$ELSE} // D11
+  Result := TThreadID(TInterlocked.CompareExchange(Integer(FLockOwner), 0, 0));
+  {$IFEND}
 end; { TLightweightMREWEx.GetLockOwner }
 
 procedure TLightweightMREWEx.SetLockOwner(value: TThreadID); //inline
 begin
+  // Same D11-vs-D12+ split as GetLockOwner above.
+  {$IF CompilerVersion >= 36} // D12+
   TInterlocked.Exchange(FLockOwner, value);
+  {$ELSE} // D11
+  TInterlocked.Exchange(Integer(FLockOwner), Integer(value));
+  {$IFEND}
 end; { TLightweightMREWEx.SetLockOwner }
 
 class operator TLightweightMREWEx.Initialize(out dest: TLightweightMREWEx);
