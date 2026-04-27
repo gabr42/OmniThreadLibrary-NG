@@ -52,7 +52,9 @@ uses
   OtlCommon,
   OtlSync,
   OtlTask,
-  OtlTaskControl;
+  OtlTaskControl,
+  {$IFDEF OTL_TRACE_PROBE}OtlTraceProbe,{$ENDIF}
+  Winapi.Windows;
 
 const
   CTimeout_ms         = 5000;
@@ -95,13 +97,16 @@ begin
   FCount := count;
   FDestroyEvent := destroyEvent;
   TInterlocked.Increment(FCount^);
+  {$IFDEF OTL_TRACE_PROBE}TraceMark('snt.create');{$ENDIF}
 end;
 
 destructor TSentinel.Destroy;
 begin
+  {$IFDEF OTL_TRACE_PROBE}TraceMark('snt.destroy.before');{$ENDIF}
   TInterlocked.Decrement(FCount^);
   if assigned(FDestroyEvent) then
     FDestroyEvent.SetEvent;
+  {$IFDEF OTL_TRACE_PROBE}TraceMark('snt.destroy.after');{$ENDIF}
   inherited;
 end;
 
@@ -308,6 +313,10 @@ end;
 // is too tight on slow / loaded machines.
 procedure AssertReleasedWithinBaseline(const releasedEvent: IOmniEvent;
   const sentinelCountP: PInteger; const opName: string);
+{$IFDEF OTL_TRACE_PROBE}
+var
+  dumpFile: string;
+{$ENDIF}
 var
   elapsed_ms: int64;
   stopwatch : TStopwatch;
@@ -319,14 +328,33 @@ begin
   // release time, but the test fails either way.
   if releasedEvent.WaitFor(CExtendedTimeout_ms - CTimeout_ms) = wrSignaled then begin
     elapsed_ms := stopwatch.ElapsedMilliseconds;
+    {$IFDEF OTL_TRACE_PROBE}
+    dumpFile := Format('C:\Temp\otl_trace_%s_pid%d_%s.log',
+      [opName, GetCurrentProcessId, FormatDateTime('hhnnss', Now)]);
+    TraceDumpToFile(dumpFile);
+    Assert.IsTrue(false,
+      Format('Task control (%s) released after %d ms but missed the %d ms baseline (sentinel count=%d). Trace: %s',
+        [opName, elapsed_ms, CTimeout_ms, sentinelCountP^, dumpFile]));
+    {$ELSE}
     Assert.IsTrue(false,
       Format('Task control (%s) released after %d ms but missed the %d ms baseline (sentinel count=%d). Consider raising CTimeout_ms.',
         [opName, elapsed_ms, CTimeout_ms, sentinelCountP^]));
+    {$ENDIF}
   end
-  else
+  else begin
+    {$IFDEF OTL_TRACE_PROBE}
+    dumpFile := Format('C:\Temp\otl_trace_%s_pid%d_%s.log',
+      [opName, GetCurrentProcessId, FormatDateTime('hhnnss', Now)]);
+    TraceDumpToFile(dumpFile);
+    Assert.IsTrue(false,
+      Format('Task control (%s) was not released within %d ms (extended timeout, sentinel count=%d). Trace: %s',
+        [opName, CExtendedTimeout_ms, sentinelCountP^, dumpFile]));
+    {$ELSE}
     Assert.IsTrue(false,
       Format('Task control (%s) was not released within %d ms (extended timeout, sentinel count=%d)',
         [opName, CExtendedTimeout_ms, sentinelCountP^]));
+    {$ENDIF}
+  end;
 end;
 
 procedure ScheduleUnobservedWithSentinel(sentinel: IInterface; event: IOmniEvent);
@@ -353,6 +381,7 @@ begin
   // earlier polling version timed out transiently under full-suite CPU load
   // when the GUnobservedCleanup thread's scheduling was delayed — not a
   // real leak, just measurement-induced flake.
+  {$IFDEF OTL_TRACE_PROBE}TraceEnable; try{$ENDIF}
   sentinelCount := 0;
   ranEvent      := CreateOmniEvent(false, false);
   releasedEvent := CreateOmniEvent(false, false);
@@ -364,6 +393,7 @@ begin
   AssertReleasedWithinBaseline(releasedEvent, @sentinelCount, 'Schedule');
   Assert.AreEqual<integer>(0, sentinelCount,
     'Sentinel destructor signalled but counter was not zero');
+  {$IFDEF OTL_TRACE_PROBE}finally TraceDisable; end;{$ENDIF}
 end;
 
 procedure RunUnobservedWithSentinel(sentinel: IInterface; event: IOmniEvent);
@@ -387,6 +417,7 @@ var
 begin
   // See TestScheduleControlReleased for why this is event-driven rather
   // than polling.
+  {$IFDEF OTL_TRACE_PROBE}TraceEnable; try{$ENDIF}
   sentinelCount := 0;
   ranEvent      := CreateOmniEvent(false, false);
   releasedEvent := CreateOmniEvent(false, false);
@@ -398,6 +429,7 @@ begin
   AssertReleasedWithinBaseline(releasedEvent, @sentinelCount, 'Run');
   Assert.AreEqual<integer>(0, sentinelCount,
     'Sentinel destructor signalled but counter was not zero');
+  {$IFDEF OTL_TRACE_PROBE}finally TraceDisable; end;{$ENDIF}
 end;
 
 procedure TestUnobservedTask.TestRepeatedSchedule;
@@ -545,5 +577,16 @@ begin
   Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
     'Task did not run within timeout');
 end;
+
+{$IFDEF OTL_TRACE_PROBE}
+initialization
+  // Start a watchdog as soon as TestUnobserved is loaded — it dumps the
+  // trace buffer every 2 seconds. If the test runner hangs and is killed
+  // by the user, the most-recent snapshot survives. The dump file is
+  // overwritten on every tick.
+  TraceWatchdogStart(
+    Format('C:\Temp\otl_trace_watchdog_pid%d.log', [GetCurrentProcessId]),
+    2000);
+{$ENDIF OTL_TRACE_PROBE}
 
 end.

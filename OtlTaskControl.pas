@@ -1151,7 +1151,8 @@ uses
   System.Diagnostics,
   OtlPlatform,
   OtlCommon.Utils,
-  OtlEventMonitor;
+  OtlEventMonitor,
+  OtlTraceProbe;
 
 const
   SHORT_LEN = sizeof(ShortString) - 1;
@@ -1581,15 +1582,20 @@ begin
   // reliably even when the owner thread is slow to drain. The call is
   // idempotent (see TOmniTaskControl.ForwardTaskTerminated).
   if assigned(unobservedRef) then begin
-    if hasBgObserver then
+    if hasBgObserver then begin
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.fwdTerm.before', UniqueID);{$ENDIF}
       (unobservedRef as IOmniTaskControlInternals).ForwardTaskTerminated;
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.fwdTerm.after', UniqueID);{$ENDIF}
+    end;
     // If this task installed a lightweight comm dispatcher (Unobserved
     // without an explicit OnMessage/OnTerminated monitor), flush it now so
     // pending task.Invoke callbacks are delivered on the owner thread
     // before the cleanup thread releases us. Otherwise Destroy nils the
     // dispatcher and any not-yet-run ForceQueue'd drain closures become
     // no-ops — the last few callbacks would silently disappear.
+    {$IFDEF OTL_TRACE_PROBE}TraceMark('task.finalDisp.before', UniqueID);{$ENDIF}
     (unobservedRef as IOmniTaskControlInternals).FinalizeUnobservedCommDispatcher;
+    {$IFDEF OTL_TRACE_PROBE}TraceMark('task.finalDisp.after', UniqueID);{$ENDIF}
     // OtlTaskControl.finalization may have freed GUnobservedCleanup while a
     // pool worker is still finishing InternalExecute here (Pipeline.WaitFor
     // returns on opShutDownComplete, which a stage task sets before its
@@ -1599,11 +1605,17 @@ begin
     // point, pool tasks have no otcThread, and TaskControl.Destroy is safe
     // to run on this worker thread.
     var cleanup := GUnobservedCleanup;
-    if assigned(cleanup) then
-      cleanup.ScheduleRelease(unobservedRef)
-    else
+    if assigned(cleanup) then begin
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.schedRelease.before', UniqueID);{$ENDIF}
+      cleanup.ScheduleRelease(unobservedRef);
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.schedRelease.after', UniqueID);{$ENDIF}
+    end
+    else begin
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.inlineRelease', UniqueID);{$ENDIF}
       unobservedRef := nil;
+    end;
   end;
+  {$IFDEF OTL_TRACE_PROBE}TraceMark('task.exec-exit', UniqueID);{$ENDIF}
 end; { TOmniTask.InternalExecute }
 
 procedure TOmniTask.Invoke(remoteFunc: TOmniTaskInvokeFunction);
@@ -3091,14 +3103,28 @@ begin
 end; { TOmniTaskControl.Create }
 
 destructor TOmniTaskControl.Destroy;
+{$IFDEF OTL_TRACE_PROBE}
+var
+  uid: int64;
+{$ENDIF}
 begin
   { TODO : Do we need wait-and-kill mechanism here to prevent shutdown locks? }
   // TODO 1 -oPrimoz Gabrijelcic : ! if we are being scheduled, the thread pool must be notified that we are dying !
+  {$IFDEF OTL_TRACE_PROBE}
+  if assigned(otcSharedInfo) then uid := otcSharedInfo.UniqueID else uid := 0;
+  TraceMark('dtor.enter', uid);
+  {$ENDIF}
   _AddRef; // Ugly ugly hack to prevent destructor being called twice when internal event monitor is in use
+  {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.destroyMonitor.before', uid);{$ENDIF}
   DestroyMonitor;
+  {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.destroyMonitor.after', uid);{$ENDIF}
   if assigned(otcThread) then begin
+    {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.terminate.before', uid);{$ENDIF}
     Terminate;
+    {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.terminate.after', uid);{$ENDIF}
+    {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.before', uid);{$ENDIF}
     FreeAndNil(otcThread);
+    {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.after', uid);{$ENDIF}
   end;
   // If a background-observer dispatcher was set up, clear its target pointer
   // under the lock so any in-flight or future Dispatch call from the owner's
@@ -3141,7 +3167,9 @@ begin
     otcBackgroundObserver := nil;
   end;
   if assigned(otcSharedInfo) then begin
+    {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.MonLock.acq.before', uid);{$ENDIF}
     otcSharedInfo.MonitorLock.Acquire;
+    {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.MonLock.acq.after', uid);{$ENDIF}
     try
       if otcDestroyLock then begin
         otcSharedInfo.Lock.Free;
@@ -3151,7 +3179,9 @@ begin
       otcSharedInfo.CommChannel := nil;
       otcSharedInfo.TerminateEvent := nil;
       otcSharedInfo.TerminatedEvent := nil;
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.paramsFree.before', uid);{$ENDIF}
       FreeAndNil(otcParameters);
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.paramsFree.after', uid);{$ENDIF}
     finally
       otcSharedInfo.MonitorLock.Release;
       FreeAndNil(otcSharedInfo);
@@ -4590,9 +4620,16 @@ begin
           lockedList.Clear;
         end;
       finally FQueue.UnlockList; end;
+      {$IFDEF OTL_TRACE_PROBE}
+      if batch.Count > 0 then
+        TraceMark('cleanup.batch.dequeued', 0, batch.Count);
+      {$ENDIF}
       // Release refs outside the lock — destructor runs here on this thread
-      for var i := 0 to batch.Count - 1 do
+      for var i := 0 to batch.Count - 1 do begin
+        {$IFDEF OTL_TRACE_PROBE}TraceMark('cleanup.release.before', IOmniTaskControl(batch[i]).UniqueID);{$ENDIF}
         IOmniTaskControl(batch[i])._Release;
+        {$IFDEF OTL_TRACE_PROBE}TraceMark('cleanup.release.after', 0);{$ENDIF}
+      end;
       batch.Clear;
     end;
   finally FreeAndNil(batch); end;
