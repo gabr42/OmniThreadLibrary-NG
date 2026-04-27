@@ -55,8 +55,15 @@ uses
   OtlTaskControl;
 
 const
-  CTimeout_ms  = 5000;
-  CRepeatCount = 50;
+  CTimeout_ms         = 5000;
+  // Diagnostic ceiling for the two-stage wait in TestRunControlReleased /
+  // TestScheduleControlReleased. If the task control isn't released within
+  // CTimeout_ms (the documented baseline) we still wait up to this longer
+  // window so the failure message can report how long it actually took.
+  // The test still fails when CTimeout_ms is missed — extending the wait
+  // is purely for diagnostic value, not a soft pass.
+  CExtendedTimeout_ms = 30000;
+  CRepeatCount        = 50;
 
 { Sentinel for tracking task control lifetime.
   Increments a shared counter on creation, decrements on destruction.
@@ -291,6 +298,37 @@ begin
     'OnTerminated received wrong task');
 end;
 
+// Two-stage wait used by TestScheduleControlReleased / TestRunControlReleased.
+// Stage 1 waits CTimeout_ms (5000 ms baseline). If the release event fires,
+// returns silently. If not, marks an internal failure and proceeds to stage 2,
+// which waits up to CExtendedTimeout_ms - CTimeout_ms more (25000 ms) purely
+// to capture how long the release actually took. The test ALWAYS fails if
+// stage 1 timed out — the extended wait just enriches the failure message
+// with the real elapsed time, so we can decide whether the 5000 ms baseline
+// is too tight on slow / loaded machines.
+procedure AssertReleasedWithinBaseline(const releasedEvent: IOmniEvent;
+  const sentinelCountP: PInteger; const opName: string);
+var
+  elapsed_ms: int64;
+  stopwatch : TStopwatch;
+begin
+  stopwatch := TStopwatch.StartNew;
+  if releasedEvent.WaitFor(CTimeout_ms) = wrSignaled then
+    Exit;
+  // Stage 1 missed — diagnostic stage 2 waits longer to record the actual
+  // release time, but the test fails either way.
+  if releasedEvent.WaitFor(CExtendedTimeout_ms - CTimeout_ms) = wrSignaled then begin
+    elapsed_ms := stopwatch.ElapsedMilliseconds;
+    Assert.IsTrue(false,
+      Format('Task control (%s) released after %d ms but missed the %d ms baseline (sentinel count=%d). Consider raising CTimeout_ms.',
+        [opName, elapsed_ms, CTimeout_ms, sentinelCountP^]));
+  end
+  else
+    Assert.IsTrue(false,
+      Format('Task control (%s) was not released within %d ms (extended timeout, sentinel count=%d)',
+        [opName, CExtendedTimeout_ms, sentinelCountP^]));
+end;
+
 procedure ScheduleUnobservedWithSentinel(sentinel: IInterface; event: IOmniEvent);
 begin
   CreateTask(
@@ -323,9 +361,7 @@ begin
   sentinel := nil; // release our ref; task control holds it via parameters
   Assert.IsTrue(ranEvent.WaitFor(CTimeout_ms) = wrSignaled,
     'Task did not run');
-  Assert.IsTrue(releasedEvent.WaitFor(CTimeout_ms) = wrSignaled,
-    Format('Task control was not released within %d ms (sentinel count=%d)',
-      [CTimeout_ms, sentinelCount]));
+  AssertReleasedWithinBaseline(releasedEvent, @sentinelCount, 'Schedule');
   Assert.AreEqual<integer>(0, sentinelCount,
     'Sentinel destructor signalled but counter was not zero');
 end;
@@ -359,9 +395,7 @@ begin
   sentinel := nil;
   Assert.IsTrue(ranEvent.WaitFor(CTimeout_ms) = wrSignaled,
     'Task did not run');
-  Assert.IsTrue(releasedEvent.WaitFor(CTimeout_ms) = wrSignaled,
-    Format('Task control was not released within %d ms (sentinel count=%d)',
-      [CTimeout_ms, sentinelCount]));
+  AssertReleasedWithinBaseline(releasedEvent, @sentinelCount, 'Run');
   Assert.AreEqual<integer>(0, sentinelCount,
     'Sentinel destructor signalled but counter was not zero');
 end;
