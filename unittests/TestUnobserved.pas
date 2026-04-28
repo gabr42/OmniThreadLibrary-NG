@@ -6,7 +6,6 @@
 interface
 
 uses
-  madExcept,
   DUnitX.TestFramework,
   TestOtlBase;
 
@@ -304,11 +303,6 @@ begin
     'OnTerminated received wrong task');
 end;
 
-procedure BeforeBugReport(const exceptIntf: IMEException; var handled: Boolean);
-begin
-  exceptIntf.BugReportFile := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + Format('dump_%d.txt', [GetCurrentProcessID]);
-end;
-
 // Two-stage wait used by TestScheduleControlReleased / TestRunControlReleased.
 // Stage 1 waits CTimeout_ms (5000 ms baseline). If the release event fires,
 // returns silently. If not, marks an internal failure and proceeds to stage 2,
@@ -388,12 +382,6 @@ begin
         [opName, CExtendedTimeout_ms, sentinelCountP^,
          selfDestroyAfter - selfDestroyBefore, dumpFile]));
     {$ELSE}
-    Writeln('*** TestRunControlReleased blocked in process ' + IntToStr(GetCurrentProcessId) + ', creating bugreport.txt');
-    try
-      raise Exception.Create('manual trace' );
-    except
-      HandleException(etNormal);
-    end;
     Assert.IsTrue(false,
       Format('Task control (%s) was not released within %d ms (extended timeout, sentinel count=%d, selfDestroyTripwire=%d)',
         [opName, CExtendedTimeout_ms, sentinelCountP^,
