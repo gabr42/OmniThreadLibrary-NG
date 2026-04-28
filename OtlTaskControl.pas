@@ -1529,6 +1529,7 @@ var
   chainTo       : IOmniTaskControl;
   eventTerminate: IOmniEvent;
   hasBgObserver : boolean;
+  internals     : IOmniTaskControlInternals;
   sync          : TSynchroObject;
   taskException : Exception;
   unobservedRef : IOmniTaskControl;
@@ -1636,20 +1637,37 @@ begin
   // idempotent (see TOmniTaskControl.ForwardTaskTerminated).
   {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.preIfBlock', uid, ord(assigned(unobservedRef)));{$ENDIF}
   if assigned(unobservedRef) then begin
-    if hasBgObserver then begin
-      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.fwdTerm.before', uid);{$ENDIF}
-      (unobservedRef as IOmniTaskControlInternals).ForwardTaskTerminated;
-      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.fwdTerm.after', uid);{$ENDIF}
+    // Use Supports() to acquire IOmniTaskControlInternals into an explicit
+    // local, then nil that local before ScheduleRelease. Earlier code wrote
+    // `(unobservedRef as IOmniTaskControlInternals).Method` — but the `as`
+    // cast result is held in a hidden function-scope interface temp that
+    // survives until InternalExecute returns. Under contention, the cleanup
+    // thread can _Release the queued ref before this worker's epilogue
+    // clears those hidden temps, leaving a hidden temp as the LAST strong
+    // ref to the TaskControl. Its eventual release at function exit then
+    // triggers TaskControl.Destroy on this worker thread, whose
+    // FreeAndNil(otcThread) WaitFor's on its own handle and deadlocks.
+    // Routing through `internals` + explicit nil gives us deterministic
+    // release order: by the time we call ScheduleRelease, this worker holds
+    // no strong ref to the TaskControl beyond `unobservedRef` itself, which
+    // ScheduleRelease transfers via Pointer(ref) := nil.
+    if Supports(unobservedRef, IOmniTaskControlInternals, internals) then begin
+      if hasBgObserver then begin
+        {$IFDEF OTL_TRACE_PROBE}TraceMark('task.fwdTerm.before', uid);{$ENDIF}
+        internals.ForwardTaskTerminated;
+        {$IFDEF OTL_TRACE_PROBE}TraceMark('task.fwdTerm.after', uid);{$ENDIF}
+      end;
+      // If this task installed a lightweight comm dispatcher (Unobserved
+      // without an explicit OnMessage/OnTerminated monitor), flush it now so
+      // pending task.Invoke callbacks are delivered on the owner thread
+      // before the cleanup thread releases us. Otherwise Destroy nils the
+      // dispatcher and any not-yet-run ForceQueue'd drain closures become
+      // no-ops — the last few callbacks would silently disappear.
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.finalDisp.before', uid);{$ENDIF}
+      internals.FinalizeUnobservedCommDispatcher;
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('task.finalDisp.after', uid);{$ENDIF}
+      internals := nil; // release before ScheduleRelease — see comment above
     end;
-    // If this task installed a lightweight comm dispatcher (Unobserved
-    // without an explicit OnMessage/OnTerminated monitor), flush it now so
-    // pending task.Invoke callbacks are delivered on the owner thread
-    // before the cleanup thread releases us. Otherwise Destroy nils the
-    // dispatcher and any not-yet-run ForceQueue'd drain closures become
-    // no-ops — the last few callbacks would silently disappear.
-    {$IFDEF OTL_TRACE_PROBE}TraceMark('task.finalDisp.before', uid);{$ENDIF}
-    (unobservedRef as IOmniTaskControlInternals).FinalizeUnobservedCommDispatcher;
-    {$IFDEF OTL_TRACE_PROBE}TraceMark('task.finalDisp.after', uid);{$ENDIF}
     // OtlTaskControl.finalization may have freed GUnobservedCleanup while a
     // pool worker is still finishing InternalExecute here (Pipeline.WaitFor
     // returns on opShutDownComplete, which a stage task sets before its
