@@ -126,6 +126,40 @@ impact when off.
 
 ## Pre-release priority
 
+### Remove TEMPORARY-SELFDESTROY-TRIPWIRE once soaked (target: 2026-05-12+)
+
+Diagnostic scaffolding added in commit `d2c4e97` (2026-04-28) while
+hunting the `.Unobserved` self-destruction deadlock. The real fix
+landed in `9417ada` — the worker no longer holds a hidden interface
+temp at `InternalExecute` exit, so `TOmniTaskControl.Destroy` will
+not be called on `otcThread` and the defensive `FreeOnTerminate`
+branch should never run. Tripwire is currently passive (zero fires
+across 45 concurrent runs post-fix).
+
+To remove cleanly:
+
+1. Verify the tripwire hasn't fired since 2026-04-28: check
+   `git log -p -G "GUnobservedSelfDestroyCount"` since that date for
+   any workaround commits, and re-run 5 rounds × 3 concurrent
+   `ConsoleTestRunner` to confirm `selfDestroyTripwire=0` everywhere.
+2. `git grep TEMPORARY-SELFDESTROY-TRIPWIRE` finds every part:
+   - `OtlTaskControl.pas`: the comment block + `GUnobservedSelfDestroyCount`
+     global before `implementation`, and the defensive
+     `FreeOnTerminate` branch in `TOmniTaskControl.Destroy` (revert
+     to plain `Terminate; FreeAndNil(otcThread);`).
+   - `unittests/TestUnobserved.pas`: the before/after snapshot in
+     `AssertReleasedWithinBaseline`, the success-path assertion, and
+     the `selfDestroyTripwire=%d` parts of the failure messages.
+3. Build + run ConsoleTestRunner once after removal — must still
+   pass 314/314.
+
+If the tripwire ever does fire between now and removal, STOP — the
+real fix has regressed and we want the loud signal. Investigate
+before retiring.
+
+Target: any time after 2026-05-12 (two-week soak window). Earliest
+soak data point: 2026-04-28, 45 concurrent runs clean.
+
 ### POSIX `TWaitFor` persistent-observer optimization
 
 Elevated 2026-04-26 from "deferred indefinitely" — user explicitly
