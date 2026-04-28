@@ -1,4 +1,4 @@
-unit TestUnobserved;
+﻿unit TestUnobserved;
 
 // Tests for IOmniTaskControl.Unobserved — verifies task lifecycle management
 // when the caller does not hold a reference to the task control.
@@ -6,6 +6,7 @@ unit TestUnobserved;
 interface
 
 uses
+  madExcept,
   DUnitX.TestFramework,
   TestOtlBase;
 
@@ -303,6 +304,11 @@ begin
     'OnTerminated received wrong task');
 end;
 
+procedure BeforeBugReport(const exceptIntf: IMEException; var handled: Boolean);
+begin
+  exceptIntf.BugReportFile := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + Format('dump_%d.txt', [GetCurrentProcessID]);
+end;
+
 // Two-stage wait used by TestScheduleControlReleased / TestRunControlReleased.
 // Stage 1 waits CTimeout_ms (5000 ms baseline). If the release event fires,
 // returns silently. If not, marks an internal failure and proceeds to stage 2,
@@ -318,41 +324,80 @@ var
   dumpFile: string;
 {$ENDIF}
 var
-  elapsed_ms: int64;
-  stopwatch : TStopwatch;
+  elapsed_ms        : int64;
+  stopwatch         : TStopwatch;
+  // BEGIN TEMPORARY-SELFDESTROY-TRIPWIRE
+  selfDestroyBefore : integer;
+  selfDestroyAfter  : integer;
+  // END TEMPORARY-SELFDESTROY-TRIPWIRE
 begin
+  // BEGIN TEMPORARY-SELFDESTROY-TRIPWIRE
+  // Snapshot before waiting; checked at the end. A non-zero delta means
+  // TOmniTaskControl.Destroy hit the defensive self-destroy branch — i.e.
+  // the worker leaked a ref to its own TaskControl and we papered over
+  // the deadlock instead of fixing the leak. See OtlTaskControl.pas
+  // GUnobservedSelfDestroyCount comment block.
+  selfDestroyBefore := GUnobservedSelfDestroyCount;
+  // END TEMPORARY-SELFDESTROY-TRIPWIRE
   stopwatch := TStopwatch.StartNew;
-  if releasedEvent.WaitFor(CTimeout_ms) = wrSignaled then
+  if releasedEvent.WaitFor(CTimeout_ms) = wrSignaled then begin
+    // BEGIN TEMPORARY-SELFDESTROY-TRIPWIRE
+    selfDestroyAfter := GUnobservedSelfDestroyCount;
+    Assert.AreEqual<integer>(selfDestroyBefore, selfDestroyAfter,
+      Format('Task control (%s) released within baseline but the '
+           + 'self-destroy tripwire fired %d time(s) — worker leaked a '
+           + 'TaskControl ref to its own stack epilogue and the defensive '
+           + 'branch in TOmniTaskControl.Destroy masked the deadlock. '
+           + 'Root cause not fixed yet.',
+        [opName, selfDestroyAfter - selfDestroyBefore]));
+    // END TEMPORARY-SELFDESTROY-TRIPWIRE
     Exit;
+  end;
   // Stage 1 missed — diagnostic stage 2 waits longer to record the actual
   // release time, but the test fails either way.
   if releasedEvent.WaitFor(CExtendedTimeout_ms - CTimeout_ms) = wrSignaled then begin
     elapsed_ms := stopwatch.ElapsedMilliseconds;
+    // BEGIN TEMPORARY-SELFDESTROY-TRIPWIRE
+    selfDestroyAfter := GUnobservedSelfDestroyCount;
+    // END TEMPORARY-SELFDESTROY-TRIPWIRE
     {$IFDEF OTL_TRACE_PROBE}
     dumpFile := Format('C:\Temp\otl_trace_%s_pid%d_%s.log',
       [opName, GetCurrentProcessId, FormatDateTime('hhnnss', Now)]);
     TraceDumpToFile(dumpFile);
     Assert.IsTrue(false,
-      Format('Task control (%s) released after %d ms but missed the %d ms baseline (sentinel count=%d). Trace: %s',
-        [opName, elapsed_ms, CTimeout_ms, sentinelCountP^, dumpFile]));
+      Format('Task control (%s) released after %d ms but missed the %d ms baseline (sentinel count=%d, selfDestroyTripwire=%d). Trace: %s',
+        [opName, elapsed_ms, CTimeout_ms, sentinelCountP^,
+         selfDestroyAfter - selfDestroyBefore, dumpFile]));
     {$ELSE}
     Assert.IsTrue(false,
-      Format('Task control (%s) released after %d ms but missed the %d ms baseline (sentinel count=%d). Consider raising CTimeout_ms.',
-        [opName, elapsed_ms, CTimeout_ms, sentinelCountP^]));
+      Format('Task control (%s) released after %d ms but missed the %d ms baseline (sentinel count=%d, selfDestroyTripwire=%d). Consider raising CTimeout_ms.',
+        [opName, elapsed_ms, CTimeout_ms, sentinelCountP^,
+         selfDestroyAfter - selfDestroyBefore]));
     {$ENDIF}
   end
   else begin
+    // BEGIN TEMPORARY-SELFDESTROY-TRIPWIRE
+    selfDestroyAfter := GUnobservedSelfDestroyCount;
+    // END TEMPORARY-SELFDESTROY-TRIPWIRE
     {$IFDEF OTL_TRACE_PROBE}
     dumpFile := Format('C:\Temp\otl_trace_%s_pid%d_%s.log',
       [opName, GetCurrentProcessId, FormatDateTime('hhnnss', Now)]);
     TraceDumpToFile(dumpFile);
     Assert.IsTrue(false,
-      Format('Task control (%s) was not released within %d ms (extended timeout, sentinel count=%d). Trace: %s',
-        [opName, CExtendedTimeout_ms, sentinelCountP^, dumpFile]));
+      Format('Task control (%s) was not released within %d ms (extended timeout, sentinel count=%d, selfDestroyTripwire=%d). Trace: %s',
+        [opName, CExtendedTimeout_ms, sentinelCountP^,
+         selfDestroyAfter - selfDestroyBefore, dumpFile]));
     {$ELSE}
+    Writeln('*** TestRunControlReleased blocked in process ' + IntToStr(GetCurrentProcessId) + ', creating bugreport.txt');
+    try
+      raise Exception.Create('manual trace' );
+    except
+      HandleException(etNormal);
+    end;
     Assert.IsTrue(false,
-      Format('Task control (%s) was not released within %d ms (extended timeout, sentinel count=%d)',
-        [opName, CExtendedTimeout_ms, sentinelCountP^]));
+      Format('Task control (%s) was not released within %d ms (extended timeout, sentinel count=%d, selfDestroyTripwire=%d)',
+        [opName, CExtendedTimeout_ms, sentinelCountP^,
+         selfDestroyAfter - selfDestroyBefore]));
     {$ENDIF}
   end;
 end;

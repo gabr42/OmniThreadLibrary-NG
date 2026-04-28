@@ -1138,6 +1138,34 @@ type
     property Tasks: IOmniTaskControlList read GetTasks;
   end; { TOmniTaskGroup }
 
+// =====================================================================
+// BEGIN TEMPORARY-SELFDESTROY-TRIPWIRE
+//
+// Diagnostic counter for the .Unobserved self-destruction tripwire in
+// TOmniTaskControl.Destroy. Incremented when Destroy detects it is
+// running on its own otcThread and skips the FreeAndNil(otcThread)
+// WaitFor that would deadlock (the worker waiting for itself to exit).
+//
+// Tests assert this counter does NOT increment during clean runs; a
+// non-zero value means a strong IOmniTaskControl ref leaked to the
+// worker's stack frame instead of being transferred to
+// GUnobservedCleanup via ScheduleRelease. Tracking this explicitly
+// keeps the failure visible while the root-cause fix is in flight —
+// without the tripwire, the defensive branch would silently mask the
+// leak and we'd have no way to know whether the real fix landed.
+//
+// Remove this counter (and the defensive branch in
+// TOmniTaskControl.Destroy, plus the test-side asserts in
+// TestUnobserved.AssertReleasedWithinBaseline) once the underlying
+// ref-leak is found and fixed.
+//
+// To find every part of the tripwire, grep for
+// TEMPORARY-SELFDESTROY-TRIPWIRE.
+// =====================================================================
+var
+  GUnobservedSelfDestroyCount: integer;
+// END TEMPORARY-SELFDESTROY-TRIPWIRE
+
 {$WARN SYMBOL_DEPRECATED OFF}
 implementation
 {$WARN SYMBOL_DEPRECATED DEFAULT}
@@ -3148,9 +3176,30 @@ begin
     {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.terminate.before', uid);{$ENDIF}
     Terminate;
     {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.terminate.after', uid);{$ENDIF}
-    {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.before', uid);{$ENDIF}
-    FreeAndNil(otcThread);
-    {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.after', uid);{$ENDIF}
+    // BEGIN TEMPORARY-SELFDESTROY-TRIPWIRE
+    // FreeAndNil(otcThread) calls TThread.WaitFor on otcThread's handle.
+    // If the calling thread IS otcThread (i.e. some interface local in
+    // TOmniTask.InternalExecute leaked a strong ref to Self all the way
+    // out to the worker's stack epilogue, instead of being transferred
+    // to GUnobservedCleanup via ScheduleRelease), WaitFor would block
+    // forever waiting for the worker to exit while the worker is
+    // running this very destructor. Defensive branch: detach the
+    // thread (FreeOnTerminate so it self-destroys as TOmniThread.Execute
+    // unwinds) and bump the tripwire counter so the leak stays visible.
+    // Remove this whole if/else once the root-cause ref-leak is fixed —
+    // see comment block on GUnobservedSelfDestroyCount.
+    if otcThread.ThreadID <> TThread.CurrentThread.ThreadID then begin
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.before', uid);{$ENDIF}
+      FreeAndNil(otcThread);
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.after', uid);{$ENDIF}
+    end
+    else begin
+      TInterlocked.Increment(GUnobservedSelfDestroyCount);
+      {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.selfTripwire', uid);{$ENDIF}
+      otcThread.FreeOnTerminate := true;
+      otcThread := nil;
+    end;
+    // END TEMPORARY-SELFDESTROY-TRIPWIRE
   end;
   // If a background-observer dispatcher was set up, clear its target pointer
   // under the lock so any in-flight or future Dispatch call from the owner's
