@@ -3206,17 +3206,22 @@ begin
     // unwinds) and bump the tripwire counter so the leak stays visible.
     // Remove this whole if/else once the root-cause ref-leak is fixed —
     // see comment block on GUnobservedSelfDestroyCount.
-    if otcThread.ThreadID <> TThread.CurrentThread.ThreadID then begin
-      {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.before', uid);{$ENDIF}
-      FreeAndNil(otcThread);
-      {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.after', uid);{$ENDIF}
-    end
-    else begin
-      TInterlocked.Increment(GUnobservedSelfDestroyCount);
-      {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.selfTripwire', uid);{$ENDIF}
-      otcThread.FreeOnTerminate := true;
-      otcThread := nil;
-    end;
+    //
+    // Note: Terminate(maxWait_ms) above can itself FreeAndNil(otcThread)
+    // when its internal WaitFor returns false (line ~4208 of this unit),
+    // so we must re-check assignedness before touching otcThread.
+    if assigned(otcThread) then
+      if otcThread.ThreadID <> TThread.CurrentThread.ThreadID then begin
+        {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.before', uid);{$ENDIF}
+        FreeAndNil(otcThread);
+        {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.after', uid);{$ENDIF}
+      end
+      else begin
+        TInterlocked.Increment(GUnobservedSelfDestroyCount);
+        {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.selfTripwire', uid);{$ENDIF}
+        otcThread.FreeOnTerminate := true;
+        otcThread := nil;
+      end;
     // END TEMPORARY-SELFDESTROY-TRIPWIRE
   end;
   // If a background-observer dispatcher was set up, clear its target pointer
