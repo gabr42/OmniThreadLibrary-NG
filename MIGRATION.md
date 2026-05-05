@@ -28,9 +28,10 @@ differences between OmniThreadLibrary v3.07.x (Windows-only) and OTL NG
 6. Update package references to Delphi 11+ runtime package only
 7. If owning OTL tasks from a plain `TThread`, add explicit `ProcessMessages` or
    `WaitForMessage` calls (see [Plain TThread Owners](#plain-tthread-owners))
-8. On POSIX, stop relying on `Terminate(timeout)` to hard-kill stuck tasks —
-   the timeout is advisory there (see
-   [POSIX Has No Safe Force-Kill](#posix-has-no-safe-force-kill))
+8. Stop relying on `Terminate(timeout)` to hard-kill stuck tasks — both
+   Windows and POSIX now detach instead of force-killing. The timeout is
+   advisory; design tasks to honor `CancellationToken` / `Stopped` (see
+   [No Safe Force-Kill — Detach Replaces TerminateThread](#no-safe-force-kill--detach-replaces-terminatethread))
 9. If you attach `TOmniEventMonitor` to an `IOmniThreadPool` with
    `pool.MonitorWith(monitor)`, make sure the main thread pumps
    `CheckSynchronize` — required by all console apps (any platform),
@@ -350,31 +351,52 @@ to the main thread's message loop.
 
 ### Thread Pool Force-Kill
 
-`SuspendThread` / `ResumeThread` are no longer used in thread pool shutdown paths.
-The pool now relies on `owtWorkItemLock` for safe work item stealing.
-`TerminateThread` is still used on Windows as a last resort for stuck threads.
-On POSIX, only cooperative termination (flag-based) is available.
+`SuspendThread` / `ResumeThread` are no longer used in thread pool shutdown
+paths. The pool now relies on `owtWorkItemLock` for safe work item stealing.
+**`TerminateThread` is no longer used on Windows either** — see the next
+section for details. Both platforms now detach stuck workers
+(`FreeOnTerminate := true`) and let them keep running until they exit on
+their own.
 
-### POSIX Has No Safe Force-Kill
+### No Safe Force-Kill — Detach Replaces TerminateThread
 
-On Windows, `IOmniParallelJoin.Terminate(timeout_ms)` and
-`IOmniTaskControl.Terminate(maxWait_ms)` hard-kill stuck tasks via
-`TerminateThread` once the timeout elapses. **On POSIX, this hard-kill path is a
-no-op** — `FreeAndNil` simply `pthread_join`s until the thread exits on its own.
+Earlier OTL NG versions used `TerminateThread` on Windows as a last resort to
+hard-kill stuck workers (workers that ignored `CancellationToken` / `Stopped`
+and didn't exit within the pool's `WaitOnTerminate_sec` window). That has been
+removed. Per MSDN, `TerminateThread` is dangerous: if the killed thread held
+the FastMM4 heap critical section (or any other process-wide lock) at the
+moment of kill, the lock is leaked. Subsequent allocations across the entire
+process then deadlock.
 
-`pthread_cancel` is not a viable substitute: glibc's forced-unwind pseudo-
-exception is absorbed by OTL's outer `except on E: Exception` handler in
-`TOTPWorkerThread.Execute` without being re-raised, which leaves cancellation
-incomplete and makes `pthread_join` block forever.
+**New behavior, both Windows and POSIX:** when cooperative shutdown fails,
+the worker is detached — the OS thread keeps running (or stays stuck) but is
+no longer tracked by OTL. Leaking one worker thread is a far smaller problem
+than process-wide heap corruption. Two diagnostic counters surface how often
+this happens:
 
-**User impact on POSIX:**
-- `Terminate(timeout)` on a task that refuses to cooperate will wait until the
-  task finishes (or forever). The timeout is advisory.
+- `OtlThreadPool.GLeakedWorkerThreads` — incremented at the two pool detach
+  sites (TOTPWorker.Cancel and the maintenance timer)
+- `OtlTaskControl.GTaskControlLeakedThreads` — incremented at the
+  TOmniTaskControl.Terminate fallback site
+
+`pthread_cancel` was previously considered as a POSIX equivalent and rejected
+for a similar reason: glibc's forced-unwind pseudo-exception is absorbed by
+OTL's outer `except on E: Exception` handler in `TOTPWorkerThread.Execute`
+without being re-raised, which leaves cancellation incomplete and makes
+`pthread_join` block forever.
+
+**User impact (all platforms):**
+- `Terminate(timeout)` on a task that refuses to cooperate now returns
+  `false` once the timeout elapses, but the underlying OS thread keeps
+  running. The timeout is advisory.
 - Design tasks to check `task.CancellationToken` / `task.Stopped` at regular
   intervals and never rely on force-termination as a functional mechanism.
-
-The three `TestJoin.TestTermination*` tests that exercise force-kill behavior
-are `[Ignore]`d on non-Windows for this reason.
+- A test that previously asserted "stuck task did not reach line X because
+  it was force-killed mid-Sleep" must now provide a release mechanism (e.g.
+  a `release` event the test sets after its assertions) so the deliberately-
+  stuck task can finish cleanly within the test boundary. Several
+  `TestJoin.TestTermination*` and `TestForceKillStuckTask` cases in the
+  OTL test suite have been updated this way; they're a good template.
 
 ### Thread Pool Monitor Callbacks Need CheckSynchronize (Console Apps)
 

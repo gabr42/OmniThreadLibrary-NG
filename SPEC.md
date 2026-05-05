@@ -274,8 +274,8 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 #### 2.4.1 Thread lifecycle
 - [x] Replace `SuspendThread`/`ResumeThread` with lock-only safety in Cancel and MaintainanceTimer — `Asy_TerminateWorkItem` already uses `owtWorkItemLock` to safely steal work items
 - [x] Remove deprecated `worker.Suspended := true/false` property usage on non-Windows
-- [x] Windows: keep `TerminateThread` as last resort for stuck threads
-- [x] Non-Windows: `worker.Terminate` sets flag; thread becomes leaked resource if it never exits (no reliable POSIX thread kill — `pthread_cancel` requires cancellation points Delphi doesn't set up)
+- [x] Windows: `TerminateThread` removed — leaks the FastMM4 heap critical section if the killed thread held it, cascading into process-wide deadlock. Pool now detaches stuck workers (`FreeOnTerminate := true`) instead. See MIGRATION.md "No Safe Force-Kill — Detach Replaces TerminateThread".
+- [x] Non-Windows: `worker.Terminate` sets flag; thread becomes leaked resource if it never exits (no reliable POSIX thread kill — `pthread_cancel` requires cancellation points Delphi doesn't set up). Same behavior as Windows now.
 - [x] Worker threads already wait on communication channel when idle; signaled when work arrives
 - [x] No separate monitor thread to remove — pool management runs as 1-second timer inside `TOTPWorker` task
 - [x] Keep named/separate thread pools
