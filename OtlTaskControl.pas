@@ -902,7 +902,7 @@ type
     function  FilterMessage(const msg: TOmniMessage): boolean;
     procedure ForwardTaskMessage(const msg: TOmniMessage);
     procedure ForwardTaskTerminated;
-    procedure FinalizeUnobservedCommDispatcher;
+    procedure FinalizeUnobservedCommDispatcher(allowSynchronize: boolean);
     property DebugFlags: TOmniTaskControlInternalDebugFlags read GetDebugFlags
       write SetDebugFlags;
     property TerminatedEvent: IOmniEvent read GetTerminatedEvent;
@@ -941,10 +941,10 @@ type
   strict protected
     procedure CreateInternalMonitor;
     procedure InstallUnobservedCommDispatcher;
-    procedure FinalizeUnobservedCommDispatcher;
     function  CreateTask: IOmniTask;
     procedure DestroyMonitor;
     procedure EnsureCommChannel; inline;
+    procedure FinalizeUnobservedCommDispatcher(allowSynchronize: boolean);
     procedure HandleBackgroundNotification;
     procedure Initialize(const taskName: string);
   protected
@@ -1165,6 +1165,22 @@ type
 var
   GUnobservedSelfDestroyCount: integer;
 // END TEMPORARY-SELFDESTROY-TRIPWIRE
+
+// Diagnostic counter — incremented when TOmniTaskControl.Terminate detaches
+// a stuck otcThread because cooperative shutdown failed. Detaching leaks the
+// OS thread but keeps RTL/heap locks intact; killing via TerminateThread or
+// pthread_cancel would corrupt the heap and deadlock the process.
+var
+  GTaskControlLeakedThreads: integer;
+
+// Diagnostic counter — incremented when FinalizeUnobservedCommDispatcher's
+// drain path runs from a non-main thread. That path calls TThread.Synchronize
+// to drain pending owner-thread callbacks; if the main thread is blocked in
+// pool.CancelAll(true) / ctrl.WaitFor(INFINITE) without pumping
+// CheckSynchronize, the Synchronize call deadlocks. Counter lets tests
+// observe how often the risky path is hit.
+var
+  GUnobservedDispatcherSyncFromNonMain: integer;
 
 {$WARN SYMBOL_DEPRECATED OFF}
 implementation
@@ -1663,8 +1679,13 @@ begin
       // before the cleanup thread releases us. Otherwise Destroy nils the
       // dispatcher and any not-yet-run ForceQueue'd drain closures become
       // no-ops — the last few callbacks would silently disappear.
+      // allowSynchronize=false on the Terminate path: that path runs on
+      // the pool manager / user caller thread while the main thread is
+      // blocked in pool.CancelAll(true) / Terminate's WaitFor, and a
+      // Synchronize there deadlocks. Task body never ran, so there's
+      // nothing user-side to lose.
       {$IFDEF OTL_TRACE_PROBE}TraceMark('task.finalDisp.before', uid);{$ENDIF}
-      internals.FinalizeUnobservedCommDispatcher;
+      internals.FinalizeUnobservedCommDispatcher(not calledFromTerminate);
       {$IFDEF OTL_TRACE_PROBE}TraceMark('task.finalDisp.after', uid);{$ENDIF}
       internals := nil; // release before ScheduleRelease — see comment above
     end;
@@ -3493,7 +3514,7 @@ begin
   end;
 end; { TOmniTaskControl.InstallUnobservedCommDispatcher }
 
-procedure TOmniTaskControl.FinalizeUnobservedCommDispatcher;
+procedure TOmniTaskControl.FinalizeUnobservedCommDispatcher(allowSynchronize: boolean);
 // Run at task-end (from TOmniTask.InternalExecute) so that any pending
 // task.Invoke callbacks are actually delivered on the owner thread before
 // the TOmniUnobservedCleanupThread releases this TaskControl. Without this
@@ -3503,12 +3524,25 @@ procedure TOmniTaskControl.FinalizeUnobservedCommDispatcher;
 // of Invoke callbacks are lost (visible as e.g. a progress bar that
 // stops at 99%, or an OnStop closure that never re-enables the button).
 //
-// Only runs when there are actually messages pending — most Unobserved
-// tasks don't use task.Invoke at all, and TThread.Synchronize would
-// deadlock any caller that blocks the main thread waiting for the task
-// to finish (e.g. WaitUntil(completed = N) in the pool tests).
+// Three paths:
+//  1. Caller is the main thread — drain inline.
+//  2. Caller is a non-main thread, comm queue is empty — just gate the
+//     observer.
+//  3. Caller is a non-main thread, comm queue has messages — schedule a
+//     non-blocking drain via TThread.Queue and pin Self with a strong
+//     interface ref so the TaskControl survives until the queued closure
+//     runs. Cannot use TThread.Synchronize here: a caller blocking the
+//     main thread (e.g. pool.CancelAll(true)'s res.WaitFor(INFINITE),
+//     ctrl.WaitFor(INFINITE), or any test using WaitUntil-with-Sleep)
+//     would deadlock — main waits for worker, worker waits for main.
+//
+// allowSynchronize=false comes from the cleanup-only path of
+// TOmniTask.InternalExecute(true) (called via Terminate when the task
+// body never started). The task body never ran, so there are no user-side
+// Invokes to deliver. Just gate.
 var
-  mtObs: IOmniContainerMainThreadObserver;
+  mtObs  : IOmniContainerMainThreadObserver;
+  selfRef: IOmniTaskControl;
 begin
   if not Supports(otcBackgroundObserver, IOmniContainerMainThreadObserver, mtObs) then
     Exit;
@@ -3516,32 +3550,47 @@ begin
   // no more messages can be enqueued from the task side.
   if (not assigned(otcSharedInfo))
      or otcSharedInfo.CommChannel.Endpoint1.Reader.IsEmpty
-  then
-    // Nothing pending — just gate the observer so any stale dispatch is a
-    // no-op, and return without touching Synchronize.
-    mtObs.Shutdown
-  else begin
-    try
-      // Synchronously drain the comm queue on the main thread. If we're
-      // already on the main thread, run directly; otherwise use
-      // TThread.Synchronize (the main thread's message pump processes it
-      // via CheckSynchronize — always true under Application.Run in VCL/FMX
-      // apps, and the standard contract for OTL console apps per
-      // CLAUDE.md).
-      if TThread.CurrentThread.ThreadID = MainThreadID then
-        ProcessMessages
-      else
-        TThread.Synchronize(nil,
-          procedure
-          begin
-            ProcessMessages;
-          end);
-    finally
-      // Gate any further ForceQueue'd closures — they would race with the
-      // subsequent TaskControl.Destroy otherwise.
-      mtObs.Shutdown;
-    end;
+  then begin
+    mtObs.Shutdown;
+    Exit;
   end;
+
+  if TThread.CurrentThread.ThreadID = MainThreadID then begin
+    try
+      ProcessMessages;
+    finally mtObs.Shutdown; end;
+    Exit;
+  end;
+
+  if not allowSynchronize then begin
+    // Terminate cleanup path: task body never ran, nothing user-side
+    // to lose. Just gate.
+    mtObs.Shutdown;
+    Exit;
+  end;
+
+  // Non-main thread + queue has messages: schedule a non-blocking drain.
+  // selfRef pin keeps the TaskControl alive until the closure runs;
+  // otherwise the cleanup thread's pending Destroy would race with our
+  // drain and free the comm channel mid-Receive. mtObs.Shutdown is
+  // deliberately deferred to the closure — calling it here would gate
+  // the dispatcher and turn our own queued drain (and any pending
+  // ForceQueue'd drain closures from observer.Notify) into no-ops,
+  // which is exactly the bug c3d531d's synchronous drain was added to
+  // prevent.
+  TInterlocked.Increment(GUnobservedDispatcherSyncFromNonMain);
+  selfRef := Self as IOmniTaskControl;
+  TThread.Queue(nil,
+    procedure
+    begin
+      try
+        selfRef.ProcessMessages;
+      finally
+        mtObs.Shutdown;
+        selfRef := nil; // release the pin so the cleanup thread's
+                        // pending Destroy can finally proceed.
+      end;
+    end);
 end; { TOmniTaskControl.FinalizeUnobservedCommDispatcher }
 
 function TOmniTaskControl.CreateTask: IOmniTask;
@@ -4203,14 +4252,13 @@ begin
   end;
   if not Result then begin
     if assigned(otcThread) then begin
-      {$IFDEF MSWINDOWS}
-      TerminateThread(otcThread.Handle, cardinal(-1));
-      {$ELSE}
-      // No POSIX equivalent. pthread_cancel deadlocks because OTL's outer
-      // except-handlers absorb the forced-unwind without re-raising, so
-      // pthread_join blocks forever. Fall through to FreeAndNil instead.
-      {$ENDIF MSWINDOWS}
-      FreeAndNil(otcThread);
+      // Detach the OS thread instead of TerminateThread/pthread_cancel.
+      // See OtlThreadPool.TOTPWorker.Cancel for why; killing leaks
+      // heap/RTL locks and deadlocks the entire process on the next
+      // allocation. Leaking one OS thread is the lesser evil.
+      otcThread.FreeOnTerminate := true;
+      otcThread := nil;
+      TInterlocked.Increment(GTaskControlLeakedThreads);
     end
     else if assigned(otcOwningPool) then begin
       otcOwningPool.Cancel(UniqueID, 0);

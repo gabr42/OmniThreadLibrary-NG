@@ -6,6 +6,7 @@
 interface
 
 uses
+  madExcept,
   DUnitX.TestFramework,
   TestOtlBase;
 
@@ -382,6 +383,15 @@ begin
         [opName, CExtendedTimeout_ms, sentinelCountP^,
          selfDestroyAfter - selfDestroyBefore, dumpFile]));
     {$ELSE}
+    Writeln('*** 30 sec timeout, will create stack trace');
+    try
+      raise Exception.Create('Manual trace');
+    except
+      madExcept.CreateBugReport();
+    end;
+    repeat
+      Sleep(100);
+    until false;
     Assert.IsTrue(false,
       Format('Task control (%s) was not released within %d ms (extended timeout, sentinel count=%d, selfDestroyTripwire=%d)',
         [opName, CExtendedTimeout_ms, sentinelCountP^,

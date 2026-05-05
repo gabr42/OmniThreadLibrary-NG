@@ -50,7 +50,11 @@ uses
   System.Diagnostics,
   System.SyncObjs,
   OtlParallel,
-  OtlCommon;
+  OtlCommon,
+  OtlSync;
+
+const
+  CTimeout_ms = 5000;
 
 { TestParallelFor }
 
@@ -235,81 +239,146 @@ procedure TestJoin.TestTerminationAllStuck;
 var
   i      : integer;
   join   : IOmniParallelJoin;
+  release: IOmniEvent;
+  done   : TArray<IOmniEvent>;
   started: TArray<boolean>;
   stopped: TArray<boolean>;
   sw     : TStopwatch;
 
-  function MakeTask(idx: integer; hangForever: boolean): TProc;
+  function MakeTask(idx: integer; const releaseEv, doneEv: IOmniEvent): TProc;
   begin
+    // CLAUDE.md anonymous-method capture rule: parameters are passed by
+    // value, so the closure captures these specific values instead of the
+    // outer loop variables.
     Result :=
       procedure
       begin
         started[idx] := true;
         Sleep(100);
-        if hangForever then
-          Sleep(2000);
+        // Stays "stuck" (ignores cancellation) until the test releases us.
+        // Replaces the prior fixed Sleep(2000) — that's how we used to
+        // bound the leak, but it left OS threads racing for the loader
+        // lock with whatever workers leaked from neighbouring tests.
+        releaseEv.WaitFor(INFINITE);
         stopped[idx] := true;
+        doneEv.SetEvent;
       end;
   end;
 
 begin
-  // Tests IOmniParallelJoin.Terminate when all tasks are stuck and don't terminate.
+  // Tests IOmniParallelJoin.Terminate when all tasks are stuck and don't
+  // terminate within the timeout. Earlier versions force-killed stuck
+  // workers via TerminateThread; that has been replaced by detach because
+  // killing a thread mid-allocation leaks the heap critical section and
+  // deadlocks the entire process. The new contract:
+  //   - Terminate(500) returns false (couldn't stop the tasks cleanly).
+  //   - Terminate returns within ~500 ms instead of blocking on stuck
+  //     threads.
+  //   - Tasks are detached: their OS threads keep running until released.
+  //
+  // The release+done events let the test reclaim the detached threads
+  // before returning, instead of leaking them past the test boundary
+  // where many such leaked workers can pile up at the Windows loader
+  // lock during process / pool teardown.
 
   SetLength(started, 2);
   FillChar(started[0], Length(started), false);
   SetLength(stopped, 2);
   FillChar(stopped[0], Length(stopped), false);
+  release := CreateOmniEvent(true, false); // manual-reset, fires both tasks at once
+  SetLength(done, 2);
+  done[0] := CreateOmniEvent(true, false);
+  done[1] := CreateOmniEvent(true, false);
 
-  join := Parallel.Join(MakeTask(0, true), MakeTask(1, true)).NoWait.Execute;
+  join := Parallel.Join(
+    MakeTask(0, release, done[0]),
+    MakeTask(1, release, done[1])).NoWait.Execute;
   sw := TStopwatch.StartNew;
   Assert.IsFalse(join.Terminate(500), 'Terminate');
   Assert.IsTrue(sw.ElapsedMilliseconds < 1900, 'Elapsed time');
 
-  Sleep(2000); // in case tasks are not really dead
-  for i := 0 to 1 do begin
+  for i := 0 to 1 do
     Assert.IsTrue(started[i], 'started ' + IntToStr(i));
-    Assert.IsFalse(stopped[i], 'stopped ' + IntToStr(i));
-  end;
+
+  // Reclaim the detached workers: release them and wait for each to finish.
+  release.SetEvent;
+  for i := 0 to 1 do
+    Assert.AreEqual(wrSignaled, done[i].WaitFor(CTimeout_ms),
+      'Detached task ' + IntToStr(i) + ' did not finish after release');
+  for i := 0 to 1 do
+    Assert.IsTrue(stopped[i], 'stopped ' + IntToStr(i));
+  // `done` events are set from user code, before the OS thread leaves
+  // EndThread. Margin so the OS thread has fully exited by the time the
+  // next test starts (avoids leaked-worker pile-up at the loader lock).
+  Sleep(200);
 end;
 
 procedure TestJoin.TestTerminationAllTerminated;
+// (Name is historical and slightly misleading — this test actually verifies
+// the partial-stuck case: task 0 ignores cancellation, task 1 finishes
+// quickly. Pre-detach, the test asserted stopped[0]=false because the stuck
+// worker was force-killed before reaching `stopped[0] := true`. With detach,
+// the stuck worker eventually finishes; we now use a release+done event
+// pair to reclaim it within the test instead of leaking it.)
 var
   i      : integer;
   join   : IOmniParallelJoin;
+  release: IOmniEvent;
+  done   : TArray<IOmniEvent>;
   started: TArray<boolean>;
   stopped: TArray<boolean>;
   sw     : TStopwatch;
 
-  function MakeTask(idx: integer; hangForever: boolean): TProc;
+  function MakeTask(idx: integer; stuck: boolean;
+    const releaseEv, doneEv: IOmniEvent): TProc;
   begin
     Result :=
       procedure
       begin
         started[idx] := true;
         Sleep(100);
-        if hangForever then
-          Sleep(2000);
+        if stuck then
+          releaseEv.WaitFor(INFINITE);
         stopped[idx] := true;
+        doneEv.SetEvent;
       end;
   end;
 
 begin
-  // Tests IOmniParallelJoin.Terminate when some tasks are stuck and don't terminate.
+  // Tests IOmniParallelJoin.Terminate when one task is stuck and the other
+  // terminates cleanly. Terminate(500) returns false (couldn't stop the
+  // stuck task within timeout); the stuck task is detached.
 
   SetLength(started, 2);
   FillChar(started[0], Length(started), false);
   SetLength(stopped, 2);
   FillChar(stopped[0], Length(stopped), false);
+  release := CreateOmniEvent(true, false);
+  SetLength(done, 2);
+  done[0] := CreateOmniEvent(true, false);
+  done[1] := CreateOmniEvent(true, false);
 
-  join := Parallel.Join(MakeTask(0, true), MakeTask(1, false)).NoWait.Execute;
+  join := Parallel.Join(
+    MakeTask(0, true,  release, done[0]),
+    MakeTask(1, false, release, done[1])).NoWait.Execute;
   sw := TStopwatch.StartNew;
   Assert.IsFalse(join.Terminate(500), 'Terminate');
   Assert.IsTrue(sw.ElapsedMilliseconds < 1900, 'Elapsed time');
 
-  for i := 0 to 1 do begin
+  // Task 1 (not stuck) should already be done.
+  Assert.AreEqual(wrSignaled, done[1].WaitFor(CTimeout_ms),
+    'Non-stuck task did not finish');
+  for i := 0 to 1 do
     Assert.IsTrue(started[i], 'started ' + IntToStr(i));
-    Assert.AreEqual<boolean>(i = 1, stopped[i], 'stopped ' + IntToStr(i));
-  end
+
+  // Reclaim the stuck/detached worker before this test returns.
+  release.SetEvent;
+  Assert.AreEqual(wrSignaled, done[0].WaitFor(CTimeout_ms),
+    'Detached task 0 did not finish after release');
+  for i := 0 to 1 do
+    Assert.IsTrue(stopped[i], 'stopped ' + IntToStr(i));
+  // Margin for OS thread teardown after `done` fires (see TestTerminationAllStuck).
+  Sleep(200);
 end;
 
 procedure TestJoin.TestTerminationPartialStuck;

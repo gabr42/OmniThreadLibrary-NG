@@ -291,6 +291,17 @@ function CreateThreadPool(const threadPoolName: string): IOmniThreadPool;
 
 function GlobalOmniThreadPool: IOmniThreadPool;
 
+// Diagnostic counter — incremented every time a stuck worker thread is
+// detached (FreeOnTerminate) instead of `TerminateThread`-killed. Detaching
+// leaks the OS thread but keeps FastMM4's heap lock and other RTL locks
+// intact, which is far better than the alternative (TerminateThread can
+// permanently leak any lock held at the kernel jump). A non-zero value
+// after a test run means at least one worker failed to honor cooperative
+// stop within `WaitOnTerminate_sec` — the underlying root cause should be
+// investigated, but the process can keep running.
+var
+  GLeakedWorkerThreads: integer;
+
 implementation
 
 uses
@@ -964,20 +975,18 @@ begin
       if worker.Asy_TerminateWorkItem(workItem) then begin
         ProcessCompletedWorkItem(workItem);
         {$IFDEF LogThreadPool}Log(
-          'Terminating unstoppable thread %s, num idle = %d, num running = %d[%d]',
+          'Detaching unstoppable thread %s, num idle = %d, num running = %d[%d]',
           [worker.Description, owIdleWorkers.Count, owRunningWorkers.Count,
           MaxExecuting.Value]); {$ENDIF LogThreadPool}
-        {$IFDEF MSWINDOWS}
-        TerminateThread(worker.Handle, cardinal(-1));
-        {$ELSE}
-        // No POSIX equivalent. pthread_cancel deadlocks because the worker's
-        // outer `except on E: Exception` absorbs the forced-unwind pseudo-
-        // exception without re-raising, so cancellation never completes and
-        // pthread_join blocks forever. Fall through to FreeAndNil, which will
-        // pthread_join until the thread exits on its own (or forever).
-        {$ENDIF ~MSWINDOWS}
+        // Detach the OS thread instead of killing it. TerminateThread (Windows)
+        // and pthread_cancel (POSIX) both leak whatever lock the killed thread
+        // happened to be holding — including FastMM4's heap lock — which
+        // cascades into a process-wide deadlock on the next allocation. Far
+        // better to leak one OS thread.
+        worker.FreeOnTerminate := true;
         ForwardThreadDestroying(worker.threadID, tpoKillThread, worker);
-        FreeAndNil(worker);
+        worker := nil; // FreeOnTerminate handles eventual cleanup
+        TInterlocked.Increment(GLeakedWorkerThreads);
         wasTerminated := false;
       end
       else begin
@@ -1156,18 +1165,20 @@ begin
     if worker.Stopped or ((worker.StartStopping_ms + int64(WaitOnTerminate_sec.Value) * 1000) < Time.Timestamp_ms) then
     begin
       if not worker.Stopped then begin
-        {$IFDEF MSWINDOWS}
-        TerminateThread(worker.Handle, cardinal(-1));
-        {$ELSE}
-        worker.Terminate;
-        {$ENDIF}
+        // Detach the OS thread instead of TerminateThread/pthread_cancel.
+        // See the comment at the corresponding site in TOTPWorker.Cancel
+        // for why; killing leaks heap/RTL locks and deadlocks the process.
+        worker.FreeOnTerminate := true;
         ForwardThreadDestroying(worker.threadID, tpoKillThread, worker);
+        owStoppingWorkers.Delete(iWorker);
+        worker := nil; // skip FreeAndNil — thread may still be running
+        TInterlocked.Increment(GLeakedWorkerThreads);
       end
       else begin
         {$IFDEF LogThreadPool}Log('Removing stopped thread %s', [worker.Description]);{$ENDIF LogThreadPool}
+        owStoppingWorkers.Delete(iWorker);
+        FreeAndNil(worker);
       end;
-      owStoppingWorkers.Delete(iWorker);
-      FreeAndNil(worker);
     end
     else
       Inc(iWorker);

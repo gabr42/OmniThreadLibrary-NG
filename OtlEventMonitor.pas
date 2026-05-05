@@ -295,12 +295,23 @@ begin
     emDispatcher.Clear;
     emDispatcher := nil;
   end;
-  for intfKV in emMonitoredTasks do
-    (intfKV.Value as IOmniTaskControl).RemoveMonitor;
-  emMonitoredTasks.Clear;
-  for intfKV in emMonitoredPools do
-    (intfKV.Value as IOmniThreadPool).RemoveMonitor;
-  emMonitoredPools.Clear;
+  // Guard the dictionary accesses: if the constructor raised before
+  // assigning them (non-main-thread guard fires after `inherited` registers
+  // us with our TComponent owner, so Delphi calls Destroy to clean up the
+  // half-initialized object), `for intfKV in <nil dict>` AVs. The AV then
+  // triggers madExcept's bug-report hook, and many simultaneous AVs
+  // serialize inside madExcept.TWinHttp.InitMantis — root cause of the
+  // residual TestCancelAll-related hangs.
+  if assigned(emMonitoredTasks) then begin
+    for intfKV in emMonitoredTasks do
+      (intfKV.Value as IOmniTaskControl).RemoveMonitor;
+    emMonitoredTasks.Clear;
+  end;
+  if assigned(emMonitoredPools) then begin
+    for intfKV in emMonitoredPools do
+      (intfKV.Value as IOmniThreadPool).RemoveMonitor;
+    emMonitoredPools.Clear;
+  end;
   inherited;
 end; { TOmniEventMonitor.Destroy }
 
