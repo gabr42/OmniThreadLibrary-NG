@@ -8,19 +8,23 @@
 {$DEFINE CONSOLE_TESTRUNNER}
 
 uses
+  {$IFDEF USE_MAD}
   madExcept,
   madLinkDisAsm,
   madListHardware,
   madListProcesses,
   madListModules,
+  madStackTrace,
+  {$ENDIF}
   {$IFDEF MSWINDOWS}
   Winapi.Windows,
   Winapi.TlHelp32,
-  madStackTrace,
   {$ENDIF}
+  System.Classes,
   System.SysUtils,
   System.DateUtils,
   System.Generics.Collections,
+  System.SyncObjs,
   OtlHooks,
   OtlPlatform,
   {$IFDEF TESTINSIGHT}
@@ -92,7 +96,7 @@ type
   end;
 
 var
-  GThreadRegistryLock: TRTLCriticalSection;
+  GThreadRegistryLock: TCriticalSection;
   GThreadRegistry    : TList<TThreadInfo>;
   GCurrentTestName   : string;
 
@@ -105,7 +109,7 @@ var
 var
   GTimingLog        : TextFile;
   GTimingLogOpen    : boolean;
-  GTimingLogLock    : TRTLCriticalSection;
+  GTimingLogLock    : TCriticalSection;
   GCurrentTestStart : TDateTime;
 
 procedure TrackerThreadNotify(notifyType: TThreadNotificationType;
@@ -114,10 +118,10 @@ var
   i  : integer;
   rec: TThreadInfo;
 begin
-  EnterCriticalSection(GThreadRegistryLock);
+  GThreadRegistryLock.Acquire;
   try
     if notifyType = tntCreate then begin
-      rec.TID        := GetCurrentThreadId;
+      rec.TID        := TThread.CurrentThread.ThreadID;
       rec.ThreadName := threadName;
       rec.SourceTest := GCurrentTestName;
       rec.Destroyed  := false;
@@ -128,7 +132,7 @@ begin
       // Searching backward handles TID reuse correctly: the OS may recycle
       // a TID after the previous owner exited, so the freshest record wins.
       for i := GThreadRegistry.Count - 1 downto 0 do
-        if (GThreadRegistry[i].TID = GetCurrentThreadId)
+        if (GThreadRegistry[i].TID = TThread.CurrentThread.ThreadID)
            and (not GThreadRegistry[i].Destroyed) then
         begin
           rec := GThreadRegistry[i];
@@ -136,7 +140,7 @@ begin
           GThreadRegistry[i] := rec;
           break;
         end;
-  finally LeaveCriticalSection(GThreadRegistryLock); end;
+  finally GThreadRegistryLock.Release; end;
 end;
 
 function FindThreadSource(tid: TThreadID): string;
@@ -144,7 +148,7 @@ var
   i: integer;
 begin
   Result := '';
-  EnterCriticalSection(GThreadRegistryLock);
+  GThreadRegistryLock.Acquire;
   try
     // Walk backward — most recent record for this TID wins (handles
     // TID reuse).
@@ -158,7 +162,7 @@ begin
             [GThreadRegistry[i].ThreadName, GThreadRegistry[i].SourceTest]);
         break;
       end;
-  finally LeaveCriticalSection(GThreadRegistryLock); end;
+  finally GThreadRegistryLock.Release; end;
 end;
 
 type
@@ -193,10 +197,10 @@ type
 
 procedure TTestNameTracker.SetCurrentTest(const name: string);
 begin
-  EnterCriticalSection(GThreadRegistryLock);
+  GThreadRegistryLock.Acquire;
   try
     GCurrentTestName := name;
-  finally LeaveCriticalSection(GThreadRegistryLock); end;
+  finally GThreadRegistryLock.Release; end;
 end;
 
 procedure TTestNameTracker.OnTestingStarts(const threadId: TThreadID; testCount, testActiveCount: Cardinal);
@@ -216,7 +220,7 @@ var
   ts, line: string;
 begin
   SetCurrentTest(Test.FullName);
-  EnterCriticalSection(GTimingLogLock);
+  GTimingLogLock.Acquire;
   try
     GCurrentTestStart := Now;
     if GTimingLogOpen then begin
@@ -225,7 +229,7 @@ begin
       System.Writeln(GTimingLog, line);
       System.Flush(GTimingLog);
     end;
-  finally LeaveCriticalSection(GTimingLogLock); end;
+  finally GTimingLogLock.Release; end;
 end;
 
 procedure TTestNameTracker.OnSetupTest(const threadId: TThreadID; const Test: ITestInfo);
@@ -266,7 +270,7 @@ var
   elapsed_ms: int64;
   ts, line  : string;
 begin
-  EnterCriticalSection(GTimingLogLock);
+  GTimingLogLock.Acquire;
   try
     if GTimingLogOpen and (GCurrentTestStart > 0) then begin
       elapsed_ms := System.DateUtils.MilliSecondsBetween(Now, GCurrentTestStart);
@@ -276,7 +280,7 @@ begin
       System.Writeln(GTimingLog, line);
       System.Flush(GTimingLog);
     end;
-  finally LeaveCriticalSection(GTimingLogLock); end;
+  finally GTimingLogLock.Release; end;
   SetCurrentTest('<between tests>');
 end;
 
@@ -292,7 +296,7 @@ begin SetCurrentTest('<between fixtures>'); end;
 procedure TTestNameTracker.OnTestingEnds(const RunResults: IRunResults);
 begin SetCurrentTest('<after suite>'); end;
 
-{$IFDEF MSWINDOWS}
+{$IFDEF USE_MAD}
 const
   // OpenThread access flags - Winapi.Windows in modern Delphi doesn't expose these.
   THREAD_GET_CONTEXT       = $0008;
@@ -464,7 +468,7 @@ begin
     Exit;
 
   pid   := GetCurrentProcessId;
-  myTid := GetCurrentThreadId;
+  myTid := TThread.CurrentThread.ThreadID;
 
   exeDir := ExtractFilePath(ParamStr(0));
   filename := Format('%sConsoleTestRunner.stacks.%s.txt',
@@ -574,7 +578,7 @@ begin
   TestInsight.DUnitX.RunRegisteredTests;
 {$ELSE}
   try
-    {$IFDEF MSWINDOWS}
+    {$IFDEF USE_MAD}
     // Hit Ctrl+Break in the console (or Fn+B / Ctrl+Fn+B on laptops without
     // a Break key) to dump every thread's stack. Useful for diagnosing hangs
     // where it's not clear whether you're looking at a deadlock or livelock.
@@ -585,14 +589,14 @@ begin
     // and chain a custom DUnitX logger that tracks the active test name.
     // The Ctrl+Break dump uses this to attribute each stuck thread back to
     // the test that spawned it.
-    InitializeCriticalSection(GThreadRegistryLock);
+    GThreadRegistryLock := TCriticalSection.Create;
     GThreadRegistry := TList<TThreadInfo>.Create;
     GCurrentTestName := '<startup>';
     OtlHooks.RegisterThreadNotification(TrackerThreadNotify);
 
     // Per-test timing log so post-mortem analysis of slow runs ("near-hangs")
     // can identify which specific test is the slow one without re-running.
-    InitializeCriticalSection(GTimingLogLock);
+    GTimingLogLock := TCriticalSection.Create;
     AssignFile(GTimingLog,
       Format('%sConsoleTestRunner.timing.%s.log',
         [ExtractFilePath(ParamStr(0)),

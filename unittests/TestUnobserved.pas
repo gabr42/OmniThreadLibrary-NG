@@ -6,7 +6,9 @@
 interface
 
 uses
+  {$IFDEF USE_MAD}
   madExcept,
+  {$ENDIF}
   DUnitX.TestFramework,
   TestOtlBase;
 
@@ -55,7 +57,7 @@ uses
   OtlTask,
   OtlTaskControl,
   {$IFDEF OTL_TRACE_PROBE}OtlTraceProbe,{$ENDIF}
-  Winapi.Windows;
+  {$IFDEF MSWINDOWS}Winapi.Windows{$ELSE}Posix.Unistd{$ENDIF};
 
 const
   CTimeout_ms         = 5000;
@@ -383,6 +385,7 @@ begin
         [opName, CExtendedTimeout_ms, sentinelCountP^,
          selfDestroyAfter - selfDestroyBefore, dumpFile]));
     {$ELSE}
+    {$IFDEF USE_MAD}
     Writeln('*** 30 sec timeout, will create stack trace');
     try
       raise Exception.Create('Manual trace');
@@ -392,6 +395,7 @@ begin
     repeat
       Sleep(100);
     until false;
+    {$ENDIF}
     Assert.IsTrue(false,
       Format('Task control (%s) was not released within %d ms (extended timeout, sentinel count=%d, selfDestroyTripwire=%d)',
         [opName, CExtendedTimeout_ms, sentinelCountP^,
