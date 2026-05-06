@@ -19,6 +19,7 @@ uses
   madStackTrace,
   {$ENDIF}
   System.SysUtils,
+  System.DateUtils,
   System.Generics.Collections,
   OtlHooks,
   OtlPlatform,
@@ -94,6 +95,18 @@ var
   GThreadRegistryLock: TRTLCriticalSection;
   GThreadRegistry    : TList<TThreadInfo>;
   GCurrentTestName   : string;
+
+// Per-test timing log: every OnBeginTest fires a start record and every
+// OnEndTest fires an end record with elapsed ms. Used to track down which
+// tests cause "near-hangs" — full-suite runs that take ~30 s longer than
+// baseline. Comparing timing logs across runs surfaces tests with
+// occasional slow-paths (e.g. pool teardown timing out on
+// WaitOnTerminate_sec). Written to ConsoleTestRunner.timing.<stamp>.log.
+var
+  GTimingLog        : TextFile;
+  GTimingLogOpen    : boolean;
+  GTimingLogLock    : TRTLCriticalSection;
+  GCurrentTestStart : TDateTime;
 
 procedure TrackerThreadNotify(notifyType: TThreadNotificationType;
   const threadName: string);
@@ -199,7 +212,21 @@ procedure TTestNameTracker.OnEndSetupFixture(const threadId: TThreadID; const fi
 begin end;
 
 procedure TTestNameTracker.OnBeginTest(const threadId: TThreadID; const Test: ITestInfo);
-begin SetCurrentTest(Test.FullName); end;
+var
+  ts, line: string;
+begin
+  SetCurrentTest(Test.FullName);
+  EnterCriticalSection(GTimingLogLock);
+  try
+    GCurrentTestStart := Now;
+    if GTimingLogOpen then begin
+      ts := FormatDateTime('hh:nn:ss.zzz', GCurrentTestStart);
+      line := '[' + ts + '] BEGIN ' + Test.FullName;
+      System.Writeln(GTimingLog, line);
+      System.Flush(GTimingLog);
+    end;
+  finally LeaveCriticalSection(GTimingLogLock); end;
+end;
 
 procedure TTestNameTracker.OnSetupTest(const threadId: TThreadID; const Test: ITestInfo);
 begin SetCurrentTest(Test.FullName + '.SetUp'); end;
@@ -235,7 +262,23 @@ procedure TTestNameTracker.OnEndTeardownTest(const threadId: TThreadID; const Te
 begin end;
 
 procedure TTestNameTracker.OnEndTest(const threadId: TThreadID; const Test: ITestResult);
-begin SetCurrentTest('<between tests>'); end;
+var
+  elapsed_ms: int64;
+  ts, line  : string;
+begin
+  EnterCriticalSection(GTimingLogLock);
+  try
+    if GTimingLogOpen and (GCurrentTestStart > 0) then begin
+      elapsed_ms := System.DateUtils.MilliSecondsBetween(Now, GCurrentTestStart);
+      ts := FormatDateTime('hh:nn:ss.zzz', Now);
+      line := '[' + ts + '] END   ' + Test.Test.FullName +
+              ' elapsed=' + IntToStr(elapsed_ms) + 'ms';
+      System.Writeln(GTimingLog, line);
+      System.Flush(GTimingLog);
+    end;
+  finally LeaveCriticalSection(GTimingLogLock); end;
+  SetCurrentTest('<between tests>');
+end;
 
 procedure TTestNameTracker.OnTearDownFixture(const threadId: TThreadID; const fixture: ITestFixtureInfo);
 begin SetCurrentTest(fixture.FullName + '.TearDownFixture'); end;
@@ -546,6 +589,18 @@ begin
     GThreadRegistry := TList<TThreadInfo>.Create;
     GCurrentTestName := '<startup>';
     OtlHooks.RegisterThreadNotification(TrackerThreadNotify);
+
+    // Per-test timing log so post-mortem analysis of slow runs ("near-hangs")
+    // can identify which specific test is the slow one without re-running.
+    InitializeCriticalSection(GTimingLogLock);
+    AssignFile(GTimingLog,
+      Format('%sConsoleTestRunner.timing.%s.log',
+        [ExtractFilePath(ParamStr(0)),
+         FormatDateTime('yyyymmdd-hhnnss', Now)]));
+    try
+      Rewrite(GTimingLog);
+      GTimingLogOpen := true;
+    except GTimingLogOpen := false; end;
 
     // Default-exclude the Stress category so the standard run stays fast.
     // Any explicit filter flag (--run/--runlist/--include/--exclude or their
