@@ -968,7 +968,19 @@ begin
       owRunningWorkers.Delete(iWorker);
       worker.Asy_Stop(signalToken);
       endWait_ms := Time.Timestamp_ms + waitForTask_ms;
-      while (Time.Timestamp_ms < endWait_ms) and (not worker.Stopped) do begin
+      // Exit when the task has finished (WorkItem_ref cleared by
+      // ExecuteWorkItem's completion path). The original loop only checked
+      // worker.Stopped — but Stopped flips only when the WHOLE worker
+      // thread exits, not when one task is cancelled. With single-task
+      // cancel the worker keeps running for the next MSG_RUN, so the loop
+      // always ran out the full timeout (manifesting as a steady ~5 s
+      // hit on TestCancelSingleTask). Reading WorkItem_ref unsynchronized
+      // is fine: pointer reads are atomic on x86/x64 and a stale-not-nil
+      // read just means one extra Sleep(10) iteration before catching up.
+      while (Time.Timestamp_ms < endWait_ms)
+            and (not worker.Stopped)
+            and assigned(worker.WorkItem_ref) do
+      begin
         ProcessMessages;
         Sleep(10);
       end;
@@ -1250,9 +1262,18 @@ begin
   Result := 0;
   for iThread := 0 to owStoppingWorkers.Count - 1 do begin
     worker := TOTPWorkerThread(owStoppingWorkers[iThread]);
-    if not worker.Stopped then
+    // Count only workers that are still actually working (have a work
+    // item AND haven't fully stopped yet). Workers that have finished
+    // their task (WorkItem_ref nil) but are still in the message loop
+    // waiting for MSG_STOP shouldn't keep InternalStop's wait alive —
+    // they will exit promptly once the queued MSG_STOP is delivered,
+    // and the FreeAndNil(worker) loop after the wait handles that
+    // remaining latency. Without this, the wait reliably hits the full
+    // WaitOnTerminate_sec=30 default in TestCancelAll's tail (visible
+    // as ~30 s suite-time slowdowns in 2/30 runs).
+    if (not worker.Stopped) and assigned(worker.WorkItem_ref) then
       Inc(Result);
-  end; // for iThread 
+  end; // for iThread
 end; { TOTPWorker.NumRunningStoppedThreads }
 
 procedure TOTPWorker.ProcessCompletedWorkItem(workItem: TOTPWorkItem);
