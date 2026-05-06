@@ -129,3 +129,5 @@ tests/32_Queue/Linux64/Debug/
 tests/33_BlockingCollection/Linux64/Debug/
 
 tests/33_BlockingCollection/Linux64/Release/
+
+unittests/ConsoleTestRunner.mes
