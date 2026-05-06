@@ -106,11 +106,14 @@ var
 // baseline. Comparing timing logs across runs surfaces tests with
 // occasional slow-paths (e.g. pool teardown timing out on
 // WaitOnTerminate_sec). Written to ConsoleTestRunner.timing.<stamp>.log.
+// Build with -DTIMING_LOG to enable.
+{$IFDEF TIMING_LOG}
 var
   GTimingLog        : TextFile;
   GTimingLogOpen    : boolean;
   GTimingLogLock    : TCriticalSection;
   GCurrentTestStart : TDateTime;
+{$ENDIF}
 
 procedure TrackerThreadNotify(notifyType: TThreadNotificationType;
   const threadName: string);
@@ -216,10 +219,13 @@ procedure TTestNameTracker.OnEndSetupFixture(const threadId: TThreadID; const fi
 begin end;
 
 procedure TTestNameTracker.OnBeginTest(const threadId: TThreadID; const Test: ITestInfo);
+{$IFDEF TIMING_LOG}
 var
   ts, line: string;
+{$ENDIF}
 begin
   SetCurrentTest(Test.FullName);
+  {$IFDEF TIMING_LOG}
   GTimingLogLock.Acquire;
   try
     GCurrentTestStart := Now;
@@ -230,6 +236,7 @@ begin
       System.Flush(GTimingLog);
     end;
   finally GTimingLogLock.Release; end;
+  {$ENDIF}
 end;
 
 procedure TTestNameTracker.OnSetupTest(const threadId: TThreadID; const Test: ITestInfo);
@@ -266,10 +273,13 @@ procedure TTestNameTracker.OnEndTeardownTest(const threadId: TThreadID; const Te
 begin end;
 
 procedure TTestNameTracker.OnEndTest(const threadId: TThreadID; const Test: ITestResult);
+{$IFDEF TIMING_LOG}
 var
   elapsed_ms: int64;
   ts, line  : string;
+{$ENDIF}
 begin
+  {$IFDEF TIMING_LOG}
   GTimingLogLock.Acquire;
   try
     if GTimingLogOpen and (GCurrentTestStart > 0) then begin
@@ -281,6 +291,7 @@ begin
       System.Flush(GTimingLog);
     end;
   finally GTimingLogLock.Release; end;
+  {$ENDIF}
   SetCurrentTest('<between tests>');
 end;
 
@@ -594,6 +605,7 @@ begin
     GCurrentTestName := '<startup>';
     OtlHooks.RegisterThreadNotification(TrackerThreadNotify);
 
+    {$IFDEF TIMING_LOG}
     // Per-test timing log so post-mortem analysis of slow runs ("near-hangs")
     // can identify which specific test is the slow one without re-running.
     GTimingLogLock := TCriticalSection.Create;
@@ -605,6 +617,7 @@ begin
       Rewrite(GTimingLog);
       GTimingLogOpen := true;
     except GTimingLogOpen := false; end;
+    {$ENDIF}
 
     // Default-exclude the Stress category so the standard run stays fast.
     // Any explicit filter flag (--run/--runlist/--include/--exclude or their
