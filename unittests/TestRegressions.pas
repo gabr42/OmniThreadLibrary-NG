@@ -9,6 +9,11 @@ uses
 type
   [TestFixture]
   TestBugfixes = class(TOtlTestBase)
+  {$IFDEF MSWINDOWS}
+  strict private
+    function  AllocatedBytes: NativeUInt;
+    procedure RunBgObserverDeadTargetScenario(payloadSize: integer);
+  {$ENDIF}
   public
     [Test]
     procedure TestTOmniValueArrayInt64Cast;
@@ -30,6 +35,8 @@ type
     procedure TestOmniValueCreateLeakOnInvalidType;
     [Test]
     procedure TestBgObserverOnTerminatedFromBgThread;
+    [Test]
+    procedure TestBgObserverApcRefLeakOnDeadTarget;
   end;
 
 implementation
@@ -724,5 +731,121 @@ begin
   Assert.AreEqual(CIterations, fireCount,
     'OnTerminated fire count mismatch — bg-observer drop regression');
 end;
+
+{$IFDEF MSWINDOWS}
+function TestBugfixes.AllocatedBytes: NativeUInt;
+// Currently-allocated (in-use) heap bytes per the RTL's FastMM-derived
+// manager. Counts only live blocks, so memory the manager keeps pooled after
+// a Free is NOT counted — exactly what we want to isolate a true leak from
+// allocator churn (e.g. transient thread allocations that are freed again).
+var
+  st: TMemoryManagerState;
+  i : integer;
+begin
+  GetMemoryManagerState(st);
+  Result := st.TotalAllocatedMediumBlockSize + st.TotalAllocatedLargeBlockSize;
+  for i := Low(st.SmallBlockTypeStates) to High(st.SmallBlockTypeStates) do
+    Result := Result +
+      st.SmallBlockTypeStates[i].UseableBlockSize *
+      st.SmallBlockTypeStates[i].AllocatedBlockCount;
+end;
+
+procedure TestBugfixes.RunBgObserverDeadTargetScenario(payloadSize: integer);
+// One leak-scenario iteration. A worker parks in a NON-alertable wait
+// (TEvent.WaitFor -> WaitForSingleObject) so a QueueUserAPC succeeds but can
+// never be delivered; the worker then exits without ever going alertable,
+// orphaning the queued APC. The observer's OnNotify closure captures a
+// heap payload so a leaked TAPCState pins a measurable amount of memory.
+var
+  observer: IOmniContainerBackgroundObserver;
+  worker  : TThread;
+  started : TEvent;
+  mayExit : TEvent;
+  tid     : TThreadID;
+  payload : TBytes;
+begin
+  SetLength(payload, payloadSize);
+  started := TEvent.Create(nil, true, false, '');
+  mayExit := TEvent.Create(nil, true, false, '');
+  try
+    tid := 0;
+    worker := TThread.CreateAnonymousThread(
+      procedure
+      begin
+        tid := TThread.Current.ThreadID;
+        started.SetEvent;
+        mayExit.WaitFor(INFINITE);
+      end);
+    worker.FreeOnTerminate := false;
+    worker.Start;
+    try
+      started.WaitFor(5000);
+      observer := CreateContainerBackgroundObserver(tid,
+        procedure begin if Length(payload) < 0 then Abort; end); // capture payload
+      // QueueUserAPC succeeds (worker alive, parked): RefCount -> 2.
+      observer.Notify;
+      // Worker leaves its non-alertable wait and exits without going
+      // alertable, so the queued APC is never delivered.
+      mayExit.SetEvent;
+      worker.WaitFor;
+    finally worker.Free; end;
+    // Destroy on the main thread: pre-fix leaves TAPCState (and the captured
+    // payload) allocated; the fixed code reclaims the orphaned APC ref.
+    observer := nil;
+  finally
+    mayExit.Free;
+    started.Free;
+  end;
+end;
+{$ENDIF MSWINDOWS}
+
+procedure TestBugfixes.TestBgObserverApcRefLeakOnDeadTarget;
+// Regression for OtlBackgroundObserver.pas v1.04 — the OTL-NG analog of
+// GpEventBus r41604/r41702 (orphaned APC-ref leak on a dead target thread).
+//
+// TOmniContainerAPCObserverImpl.Notify increments TAPCState.RefCount and
+// QueueUserAPCs APCCallback to the target thread; APCCallback decrements that
+// ref when it runs. If the target thread terminates without ever entering an
+// alertable wait, the queued APC is never delivered, so the ref is never
+// balanced. Destroy then drops only the observer's own ref (RefCount 2 -> 1)
+// and leaves the TAPCState block (plus everything its OnNotify closure
+// captures) allocated forever.
+//
+// This runner does not install FastMM4 as the memory manager, so DUnitX's
+// per-test leak counter never sees these AllocMem blocks. Instead we measure
+// live-heap growth directly across many iterations: a real leak grows the
+// in-use byte count by ~iterations*payload; allocator churn from the transient
+// worker threads is freed and therefore not counted.
+{$IFDEF MSWINDOWS}
+const
+  CIterations  = 400;
+  CPayload     = 16384;        // 16 KiB pinned per leaked TAPCState
+  CMaxGrowth   = CIterations * CPayload div 4; // generous slack for noise
+var
+  i      : integer;
+  before : NativeUInt;
+  after  : NativeUInt;
+  growth : int64;
+begin
+  // Warm up one iteration so first-touch lazy allocations don't count.
+  RunBgObserverDeadTargetScenario(CPayload);
+
+  before := AllocatedBytes;
+  for i := 1 to CIterations do
+    RunBgObserverDeadTargetScenario(CPayload);
+  after := AllocatedBytes;
+
+  growth := int64(after) - int64(before);
+  Assert.IsTrue(growth < CMaxGrowth,
+    Format('orphaned-APC-ref leak: live heap grew %d bytes over %d iterations ' +
+           '(%.0f bytes/iter, payload=%d) — TAPCState is not reclaimed when the ' +
+           'target thread dies with a pending APC',
+           [growth, CIterations, growth / CIterations, CPayload]));
+end;
+{$ELSE}
+begin
+  Assert.Pass('Windows-only test: QueueUserAPC orphaned-ref leak is Windows-only');
+end;
+{$ENDIF MSWINDOWS}
 
 end.

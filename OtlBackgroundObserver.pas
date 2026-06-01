@@ -36,10 +36,21 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Claude AI
 ///   Creation date     : 2026-04-12
-///   Last modification : 2026-04-18
-///   Version           : 1.03
+///   Last modification : 2026-06-01
+///   Version           : 1.04
 ///</para><para>
 ///   History:
+///     1.04: 2026-06-01
+///       - Fixed orphaned APC-ref leak: when Notify had queued an APC but the
+///         target thread terminated without ever entering an alertable wait,
+///         APCCallback never ran, so the AddRef from QueueUserAPC was never
+///         balanced and TAPCState (plus everything its OnNotify closure
+///         captured) leaked. Destroy now detects a dead target via
+///         GetExitCodeThread and reclaims the orphaned ref via a new
+///         ReleaseStateRefs helper (atomic subtract, free on <= 0). The thread
+///         handle is opened with THREAD_QUERY_INFORMATION in addition to
+///         THREAD_SET_CONTEXT so GetExitCodeThread can succeed. OTL-NG analog
+///         of GpEventBus r41604 / r41702.
 ///     1.03: 2026-04-18
 ///       - DrainBackgroundObservers is now cross-platform. On Windows it runs a
 ///         zero-timeout alertable wait to drain queued APCs; on POSIX it drains
@@ -147,7 +158,8 @@ uses
 // === Windows implementation: QueueUserAPC + IOmniEvent for wait-set injection ===
 
 const
-  THREAD_SET_CONTEXT = $0010;
+  THREAD_SET_CONTEXT       = $0010;
+  THREAD_QUERY_INFORMATION = $0040;
 
 function OpenThread(dwDesiredAccess: DWORD; bInheritHandle: BOOL;
   dwThreadId: DWORD): THandle; stdcall; external kernel32;
@@ -173,6 +185,19 @@ type
     procedure Notify; override;
   end;
 
+{:Atomically subtract `count` refs from the state's RefCount and free the block
+  when the running total reaches zero (or below). The `<= 0` guard — rather than
+  `= 0` — lets a dead-target reclaim in Destroy fold the orphaned APC ref into
+  the same release without risking a double FreeMem if the counts ever overlap.
+  Mirrors TEventBus.TThreadDispatchState.ReleaseRefs in GpEventBus.}
+procedure ReleaseStateRefs(state: PAPCState; count: integer);
+begin
+  if TInterlocked.Add(state.RefCount, -count) <= 0 then begin
+    state.OnNotify := nil;
+    FreeMem(state);
+  end;
+end; { ReleaseStateRefs }
+
 procedure APCCallback(dwParam: NativeUInt); stdcall;
 var
   state: PAPCState;
@@ -185,10 +210,7 @@ begin
     if TInterlocked.CompareExchange(state.IsActive, 1, 1) = 1 then
       state.OnNotify();
   finally
-    if TInterlocked.Decrement(state.RefCount) = 0 then begin
-      state.OnNotify := nil;
-      FreeMem(state);
-    end;
+    ReleaseStateRefs(state, 1);  // balance the AddRef from Notify's QueueUserAPC
   end;
 end; { APCCallback }
 
@@ -204,7 +226,12 @@ begin
   FState.APCPending := 0;
   FState.IsActive := 1;
   FState.OnNotify := aOnNotify;
-  FThreadHandle := OpenThread(THREAD_SET_CONTEXT, false, aTargetThreadID);
+  // THREAD_SET_CONTEXT is required by QueueUserAPC; THREAD_QUERY_INFORMATION is
+  // required by GetExitCodeThread, which Destroy uses to detect a dead target
+  // and reclaim an orphaned APC ref. Without the query right GetExitCodeThread
+  // would fail and the reclaim would never trigger (TAPCState would leak).
+  FThreadHandle := OpenThread(THREAD_SET_CONTEXT or THREAD_QUERY_INFORMATION,
+    false, aTargetThreadID);
   if FThreadHandle = 0 then begin
     var lastErr := Winapi.Windows.GetLastError;
     FreeMem(FState);
@@ -219,10 +246,23 @@ destructor TOmniContainerAPCObserverImpl.Destroy;
 begin
   if assigned(FState) then begin
     TInterlocked.Exchange(FState.IsActive, 0);
-    if TInterlocked.Decrement(FState.RefCount) = 0 then begin
-      FState.OnNotify := nil;
-      FreeMem(FState);
+    // If an APC is still queued (APCPending=1) but the target thread has
+    // already terminated, that APC will never be delivered (dead threads never
+    // enter alertable wait), so the AddRef from its QueueUserAPC will never be
+    // balanced by APCCallback. Detect that case via GetExitCodeThread and
+    // reclaim the orphaned APC ref together with the observer's own ref in a
+    // single atomic release. A live target is left at RefCount=1 so the APC
+    // still frees the state when it eventually fires (IsActive=0 makes its
+    // callback a no-op). The atomic Exchange on APCPending claims the reclaim
+    // exactly once; a dead thread cannot be concurrently clearing it.
+    var extraRefs := 0;
+    if TInterlocked.CompareExchange(FState.APCPending, 0, 0) = 1 then begin
+      var exitCode: DWORD;
+      if (not GetExitCodeThread(FThreadHandle, exitCode)) or (exitCode <> STILL_ACTIVE) then
+        if TInterlocked.Exchange(FState.APCPending, 0) = 1 then
+          extraRefs := 1;
     end;
+    ReleaseStateRefs(FState, 1 + extraRefs);
     FState := nil;
   end;
   if FThreadHandle <> 0 then begin
@@ -248,13 +288,11 @@ begin
   if TInterlocked.CompareExchange(FState.APCPending, 1, 0) = 0 then begin
     TInterlocked.Increment(FState.RefCount);
     if not QueueUserAPC(@APCCallback, FThreadHandle, NativeUInt(FState)) then begin
-      // APC queue failed (target thread may have terminated)
+      // APC queue failed (target thread may have terminated): roll back the
+      // pending flag and the AddRef. The observer still holds its own ref here,
+      // so RefCount cannot reach zero and FState stays valid.
       TInterlocked.Exchange(FState.APCPending, 0);
-      if TInterlocked.Decrement(FState.RefCount) = 0 then begin
-        FState.OnNotify := nil;
-        FreeMem(FState);
-        FState := nil;
-      end;
+      ReleaseStateRefs(FState, 1);
     end;
   end;
 end; { TOmniContainerAPCObserverImpl.Notify }
