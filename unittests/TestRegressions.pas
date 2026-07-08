@@ -37,6 +37,8 @@ type
     procedure TestBgObserverOnTerminatedFromBgThread;
     [Test]
     procedure TestBgObserverApcRefLeakOnDeadTarget;
+    [Test]
+    procedure TestTerminatedEventSurvivesControllerDestroy;
   end;
 
 implementation
@@ -847,5 +849,92 @@ begin
   Assert.Pass('Windows-only test: QueueUserAPC orphaned-ref leak is Windows-only');
 end;
 {$ENDIF MSWINDOWS}
+
+procedure TestBugfixes.TestTerminatedEventSurvivesControllerDestroy;
+// Regression guard for OTL issue #216 (data race on the task's TerminatedEvent handle),
+// ensuring OTL-NG never reintroduces the raw-handle ownership that made classic OTL
+// vulnerable.
+//
+// Classic OTL stored TerminatedEvent as a bare THandle. TOmniTask.InternalExecute
+// captured the handle, released MonitorLock, then SetEvent'd it - but for a pooled task
+// TOmniTaskControl.Destroy (running on another thread) closed that handle with
+// CloseHandle in the window before the SetEvent, so the worker signalled a closed,
+// possibly OS-recycled handle and corrupted unrelated state.
+//
+// OTL-NG is immune by construction: TerminatedEvent is a refcounted IOmniEvent, and
+// Destroy disposes it by releasing its reference (`TerminatedEvent := nil`), never by
+// closing a handle. Anyone holding a captured reference - including the worker's own
+// IOmniEvent local in InternalExecute - keeps the underlying event (and its OS handle)
+// alive; the handle is closed only by TOmniEvent's destructor at refcount zero. There is
+// therefore no destructive teardown step for a second thread to race against.
+//
+// Because that immunity is a type/ownership property rather than a timing one, this test
+// locks it in directly instead of trying to race a (non-existent) handle close:
+//   * Compile-time: capturing TerminatedEvent into an IOmniEvent only compiles while it
+//     stays a refcounted event - a revert to a bare THandle breaks this test's build.
+//   * Runtime: after releasing the caller's task-control reference, the captured event
+//     must still own a live, operable handle (Reset/SetEvent cycle, and on Windows a
+//     still-valid OS handle). This proves the terminated event's lifetime is governed by
+//     the IOmniEvent refcount, not by the task control - the property that removes the
+//     race entirely.
+//
+// (The full teardown cannot be driven on demand - a running task control keeps
+// additional internal references, so releasing the caller's reference does not by itself
+// run Destroy; and mutating the shared info from the test thread would race the worker's
+// own in-flight SetEvent. Hence this asserts the ownership invariant rather than trying
+// to reproduce the classic timing window, which cannot exist in NG.)
+const
+  CTimeout_ms = 10000;
+var
+  evt    : IOmniEvent;
+  taskCtl: IOmniTaskControl;
+  {$IFDEF MSWINDOWS}
+  flags  : DWORD;
+  handle : THandle;
+  {$ENDIF}
+begin
+  taskCtl := CreateTask(
+    procedure (const task: IOmniTask)
+    begin
+      // exits immediately
+    end, 'issue216-terminated-event')
+    .Run;
+
+  // Our own reference to the terminated event, captured while the task runs. This line
+  // only compiles while TerminatedEvent is an IOmniEvent (not a raw THandle).
+  evt := (taskCtl as IOmniTaskControlInternals).TerminatedEvent;
+  Assert.IsNotNull(evt, 'TerminatedEvent should be assigned');
+  {$IFDEF MSWINDOWS}
+  handle := (evt as IOmniSynchro).Handle;
+  {$ENDIF}
+
+  // Wait for the task to finish; TerminatedEvent becomes signalled.
+  Assert.IsTrue(taskCtl.WaitFor(CTimeout_ms), 'Task did not terminate in time');
+
+  // Release the caller's reference to the task control. With the refcounted IOmniEvent
+  // design the terminated event's lifetime is independent of the control: `evt` keeps it
+  // (and its OS handle) alive. With classic OTL's raw handle it was owned by the control
+  // and closed during teardown, so a captured value could go stale.
+  taskCtl := nil;
+
+  {$IFDEF MSWINDOWS}
+  // The underlying OS handle must still be valid - it is owned by the IOmniEvent we hold,
+  // not by the (now-released) task control.
+  Assert.IsTrue(GetHandleInformation(handle, flags),
+    Format('TerminatedEvent OS handle is no longer valid after releasing the task ' +
+           'control (GetLastError=%d) - issue #216 raw-handle regression', [GetLastError]));
+  {$ENDIF}
+
+  // The captured event must still be signalled and fully operable.
+  Assert.AreEqual(wrSignaled, evt.WaitFor(0),
+    'Captured TerminatedEvent lost its signalled state after releasing the task control');
+  evt.Reset;
+  Assert.AreEqual(wrTimeout, evt.WaitFor(0),
+    'Captured TerminatedEvent could not be reset');
+  evt.SetEvent;
+  Assert.AreEqual(wrSignaled, evt.WaitFor(0),
+    'Captured TerminatedEvent could not be signalled - the captured reference did not ' +
+    'keep the event alive (issue #216 invariant broken)');
+end;
 
 end.
