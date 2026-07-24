@@ -78,6 +78,26 @@ safe and friendlier to layered code (a write-locked method calling a
 read-locked helper), so it now succeeds as a no-op nested acquire. The two
 v3.08 raise-tests are rewritten as grant-tests.
 
+### Amendment (v3.10, 2026-07-24): grant is opt-in
+
+Post-implementation reconsideration: programmers migrating from strict
+`TLightweightMREW` semantics never intentionally acquire a read lock while
+holding the write lock (it used to deadlock), so a silent grant primarily
+hides programming mistakes. Final policy:
+
+- **Default:** `BeginRead`/`TryBeginRead` while owning the write lock raise
+  (`'...: Thread owns the write lock (set AllowReadInsideWrite to permit
+  this)'`).
+- **Opt-in:** `property AllowReadInsideWrite: boolean` on the record and on
+  `ILightweightMREWEx` enables the grant for layered code that wants it.
+- **Safety:** the flag must be set before the lock's first acquisition; the
+  setter raises afterwards (`FAccessed` flag set by every acquire path, same
+  pattern as `TOmniBlockingCollection.SetThrottling`). This keeps the
+  unsynchronized flag reads on the acquire paths safe: the flag is immutable
+  once concurrency starts.
+- Strict-by-default also preserves the compatibility asymmetry: relaxing
+  later is non-breaking, restricting later would not be.
+
 ## Error handling
 
 All usage errors raise `Exception` with `TLightweightMREWEx.<Method>: ...`
