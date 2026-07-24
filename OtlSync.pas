@@ -36,9 +36,23 @@
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
 ///   Last modification : 2026-07-24
-///   Version           : 3.08
+///   Version           : 3.09
 ///</para><para>
 ///   History:
+///     3.09: 2026-07-24
+///       - TLightweightMREWEx read locks are now reentrant and deadlock-safe:
+///         per-thread tracking grants nested BeginRead/TryBeginRead without
+///         touching the OS lock, so recursive shared acquisition can no longer
+///         deadlock behind a pending writer (documented SRWLOCK hazard).
+///       - BeginRead/TryBeginRead while owning the write lock is now granted
+///         as a nested no-op acquire (3.08 raised here; with tracking the
+///         grant is safe - exclusive access implies read rights).
+///       - BeginWrite/TryBeginWrite while holding a read lock now raise
+///         (upgrade is impossible; previously deadlocked on Windows).
+///       - EndRead without a matching BeginRead raises.
+///       - EndWrite releasing the outermost write lock while a read lock
+///         acquired under it is still held raises.
+///       - Full XML documentation on the TLightweightMREWEx public surface.
 ///     3.08: 2026-07-24
 ///       - TLightweightMREWEx.BeginRead/TryBeginRead now raise when the
 ///         calling thread owns the write lock. Without the check BeginRead
@@ -512,13 +526,21 @@ type
     {$ENDIF MSWINDOWS}
   end; { IOmniCancellationToken }
 
-  ///<summary>Extends TLightweightMREW with support for nested (reentrant)
-  ///  exclusive locks. Acquiring a read lock while owning the write lock is
-  ///  detected and raises an exception (without the check it would deadlock
-  ///  on Windows and fail with EDEADLK on POSIX). Upgrading a read lock by
-  ///  calling BeginWrite while holding a read lock CANNOT be detected (read
-  ///  owners are not tracked) and will deadlock on Windows / raise EDEADLK
-  ///  on POSIX, same as in the underlying TLightweightMREW.</summary>
+  ///<summary>Reentrant multi-readers-exclusive-writer lock. Extends TLightweightMREW with:
+  ///  nested (recursive) exclusive locks; nested (recursive) read locks that are safe
+  ///  even when a writer is waiting (recursive shared acquisition of a raw SRWLOCK
+  ///  deadlocks in that scenario); read acquisition while owning the write lock
+  ///  (granted without touching the OS lock); and loud failure on misuse.</summary>
+  ///<remarks><para>Usage errors raise Exception with a 'TLightweightMREWEx.Method: reason'
+  ///  message: upgrading a read lock to a write lock via BeginWrite/TryBeginWrite,
+  ///  EndRead without a matching BeginRead, EndWrite by a thread that does not own
+  ///  the write lock, and EndWrite while a read lock acquired under the write lock
+  ///  is still held.</para><para>
+  ///  Instances must not be copied or moved in memory while any lock is held - the
+  ///  lock's address is its identity.</para><para>
+  ///  A thread must release all its locks before terminating; terminating while
+  ///  holding a lock is undefined behavior (as with the underlying OS locks) and
+  ///  leaks a small per-thread tracking node.</para></remarks>
   TLightweightMREWEx = record
   private
     FRWLock        : TLightweightMREW;
@@ -529,19 +551,46 @@ type
     procedure SetLockOwner(value: TThreadID); inline;
   public
     class operator Initialize(out dest: TLightweightMREWEx);
+    ///<summary>Acquires the lock in shared (reader) mode; blocks until available.
+    ///  Reentrant: nested calls on the same thread only increment a counter and are
+    ///  safe even when a writer is waiting. Callable while owning the write lock
+    ///  (granted immediately). Each call must be paired with EndRead.</summary>
     procedure BeginRead;
+    ///<summary>Tries to acquire the lock in shared (reader) mode without blocking.
+    ///  Nested calls and calls made while owning the write lock always succeed
+    ///  immediately. Returns False only when another thread holds or waits for
+    ///  the write lock.</summary>
     function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;{$ENDIF}
     {$IF defined(LINUX) or defined(ANDROID)}
+    ///<summary>Tries to acquire the lock in shared (reader) mode, waiting up to
+    ///  timeout milliseconds. Nested calls and calls made while owning the write
+    ///  lock always succeed immediately.</summary>
     function  TryBeginRead(timeout: cardinal): boolean; overload;
     {$ENDIF LINUX or ANDROID}
+    ///<summary>Releases one level of shared (reader) lock. Raises if the calling
+    ///  thread does not hold a read lock.</summary>
     procedure EndRead;
+    ///<summary>Acquires the lock in exclusive (writer) mode; blocks until available.
+    ///  Reentrant: the owning thread may call it again (counted). Raises if the
+    ///  calling thread holds a read lock - upgrading is not possible.</summary>
     procedure BeginWrite;
+    ///<summary>Tries to acquire the lock in exclusive (writer) mode without blocking.
+    ///  Nested calls by the owner always succeed. Raises if the calling thread holds
+    ///  a read lock - upgrading is not possible and could never succeed.</summary>
     function  TryBeginWrite: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;
+    ///<summary>Tries to acquire the lock in exclusive (writer) mode, waiting up to
+    ///  timeout milliseconds. Nested calls by the owner always succeed immediately.
+    ///  Raises if the calling thread holds a read lock.</summary>
     function  TryBeginWrite(timeout: cardinal): boolean; overload;
     {$ENDIF LINUX or ANDROID}
+    ///<summary>Releases one level of exclusive (writer) lock. Raises if the caller
+    ///  is not the owner, or when releasing the outermost write lock while a read
+    ///  lock acquired under it is still held.</summary>
     procedure EndWrite;
   end; { TLightweightMREWEx }
 
+  ///<summary>Interface wrapper for TLightweightMREWEx semantics - see
+  ///  TLightweightMREWEx for full documentation of locking behavior.</summary>
   ILightweightMREWEx = interface
     procedure BeginRead;
     function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;
@@ -555,6 +604,8 @@ type
     procedure EndWrite;
   end; { ILightweightMREWEx }
 
+  ///<summary>Heap-allocated ILightweightMREWEx implementation delegating to an
+  ///  embedded TLightweightMREWEx - see that record for behavior details.</summary>
   TLightweightMREWExImpl = class(TInterfacedObject, ILightweightMREWEx)
   strict private
     FLock: TLightweightMREWEx;
