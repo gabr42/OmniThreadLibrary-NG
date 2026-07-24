@@ -35,10 +35,20 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
-///   Last modification : 2026-04-25
-///   Version           : 3.07
+///   Last modification : 2026-07-24
+///   Version           : 3.08
 ///</para><para>
 ///   History:
+///     3.08: 2026-07-24
+///       - TLightweightMREWEx.BeginRead/TryBeginRead now raise when the
+///         calling thread owns the write lock. Without the check BeginRead
+///         deadlocked silently on Windows (SRWLOCK does not detect recursive
+///         shared-after-exclusive acquisition) while POSIX raised EDEADLK -
+///         the check makes all platforms fail loudly and consistently.
+///         Upgrading a read lock (BeginWrite while holding a read lock)
+///         still cannot be detected; documented on the record declaration.
+///       - TLightweightMREWEx.EndWrite exception messages now include the
+///         class/method context.
 ///     3.07: 2026-04-25
 ///       - Replaced the POSIX 64-bit InterlockedCompareExchange128 global-
 ///         spinlock fallback with a direct call to the AtomicCmpExchange128
@@ -502,6 +512,13 @@ type
     {$ENDIF MSWINDOWS}
   end; { IOmniCancellationToken }
 
+  ///<summary>Extends TLightweightMREW with support for nested (reentrant)
+  ///  exclusive locks. Acquiring a read lock while owning the write lock is
+  ///  detected and raises an exception (without the check it would deadlock
+  ///  on Windows and fail with EDEADLK on POSIX). Upgrading a read lock by
+  ///  calling BeginWrite while holding a read lock CANNOT be detected (read
+  ///  owners are not tracked) and will deadlock on Windows / raise EDEADLK
+  ///  on POSIX, same as in the underlying TLightweightMREW.</summary>
   TLightweightMREWEx = record
   private
     FRWLock        : TLightweightMREW;
@@ -512,10 +529,10 @@ type
     procedure SetLockOwner(value: TThreadID); inline;
   public
     class operator Initialize(out dest: TLightweightMREWEx);
-    procedure BeginRead; inline;
-    function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;{$ENDIF} inline;
+    procedure BeginRead;
+    function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;{$ENDIF}
     {$IF defined(LINUX) or defined(ANDROID)}
-    function  TryBeginRead(timeout: cardinal): boolean; overload; inline;
+    function  TryBeginRead(timeout: cardinal): boolean; overload;
     {$ENDIF LINUX or ANDROID}
     procedure EndRead; inline;
     procedure BeginWrite;
@@ -1721,6 +1738,10 @@ end; { TLightweightMREWEx.Initialize }
 
 procedure TLightweightMREWEx.BeginRead;
 begin
+  // Without this check acquiring a read lock while owning the write lock
+  // would deadlock on Windows (SRWLOCK) and fail with EDEADLK on POSIX.
+  if GetLockOwner = TThread.Current.ThreadID then
+    raise Exception.Create('TLightweightMREWEx.BeginRead: Thread already owns the write lock');
   FRWLock.BeginRead;
 end; { TLightweightMREWEx.BeginRead }
 
@@ -1746,10 +1767,10 @@ end; { TLightweightMREWEx.EndRead }
 procedure TLightweightMREWEx.EndWrite;
 begin
   if GetLockOwner <> TThread.Current.ThreadID then
-    raise Exception.Create('Not an owner');
+    raise Exception.Create('TLightweightMREWEx.EndWrite: Not an owner');
 
   if FWriteLockCount.Value <= 0 then
-    raise Exception.Create('Attempting to release write lock that was not acquired');
+    raise Exception.Create('TLightweightMREWEx.EndWrite: Attempting to release write lock that was not acquired');
   if FWriteLockCount.Decrement = 0 then begin
     SetLockOwner(0);
     FRWLock.EndWrite;
@@ -1758,12 +1779,18 @@ end; { TLightweightMREWEx.EndWrite }
 
 function TLightweightMREWEx.TryBeginRead: boolean;
 begin
+  // Raise instead of returning False - the caller is one retry loop away
+  // from a silent stall, and this is a usage error, not contention.
+  if GetLockOwner = TThread.Current.ThreadID then
+    raise Exception.Create('TLightweightMREWEx.TryBeginRead: Thread already owns the write lock');
   Result := FRWLock.TryBeginRead;
 end; { TLightweightMREWEx.TryBeginRead }
 
 {$IF defined(LINUX) or defined(ANDROID)}
 function TLightweightMREWEx.TryBeginRead(timeout: cardinal): boolean;
 begin
+  if GetLockOwner = TThread.Current.ThreadID then
+    raise Exception.Create('TLightweightMREWEx.TryBeginRead: Thread already owns the write lock');
   Result := FRWLock.TryBeginRead(timeout);
 end; { TLightweightMREWEx.TryBeginRead }
 {$ENDIF LINUX or ANDROID}

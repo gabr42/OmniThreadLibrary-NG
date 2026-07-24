@@ -158,6 +158,16 @@ type
     procedure TestNestedWrite;
     [Test]
     procedure TestReadBlockedByWrite;
+    [Test]
+    procedure TestNestedTryWrite;
+    [Test]
+    procedure TestNestedWriteContention;
+    [Test]
+    procedure TestEndWriteNotOwnerRaises;
+    [Test]
+    procedure TestTryReadInsideWriteRaises;
+    [Test]
+    procedure TestReadInsideWriteRaises;
   end;
 
   [TestFixture]
@@ -1211,6 +1221,153 @@ begin
   mrew.EndWrite;
   Sleep(200);
   Assert.AreEqual<integer>(2, blocked.Value, 'reader unblocked after EndWrite');
+end;
+
+procedure TestLightweightMREWEx.TestNestedTryWrite;
+var
+  entered: TOmniAlignedInt32;
+  mrew   : ILightweightMREWEx;
+begin
+  mrew := TLightweightMREWExImpl.Create;
+  entered.Value := 0;
+
+  mrew.BeginWrite;
+  Assert.IsTrue(mrew.TryBeginWrite, 'nested TryBeginWrite succeeds for the owner');
+  {$IF defined(LINUX) or defined(ANDROID)}
+  Assert.IsTrue(mrew.TryBeginWrite(0), 'nested TryBeginWrite(timeout) succeeds for the owner');
+  mrew.EndWrite;
+  {$ENDIF LINUX or ANDROID}
+  mrew.EndWrite;
+  mrew.EndWrite;
+
+  // All nested locks are released - another thread must be able to acquire.
+  Assert.IsTrue(
+    System.Threading.TTask.Run(
+      procedure
+      begin
+        if mrew.TryBeginWrite then begin
+          entered.Value := 1;
+          mrew.EndWrite;
+        end;
+      end).Wait(5000),
+    'verification task completed');
+  Assert.AreEqual<integer>(1, entered.Value, 'lock is free after all nested EndWrite calls');
+end;
+
+procedure TestLightweightMREWEx.TestNestedWriteContention;
+var
+  mrew : ILightweightMREWEx;
+  state: TOmniAlignedInt32;
+  synch: IOmniSynchronizer<string>;
+begin
+  mrew := TLightweightMREWExImpl.Create;
+  synch := TOmniSynchronizer<string>.Create;
+  state.Value := 0;
+
+  mrew.BeginWrite;
+  mrew.BeginWrite;
+  System.Threading.TTask.Run(
+    procedure
+    begin
+      synch.Signal('started');
+      state.Value := 1;
+      mrew.BeginWrite;
+      state.Value := 2;
+      mrew.EndWrite;
+      synch.Signal('done');
+    end);
+
+  synch.WaitFor('started');
+  Sleep(200);
+  Assert.AreEqual<integer>(1, state.Value, 'second writer is blocked');
+  mrew.EndWrite; // releases the nested lock, owner still holds the outer one
+  Sleep(200);
+  Assert.AreEqual<integer>(1, state.Value, 'second writer is still blocked after inner EndWrite');
+  mrew.EndWrite;
+  Assert.IsTrue(synch.WaitFor('done', 5000), 'second writer acquired the lock after outer EndWrite');
+  Assert.AreEqual<integer>(2, state.Value, 'second writer completed');
+end;
+
+procedure TestLightweightMREWEx.TestEndWriteNotOwnerRaises;
+var
+  mrew  : ILightweightMREWEx;
+  raised: string;
+begin
+  mrew := TLightweightMREWExImpl.Create;
+  raised := '<no exception>';
+
+  mrew.BeginWrite;
+  try
+    Assert.IsTrue(
+      System.Threading.TTask.Run(
+        procedure
+        begin
+          try
+            mrew.EndWrite;
+          except
+            on E: Exception do
+              raised := E.Message;
+          end;
+        end).Wait(5000),
+      'verification task completed');
+  finally mrew.EndWrite; end;
+
+  Assert.IsTrue(Pos('TLightweightMREWEx.EndWrite', raised) > 0,
+    'EndWrite from a non-owner thread raises with class/method context, got: ' + raised);
+end;
+
+procedure TestLightweightMREWEx.TestTryReadInsideWriteRaises;
+var
+  mrew  : TLightweightMREWEx;
+  raised: string;
+begin
+  mrew.BeginWrite;
+  try
+    raised := '<no exception>';
+    try
+      if mrew.TryBeginRead then
+        mrew.EndRead;
+    except
+      on E: Exception do
+        raised := E.Message;
+    end;
+    Assert.IsTrue(Pos('TLightweightMREWEx.TryBeginRead', raised) > 0,
+      'TryBeginRead inside write lock raises with class/method context, got: ' + raised);
+    {$IF defined(LINUX) or defined(ANDROID)}
+    raised := '<no exception>';
+    try
+      if mrew.TryBeginRead(0) then
+        mrew.EndRead;
+    except
+      on E: Exception do
+        raised := E.Message;
+    end;
+    Assert.IsTrue(Pos('TLightweightMREWEx.TryBeginRead', raised) > 0,
+      'TryBeginRead(timeout) inside write lock raises with class/method context, got: ' + raised);
+    {$ENDIF LINUX or ANDROID}
+  finally mrew.EndWrite; end;
+end;
+
+procedure TestLightweightMREWEx.TestReadInsideWriteRaises;
+var
+  mrew  : TLightweightMREWEx;
+  raised: string;
+begin
+  // Without the owner check this would deadlock on Windows (SRWLOCK) and
+  // fail with EDEADLK on POSIX - see TLightweightMREWEx.BeginRead.
+  mrew.BeginWrite;
+  try
+    raised := '<no exception>';
+    try
+      mrew.BeginRead;
+      mrew.EndRead;
+    except
+      on E: Exception do
+        raised := E.Message;
+    end;
+    Assert.IsTrue(Pos('TLightweightMREWEx.BeginRead', raised) > 0,
+      'BeginRead inside write lock raises with class/method context, got: ' + raised);
+  finally mrew.EndWrite; end;
 end;
 
 { TestLockManager }
