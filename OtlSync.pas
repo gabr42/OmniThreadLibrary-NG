@@ -534,7 +534,7 @@ type
     {$IF defined(LINUX) or defined(ANDROID)}
     function  TryBeginRead(timeout: cardinal): boolean; overload;
     {$ENDIF LINUX or ANDROID}
-    procedure EndRead; inline;
+    procedure EndRead;
     procedure BeginWrite;
     function  TryBeginWrite: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;
     function  TryBeginWrite(timeout: cardinal): boolean; overload;
@@ -1702,6 +1702,52 @@ begin
   Result := Atomic<I>.Initialize(storage, factory);
 end; { Atomic<I,T>.Initialize }
 
+type
+  PMREWReadNest = ^TMREWReadNest;
+  TMREWReadNest = record
+    Lock  : pointer;       // @instance = lock identity
+    Count : integer;       // nesting depth
+    OSHeld: boolean;       // false when granted under an owned write lock
+    Next  : PMREWReadNest;
+  end;
+
+threadvar
+  GMREWReadNest: PMREWReadNest; // head of this thread's held-read-locks list
+
+function MREWReadNestFind(lock: pointer): PMREWReadNest;
+begin
+  Result := GMREWReadNest;
+  while assigned(Result) and (Result.Lock <> lock) do
+    Result := Result.Next;
+end; { MREWReadNestFind }
+
+procedure MREWReadNestPush(lock: pointer; osHeld: boolean);
+var
+  nest: PMREWReadNest;
+begin
+  New(nest);
+  nest.Lock := lock;
+  nest.Count := 1;
+  nest.OSHeld := osHeld;
+  nest.Next := GMREWReadNest;
+  GMREWReadNest := nest;
+end; { MREWReadNestPush }
+
+procedure MREWReadNestRemove(nest: PMREWReadNest);
+var
+  prev: PMREWReadNest;
+begin
+  if GMREWReadNest = nest then
+    GMREWReadNest := nest.Next
+  else begin
+    prev := GMREWReadNest;
+    while prev.Next <> nest do
+      prev := prev.Next;
+    prev.Next := nest.Next;
+  end;
+  Dispose(nest);
+end; { MREWReadNestRemove }
+
 { TLightweightMREWEx }
 
 function TLightweightMREWEx.GetLockOwner: TThreadID; //inline
@@ -1737,12 +1783,21 @@ begin
 end; { TLightweightMREWEx.Initialize }
 
 procedure TLightweightMREWEx.BeginRead;
+var
+  nest: PMREWReadNest;
 begin
-  // Without this check acquiring a read lock while owning the write lock
-  // would deadlock on Windows (SRWLOCK) and fail with EDEADLK on POSIX.
-  if GetLockOwner = TThread.Current.ThreadID then
-    raise Exception.Create('TLightweightMREWEx.BeginRead: Thread already owns the write lock');
-  FRWLock.BeginRead;
+  nest := MREWReadNestFind(@Self);
+  if assigned(nest) then
+    // Nested read: never touches the OS lock, so it cannot queue behind a
+    // pending writer (documented SRWLOCK deadlock).
+    Inc(nest.Count)
+  else if GetLockOwner = TThread.Current.ThreadID then
+    // Read under owned write lock: exclusive access implies read rights.
+    MREWReadNestPush(@Self, false)
+  else begin
+    FRWLock.BeginRead;
+    MREWReadNestPush(@Self, true);
+  end;
 end; { TLightweightMREWEx.BeginRead }
 
 procedure TLightweightMREWEx.BeginWrite;
@@ -1760,8 +1815,20 @@ begin
 end; { TLightweightMREWEx.BeginWrite }
 
 procedure TLightweightMREWEx.EndRead;
+var
+  nest  : PMREWReadNest;
+  osHeld: boolean;
 begin
-  FRWLock.EndRead;
+  nest := MREWReadNestFind(@Self);
+  if not assigned(nest) then
+    raise Exception.Create('TLightweightMREWEx.EndRead: Thread does not hold a read lock');
+  Dec(nest.Count);
+  if nest.Count = 0 then begin
+    osHeld := nest.OSHeld;
+    MREWReadNestRemove(nest);
+    if osHeld then
+      FRWLock.EndRead;
+  end;
 end; { TLightweightMREWEx.EndRead }
 
 procedure TLightweightMREWEx.EndWrite;
@@ -1778,20 +1845,40 @@ begin
 end; { TLightweightMREWEx.EndWrite }
 
 function TLightweightMREWEx.TryBeginRead: boolean;
+var
+  nest: PMREWReadNest;
 begin
-  // Raise instead of returning False - the caller is one retry loop away
-  // from a silent stall, and this is a usage error, not contention.
-  if GetLockOwner = TThread.Current.ThreadID then
-    raise Exception.Create('TLightweightMREWEx.TryBeginRead: Thread already owns the write lock');
+  nest := MREWReadNestFind(@Self);
+  if assigned(nest) then begin
+    Inc(nest.Count);
+    Exit(true);
+  end;
+  if GetLockOwner = TThread.Current.ThreadID then begin
+    MREWReadNestPush(@Self, false);
+    Exit(true);
+  end;
   Result := FRWLock.TryBeginRead;
+  if Result then
+    MREWReadNestPush(@Self, true);
 end; { TLightweightMREWEx.TryBeginRead }
 
 {$IF defined(LINUX) or defined(ANDROID)}
 function TLightweightMREWEx.TryBeginRead(timeout: cardinal): boolean;
+var
+  nest: PMREWReadNest;
 begin
-  if GetLockOwner = TThread.Current.ThreadID then
-    raise Exception.Create('TLightweightMREWEx.TryBeginRead: Thread already owns the write lock');
+  nest := MREWReadNestFind(@Self);
+  if assigned(nest) then begin
+    Inc(nest.Count);
+    Exit(true);
+  end;
+  if GetLockOwner = TThread.Current.ThreadID then begin
+    MREWReadNestPush(@Self, false);
+    Exit(true);
+  end;
   Result := FRWLock.TryBeginRead(timeout);
+  if Result then
+    MREWReadNestPush(@Self, true);
 end; { TLightweightMREWEx.TryBeginRead }
 {$ENDIF LINUX or ANDROID}
 
