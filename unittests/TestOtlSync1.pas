@@ -180,6 +180,10 @@ type
     procedure TestEndWriteWithNestedReadRaises;
     [Test]
     procedure TestUpgradeBeginWriteRaises;
+    [Test]
+    procedure TestTwoLocksInterleavedRelease;
+    [Test]
+    procedure TestInnerEndWriteWithNestedReadSucceeds;
   end;
 
   [TestFixture]
@@ -1564,6 +1568,80 @@ begin
     Assert.IsTrue(Pos('TLightweightMREWEx.BeginWrite', raised) > 0,
       'BeginWrite while holding a read lock raises, got: ' + raised);
   finally mrew.EndRead; end;
+end;
+
+procedure TestLightweightMREWEx.TestTwoLocksInterleavedRelease;
+var
+  enteredA: TOmniAlignedInt32;
+  enteredB: TOmniAlignedInt32;
+  mrewA   : ILightweightMREWEx;
+  mrewB   : ILightweightMREWEx;
+begin
+  mrewA := TLightweightMREWExImpl.Create;
+  mrewB := TLightweightMREWExImpl.Create;
+  enteredA.Value := 0;
+  enteredB.Value := 0;
+
+  mrewA.BeginRead;
+  mrewB.BeginRead; // A's per-thread node is now non-head (B was linked in front of it)
+  Assert.IsTrue(mrewA.TryBeginRead, 'nested TryBeginRead bumps the count on a non-head node');
+  mrewA.EndRead;
+  mrewA.EndRead; // removes A's node from a non-head position in the per-thread list
+  mrewB.EndRead; // removes B's node from the head position
+
+  // Both locks must be fully released - another thread must acquire each as a writer.
+  Assert.IsTrue(
+    System.Threading.TTask.Run(
+      procedure
+      begin
+        if mrewA.TryBeginWrite then begin
+          enteredA.Value := 1;
+          mrewA.EndWrite;
+        end;
+      end).Wait(5000),
+    'verification task A completed');
+  Assert.IsTrue(
+    System.Threading.TTask.Run(
+      procedure
+      begin
+        if mrewB.TryBeginWrite then begin
+          enteredB.Value := 1;
+          mrewB.EndWrite;
+        end;
+      end).Wait(5000),
+    'verification task B completed');
+  Assert.AreEqual<integer>(1, enteredA.Value, 'lock A fully released');
+  Assert.AreEqual<integer>(1, enteredB.Value, 'lock B fully released');
+end;
+
+procedure TestLightweightMREWEx.TestInnerEndWriteWithNestedReadSucceeds;
+var
+  entered: TOmniAlignedInt32;
+  mrew   : ILightweightMREWEx;
+begin
+  mrew := TLightweightMREWExImpl.Create;
+  entered.Value := 0;
+
+  mrew.BeginWrite;
+  mrew.BeginWrite;
+  mrew.BeginRead;
+  // Inner EndWrite must not raise - the nested-read guard applies only to the
+  // outermost write release (FWriteLockCount.Value = 1), not to this one.
+  mrew.EndWrite;
+  mrew.EndRead;
+  mrew.EndWrite;
+
+  Assert.IsTrue(
+    System.Threading.TTask.Run(
+      procedure
+      begin
+        if mrew.TryBeginWrite then begin
+          entered.Value := 1;
+          mrew.EndWrite;
+        end;
+      end).Wait(5000),
+    'verification task completed');
+  Assert.AreEqual<integer>(1, entered.Value, 'lock fully released');
 end;
 
 { TestLockManager }

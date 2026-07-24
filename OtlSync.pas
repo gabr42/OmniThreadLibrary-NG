@@ -540,7 +540,9 @@ type
   ///  lock's address is its identity.</para><para>
   ///  A thread must release all its locks before terminating; terminating while
   ///  holding a lock is undefined behavior (as with the underlying OS locks) and
-  ///  leaks a small per-thread tracking node.</para></remarks>
+  ///  leaks a small per-thread tracking node. If a lock instance is destroyed
+  ///  while such a leaked node exists, a new lock later created at the same
+  ///  address would inherit the stale node on that thread.</para></remarks>
   TLightweightMREWEx = record
   private
     FRWLock        : TLightweightMREW;
@@ -620,7 +622,7 @@ type
     function  TryBeginWrite(timeout: cardinal): boolean; overload;
     {$ENDIF LINUX or ANDROID}
     procedure EndWrite;
-  end; { TLightweightMREWEx }
+  end; { TLightweightMREWExImpl }
 
   Atomic<T> = class
     type TFactory = reference to function: T;
