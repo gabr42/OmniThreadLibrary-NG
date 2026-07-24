@@ -35,10 +35,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin, Claude AI
 ///   Creation date     : 2009-12-27
-///   Last modification : 2026-04-11
-///   Version           : 3.0
+///   Last modification : 2026-07-24
+///   Version           : 3.01
 ///</para><para>
 ///   History:
+///     3.01: 2026-07-24
+///       - Workaround for a Delphi 13 dcc32 internal error (F2084 C3106) in
+///         InsertElement<T>: PInt64(@value)^ on a const generic parameter now
+///         goes through a local pointer variable.
 ///     3.0: 2026-04-11 [OTL-NG]
 ///       - Platform abstraction — removed DSiWin32, GpStuff, Winapi.Windows,
 ///         OtlPlatform dependencies; replaced WaitForMultipleObjects/DSiWaitForTwoObjects
@@ -439,11 +443,17 @@ procedure TOmniBlockingCollection.InsertElement<T>(const value: T; ti: PTypeInfo
 var
   i : integer;
   ov: TOmniValue;
+  pv: pointer;
 begin
+  // Patched Delphi 13 dcc32 (37.0, patch of 2026-05-08) fails with an internal
+  // error (F2084 C3106) on PInt64(@value)^ when instantiating this method;
+  // taking the address into a local variable first avoids the problem.
+  // dcc64 and Delphi 11/12 compile the original code fine.
+  pv := @value;
   case ti.Kind of
     tkInteger, tkPointer:
       if ds = 8 then
-        ov.AsInt64 := PInt64(@value)^
+        ov.AsInt64 := PInt64(pv)^
       else begin
         Assert(ds <= 4, 'TOmniBlockingCollection.InsertElement<T>: Integer data is too large');
         i := 0;
@@ -451,7 +461,7 @@ begin
         ov.AsInteger := i;
       end;
     tkInt64:
-      ov.AsInt64 := PInt64(@value)^;
+      ov.AsInt64 := PInt64(pv)^;
     tkClass:
       ov.AsObject := PObject(@value)^;
     tkChar, tkWChar, tkString, tkWString, tkLString, tkUString:
