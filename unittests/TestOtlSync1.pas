@@ -165,9 +165,15 @@ type
     [Test]
     procedure TestEndWriteNotOwnerRaises;
     [Test]
-    procedure TestTryReadInsideWriteGranted;
+    procedure TestReadInsideWriteRaisesByDefault;
     [Test]
-    procedure TestReadInsideWriteGranted;
+    procedure TestTryReadInsideWriteRaisesByDefault;
+    [Test]
+    procedure TestAllowReadInsideWriteAfterUseRaises;
+    [Test]
+    procedure TestTryReadInsideWriteGrantedWhenAllowed;
+    [Test]
+    procedure TestReadInsideWriteGrantedWhenAllowed;
     [Test]
     procedure TestNestedReadDepth3;
     [Test]
@@ -1332,12 +1338,13 @@ begin
     'EndWrite from a non-owner thread raises with class/method context, got: ' + raised);
 end;
 
-procedure TestLightweightMREWEx.TestReadInsideWriteGranted;
+procedure TestLightweightMREWEx.TestReadInsideWriteGrantedWhenAllowed;
 var
   entered: TOmniAlignedInt32;
   mrew   : ILightweightMREWEx;
 begin
   mrew := TLightweightMREWExImpl.Create;
+  mrew.AllowReadInsideWrite := true; // must be set before first use
   entered.Value := 0;
 
   mrew.BeginWrite;
@@ -1358,12 +1365,13 @@ begin
   Assert.AreEqual<integer>(1, entered.Value, 'lock fully released after read-under-write');
 end;
 
-procedure TestLightweightMREWEx.TestTryReadInsideWriteGranted;
+procedure TestLightweightMREWEx.TestTryReadInsideWriteGrantedWhenAllowed;
 var
   entered: TOmniAlignedInt32;
   mrew   : ILightweightMREWEx;
 begin
   mrew := TLightweightMREWExImpl.Create;
+  mrew.AllowReadInsideWrite := true; // must be set before first use
   entered.Value := 0;
 
   mrew.BeginWrite;
@@ -1442,6 +1450,76 @@ begin
     'unmatched EndRead raises with class/method context, got: ' + raised);
 end;
 
+procedure TestLightweightMREWEx.TestReadInsideWriteRaisesByDefault;
+var
+  mrew  : TLightweightMREWEx;
+  raised: string;
+begin
+  mrew.BeginWrite;
+  try
+    raised := '<no exception>';
+    try
+      mrew.BeginRead;
+      mrew.EndRead;
+    except
+      on E: Exception do
+        raised := E.Message;
+    end;
+    Assert.IsTrue(Pos('TLightweightMREWEx.BeginRead', raised) > 0,
+      'BeginRead inside write lock raises by default, got: ' + raised);
+  finally mrew.EndWrite; end;
+end;
+
+procedure TestLightweightMREWEx.TestTryReadInsideWriteRaisesByDefault;
+var
+  mrew  : TLightweightMREWEx;
+  raised: string;
+begin
+  mrew.BeginWrite;
+  try
+    raised := '<no exception>';
+    try
+      if mrew.TryBeginRead then
+        mrew.EndRead;
+    except
+      on E: Exception do
+        raised := E.Message;
+    end;
+    Assert.IsTrue(Pos('TLightweightMREWEx.TryBeginRead', raised) > 0,
+      'TryBeginRead inside write lock raises by default, got: ' + raised);
+    {$IF defined(LINUX) or defined(ANDROID)}
+    raised := '<no exception>';
+    try
+      if mrew.TryBeginRead(0) then
+        mrew.EndRead;
+    except
+      on E: Exception do
+        raised := E.Message;
+    end;
+    Assert.IsTrue(Pos('TLightweightMREWEx.TryBeginRead', raised) > 0,
+      'TryBeginRead(timeout) inside write lock raises by default, got: ' + raised);
+    {$ENDIF LINUX or ANDROID}
+  finally mrew.EndWrite; end;
+end;
+
+procedure TestLightweightMREWEx.TestAllowReadInsideWriteAfterUseRaises;
+var
+  mrew  : TLightweightMREWEx;
+  raised: string;
+begin
+  mrew.BeginWrite;
+  mrew.EndWrite;
+  raised := '<no exception>';
+  try
+    mrew.AllowReadInsideWrite := true;
+  except
+    on E: Exception do
+      raised := E.Message;
+  end;
+  Assert.IsTrue(Pos('TLightweightMREWEx.SetAllowReadInsideWrite', raised) > 0,
+    'setting AllowReadInsideWrite after first use raises, got: ' + raised);
+end;
+
 procedure TestLightweightMREWEx.TestRecursiveReadWithPendingWriter;
 var
   mrew : ILightweightMREWEx;
@@ -1518,6 +1596,7 @@ var
   raised : string;
 begin
   mrew := TLightweightMREWExImpl.Create;
+  mrew.AllowReadInsideWrite := true; // must be set before first use
   entered.Value := 0;
 
   mrew.BeginWrite;
@@ -1620,6 +1699,7 @@ var
   mrew   : ILightweightMREWEx;
 begin
   mrew := TLightweightMREWExImpl.Create;
+  mrew.AllowReadInsideWrite := true; // must be set before first use
   entered.Value := 0;
 
   mrew.BeginWrite;

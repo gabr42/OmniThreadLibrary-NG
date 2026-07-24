@@ -36,9 +36,17 @@
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
 ///   Last modification : 2026-07-24
-///   Version           : 3.09
+///   Version           : 3.10
 ///</para><para>
 ///   History:
+///     3.10: 2026-07-24
+///       - TLightweightMREWEx.BeginRead/TryBeginRead while owning the write
+///         lock now raise BY DEFAULT - with strict TLightweightMREW semantics
+///         such calls usually indicate a programming error, and the silent
+///         3.09 grant would have hidden it. The grant is now opt-in via the
+///         new AllowReadInsideWrite property, which must be set before the
+///         lock is first used (the setter raises afterwards, because the
+///         acquire paths read the flag unsynchronized).
 ///     3.09: 2026-07-24
 ///       - TLightweightMREWEx read locks are now reentrant and deadlock-safe:
 ///         per-thread tracking grants nested BeginRead/TryBeginRead without
@@ -529,13 +537,16 @@ type
   ///<summary>Reentrant multi-readers-exclusive-writer lock. Extends TLightweightMREW with:
   ///  nested (recursive) exclusive locks; nested (recursive) read locks that are safe
   ///  even when a writer is waiting (recursive shared acquisition of a raw SRWLOCK
-  ///  deadlocks in that scenario); read acquisition while owning the write lock
-  ///  (granted without touching the OS lock); and loud failure on misuse.</summary>
+  ///  deadlocks in that scenario); optional read acquisition while owning the write
+  ///  lock (opt-in via AllowReadInsideWrite; raises by default); and loud failure on
+  ///  misuse.</summary>
   ///<remarks><para>Usage errors raise Exception with a 'TLightweightMREWEx.Method: reason'
   ///  message: upgrading a read lock to a write lock via BeginWrite/TryBeginWrite,
-  ///  EndRead without a matching BeginRead, EndWrite by a thread that does not own
-  ///  the write lock, and EndWrite while a read lock acquired under the write lock
-  ///  is still held.</para><para>
+  ///  BeginRead/TryBeginRead while owning the write lock unless AllowReadInsideWrite
+  ///  was enabled, EndRead without a matching BeginRead, EndWrite by a thread that
+  ///  does not own the write lock, EndWrite while a read lock acquired under the
+  ///  write lock is still held, and setting AllowReadInsideWrite after the lock was
+  ///  first used.</para><para>
   ///  Instances must not be copied or moved in memory while any lock is held - the
   ///  lock's address is its identity.</para><para>
   ///  A thread must release all its locks before terminating; terminating while
@@ -545,28 +556,33 @@ type
   ///  address would inherit the stale node on that thread.</para></remarks>
   TLightweightMREWEx = record
   private
-    FRWLock        : TLightweightMREW;
-    FWriteLockCount: TOmniAlignedInt32;
-    FLockOwner     : TThreadID;
+    FRWLock             : TLightweightMREW;
+    FWriteLockCount     : TOmniAlignedInt32;
+    FLockOwner          : TThreadID;
+    FAccessed           : boolean;
+    FAllowReadInsideWrite: boolean;
   private
     function  GetLockOwner: TThreadID; inline;
     procedure SetLockOwner(value: TThreadID); inline;
+    procedure SetAllowReadInsideWrite(value: boolean);
+    procedure MarkAccessed; inline;
   public
     class operator Initialize(out dest: TLightweightMREWEx);
     ///<summary>Acquires the lock in shared (reader) mode; blocks until available.
     ///  Reentrant: nested calls on the same thread only increment a counter and are
-    ///  safe even when a writer is waiting. Callable while owning the write lock
-    ///  (granted immediately). Each call must be paired with EndRead.</summary>
+    ///  safe even when a writer is waiting. While owning the write lock, raises by
+    ///  default; granted immediately when AllowReadInsideWrite is True. Each call
+    ///  must be paired with EndRead.</summary>
     procedure BeginRead;
     ///<summary>Tries to acquire the lock in shared (reader) mode without blocking.
-    ///  Nested calls and calls made while owning the write lock always succeed
-    ///  immediately. Returns False only when another thread holds or waits for
-    ///  the write lock.</summary>
+    ///  Nested calls always succeed immediately. While owning the write lock,
+    ///  raises by default; succeeds when AllowReadInsideWrite is True. Returns
+    ///  False only when another thread holds or waits for the write lock.</summary>
     function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;{$ENDIF}
     {$IF defined(LINUX) or defined(ANDROID)}
     ///<summary>Tries to acquire the lock in shared (reader) mode, waiting up to
-    ///  timeout milliseconds. Nested calls and calls made while owning the write
-    ///  lock always succeed immediately.</summary>
+    ///  timeout milliseconds. Nested calls always succeed immediately. While owning
+    ///  the write lock, raises by default; succeeds when AllowReadInsideWrite is True.</summary>
     function  TryBeginRead(timeout: cardinal): boolean; overload;
     {$ENDIF LINUX or ANDROID}
     ///<summary>Releases one level of shared (reader) lock. Raises if the calling
@@ -589,11 +605,20 @@ type
     ///  is not the owner, or when releasing the outermost write lock while a read
     ///  lock acquired under it is still held.</summary>
     procedure EndWrite;
+    ///<summary>When True, BeginRead/TryBeginRead called while owning the write lock
+    ///  succeed as a no-op nested acquire (exclusive access implies read rights).
+    ///  Default is False: such calls raise, because with strict TLightweightMREW
+    ///  semantics they usually indicate a programming error. Must be set before the
+    ///  lock is used for the first time; the setter raises afterwards.</summary>
+    property AllowReadInsideWrite: boolean read FAllowReadInsideWrite write SetAllowReadInsideWrite;
   end; { TLightweightMREWEx }
 
   ///<summary>Interface wrapper for TLightweightMREWEx semantics - see
   ///  TLightweightMREWEx for full documentation of locking behavior.</summary>
   ILightweightMREWEx = interface
+    function  GetAllowReadInsideWrite: boolean;
+    procedure SetAllowReadInsideWrite(value: boolean);
+  //
     procedure BeginRead;
     function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;
     function  TryBeginRead(timeout: cardinal): boolean; overload;
@@ -604,6 +629,7 @@ type
     function  TryBeginWrite(timeout: cardinal): boolean; overload;
     {$ENDIF LINUX or ANDROID}
     procedure EndWrite;
+    property AllowReadInsideWrite: boolean read GetAllowReadInsideWrite write SetAllowReadInsideWrite;
   end; { ILightweightMREWEx }
 
   ///<summary>Heap-allocated ILightweightMREWEx implementation delegating to an
@@ -612,6 +638,8 @@ type
   strict private
     FLock: TLightweightMREWEx;
   public
+    function  GetAllowReadInsideWrite: boolean;
+    procedure SetAllowReadInsideWrite(value: boolean);
     procedure BeginRead;
     function  TryBeginRead: boolean; {$IF defined(LINUX) or defined(ANDROID)}overload;
     function  TryBeginRead(timeout: cardinal): boolean; overload;
@@ -1833,20 +1861,42 @@ class operator TLightweightMREWEx.Initialize(out dest: TLightweightMREWEx);
 begin
   Dest.SetLockOwner(0);
   Dest.FWriteLockCount.Value := 0;
+  Dest.FAccessed := false;
+  Dest.FAllowReadInsideWrite := false;
 end; { TLightweightMREWEx.Initialize }
+
+procedure TLightweightMREWEx.SetAllowReadInsideWrite(value: boolean);
+begin
+  // The flag is read unsynchronized on the acquire paths; that is only safe
+  // because it can no longer change once the lock is in use.
+  if FAccessed then
+    raise Exception.Create('TLightweightMREWEx.SetAllowReadInsideWrite: Cannot be changed once the lock has been used');
+  FAllowReadInsideWrite := value;
+end; { TLightweightMREWEx.SetAllowReadInsideWrite }
+
+procedure TLightweightMREWEx.MarkAccessed; //inline
+begin
+  if not FAccessed then
+    FAccessed := true;
+end; { TLightweightMREWEx.MarkAccessed }
 
 procedure TLightweightMREWEx.BeginRead;
 var
   nest: PMREWReadNest;
 begin
+  MarkAccessed;
   nest := MREWReadNestFind(@Self);
   if assigned(nest) then
     // Nested read: never touches the OS lock, so it cannot queue behind a
     // pending writer (documented SRWLOCK deadlock).
     Inc(nest.Count)
-  else if GetLockOwner = TThread.Current.ThreadID then
-    // Read under owned write lock: exclusive access implies read rights.
-    MREWReadNestPush(@Self, false)
+  else if GetLockOwner = TThread.Current.ThreadID then begin
+    // Exclusive access implies read rights, but with strict TLightweightMREW
+    // semantics this usually indicates a programming error - opt in explicitly.
+    if not FAllowReadInsideWrite then
+      raise Exception.Create('TLightweightMREWEx.BeginRead: Thread owns the write lock (set AllowReadInsideWrite to permit this)');
+    MREWReadNestPush(@Self, false);
+  end
   else begin
     FRWLock.BeginRead;
     MREWReadNestPush(@Self, true);
@@ -1855,6 +1905,7 @@ end; { TLightweightMREWEx.BeginRead }
 
 procedure TLightweightMREWEx.BeginWrite;
 begin
+  MarkAccessed;
   if GetLockOwner = TThread.Current.ThreadID then
     // We are already an owner so no need for locking.
     // If another thread executes BeginWrite at this moment, it would enter
@@ -1909,12 +1960,16 @@ function TLightweightMREWEx.TryBeginRead: boolean;
 var
   nest: PMREWReadNest;
 begin
+  MarkAccessed;
   nest := MREWReadNestFind(@Self);
   if assigned(nest) then begin
     Inc(nest.Count);
     Exit(true);
   end;
   if GetLockOwner = TThread.Current.ThreadID then begin
+    // Raise instead of returning False - this is a usage error, not contention.
+    if not FAllowReadInsideWrite then
+      raise Exception.Create('TLightweightMREWEx.TryBeginRead: Thread owns the write lock (set AllowReadInsideWrite to permit this)');
     MREWReadNestPush(@Self, false);
     Exit(true);
   end;
@@ -1928,12 +1983,15 @@ function TLightweightMREWEx.TryBeginRead(timeout: cardinal): boolean;
 var
   nest: PMREWReadNest;
 begin
+  MarkAccessed;
   nest := MREWReadNestFind(@Self);
   if assigned(nest) then begin
     Inc(nest.Count);
     Exit(true);
   end;
   if GetLockOwner = TThread.Current.ThreadID then begin
+    if not FAllowReadInsideWrite then
+      raise Exception.Create('TLightweightMREWEx.TryBeginRead: Thread owns the write lock (set AllowReadInsideWrite to permit this)');
     MREWReadNestPush(@Self, false);
     Exit(true);
   end;
@@ -1945,6 +2003,7 @@ end; { TLightweightMREWEx.TryBeginRead }
 
 function TLightweightMREWEx.TryBeginWrite: boolean;
 begin
+  MarkAccessed;
   if GetLockOwner = TThread.Current.ThreadID then begin
     FWriteLockCount.Increment;
     Result := true;
@@ -1965,6 +2024,7 @@ end; { TLightweightMREWEx.TryBeginWrite }
 {$IF defined(LINUX) or defined(ANDROID)}
 function TLightweightMREWEx.TryBeginWrite(timeout: cardinal): boolean;
 begin
+  MarkAccessed;
   if GetLockOwner = TThread.Current.ThreadID then begin
     FWriteLockCount.Increment;
     Result := true;
@@ -3613,6 +3673,16 @@ begin
 end;
 
 { TLightweightMREWExImpl }
+
+function TLightweightMREWExImpl.GetAllowReadInsideWrite: boolean;
+begin
+  Result := FLock.AllowReadInsideWrite;
+end; { TLightweightMREWExImpl.GetAllowReadInsideWrite }
+
+procedure TLightweightMREWExImpl.SetAllowReadInsideWrite(value: boolean);
+begin
+  FLock.AllowReadInsideWrite := value;
+end; { TLightweightMREWExImpl.SetAllowReadInsideWrite }
 
 procedure TLightweightMREWExImpl.BeginRead;
 begin
