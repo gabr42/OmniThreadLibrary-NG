@@ -1807,6 +1807,9 @@ begin
     // If another thread executes BeginWrite at this moment, it would enter
     // the 'else' part below and block in the call to FRWLock.BeginWrite.
     FWriteLockCount.Increment
+  else if assigned(MREWReadNestFind(@Self)) then
+    // Upgrade would deadlock on Windows and fail with EDEADLK on POSIX.
+    raise Exception.Create('TLightweightMREWEx.BeginWrite: Read lock cannot be upgraded to a write lock')
   else begin
     FRWLock.BeginWrite;
     SetLockOwner(TThread.Current.ThreadID);
@@ -1838,6 +1841,11 @@ begin
 
   if FWriteLockCount.Value <= 0 then
     raise Exception.Create('TLightweightMREWEx.EndWrite: Attempting to release write lock that was not acquired');
+  if (FWriteLockCount.Value = 1) and assigned(MREWReadNestFind(@Self)) then
+    // Only OSHeld=false nodes can exist here: a real (OSHeld=true) read lock
+    // would have made BeginWrite raise the upgrade error instead of
+    // acquiring. Checked before releasing, so the lock stays held.
+    raise Exception.Create('TLightweightMREWEx.EndWrite: Releasing write lock while nested read locks are still held');
   if FWriteLockCount.Decrement = 0 then begin
     SetLockOwner(0);
     FRWLock.EndWrite;
@@ -1888,6 +1896,10 @@ begin
     FWriteLockCount.Increment;
     Result := true;
   end
+  else if assigned(MREWReadNestFind(@Self)) then
+    // Raise instead of returning False - an upgrade can never succeed, so
+    // False would invite a retry loop that stalls forever.
+    raise Exception.Create('TLightweightMREWEx.TryBeginWrite: Read lock cannot be upgraded to a write lock')
   else begin
     Result := FRWLock.TryBeginWrite;
     if Result then begin
@@ -1904,6 +1916,8 @@ begin
     FWriteLockCount.Increment;
     Result := true;
   end
+  else if assigned(MREWReadNestFind(@Self)) then
+    raise Exception.Create('TLightweightMREWEx.TryBeginWrite: Read lock cannot be upgraded to a write lock')
   else begin
     Result := FRWLock.TryBeginWrite(timeout);
     if Result then begin

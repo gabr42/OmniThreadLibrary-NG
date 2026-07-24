@@ -174,6 +174,12 @@ type
     procedure TestEndReadWithoutBeginReadRaises;
     [Test]
     procedure TestRecursiveReadWithPendingWriter;
+    [Test]
+    procedure TestUpgradeTryBeginWriteRaises;
+    [Test]
+    procedure TestEndWriteWithNestedReadRaises;
+    [Test]
+    procedure TestUpgradeBeginWriteRaises;
   end;
 
   [TestFixture]
@@ -1467,6 +1473,97 @@ begin
   mrew.EndRead;
   Assert.IsTrue(synch.WaitFor('done', 5000), 'writer acquired after last EndRead');
   Assert.AreEqual<integer>(2, state.Value, 'writer completed');
+end;
+
+procedure TestLightweightMREWEx.TestUpgradeTryBeginWriteRaises;
+var
+  mrew  : TLightweightMREWEx;
+  raised: string;
+begin
+  mrew.BeginRead;
+  try
+    raised := '<no exception>';
+    try
+      if mrew.TryBeginWrite then
+        mrew.EndWrite;
+    except
+      on E: Exception do
+        raised := E.Message;
+    end;
+    Assert.IsTrue(Pos('TLightweightMREWEx.TryBeginWrite', raised) > 0,
+      'TryBeginWrite while holding a read lock raises, got: ' + raised);
+    {$IF defined(LINUX) or defined(ANDROID)}
+    raised := '<no exception>';
+    try
+      if mrew.TryBeginWrite(0) then
+        mrew.EndWrite;
+    except
+      on E: Exception do
+        raised := E.Message;
+    end;
+    Assert.IsTrue(Pos('TLightweightMREWEx.TryBeginWrite', raised) > 0,
+      'TryBeginWrite(timeout) while holding a read lock raises, got: ' + raised);
+    {$ENDIF LINUX or ANDROID}
+  finally mrew.EndRead; end;
+end;
+
+procedure TestLightweightMREWEx.TestEndWriteWithNestedReadRaises;
+var
+  entered: TOmniAlignedInt32;
+  mrew   : ILightweightMREWEx;
+  raised : string;
+begin
+  mrew := TLightweightMREWExImpl.Create;
+  entered.Value := 0;
+
+  mrew.BeginWrite;
+  mrew.BeginRead; // read-under-write (granted since Task 1)
+  raised := '<no exception>';
+  try
+    mrew.EndWrite; // outermost write release with the nested read still held
+  except
+    on E: Exception do
+      raised := E.Message;
+  end;
+  Assert.IsTrue(Pos('TLightweightMREWEx.EndWrite', raised) > 0,
+    'EndWrite with outstanding nested read raises, got: ' + raised);
+
+  // The raise must leave the lock intact: clean up in the correct order.
+  mrew.EndRead;
+  mrew.EndWrite;
+  Assert.IsTrue(
+    System.Threading.TTask.Run(
+      procedure
+      begin
+        if mrew.TryBeginWrite then begin
+          entered.Value := 1;
+          mrew.EndWrite;
+        end;
+      end).Wait(5000),
+    'verification task completed');
+  Assert.AreEqual<integer>(1, entered.Value, 'lock fully released after correct-order cleanup');
+end;
+
+procedure TestLightweightMREWEx.TestUpgradeBeginWriteRaises;
+var
+  mrew  : TLightweightMREWEx;
+  raised: string;
+begin
+  // Without upgrade detection this deadlocks on Windows (exclusive waits for
+  // our own shared) - see TLightweightMREWEx.BeginWrite.
+  mrew.BeginRead;
+  try
+    raised := '<no exception>';
+    try
+      mrew.BeginWrite;
+      mrew.EndWrite;
+    except
+      on E: Exception do
+        raised := E.Message;
+    end;
+    Assert.IsTrue(Pos('TLightweightMREWEx.BeginWrite', raised) > 0,
+      'BeginWrite while holding a read lock raises, got: ' + raised);
+  finally mrew.EndRead; end;
 end;
 
 { TestLockManager }
