@@ -95,6 +95,23 @@ detectably: nested reads succeed, upgrades raise, unmatched releases raise.
 - Platform scope: uniform on Windows and POSIX, for identical semantics and
   upgrade detection everywhere.
 
+## Documentation
+
+Full XML-doc pass over the public surface so users can discover the new
+semantics without reading the implementation:
+
+- `TLightweightMREWEx` record: `<summary>` describing the capability set
+  (nested exclusive locks, recursive/nested read locks safe against pending
+  writers, read-under-write granted, upgrade attempts raise) and `<remarks>`
+  covering the no-copy/no-relocate constraint and the thread-exit caveat.
+- Every public method (`BeginRead`, `TryBeginRead` overloads, `EndRead`,
+  `BeginWrite`, `TryBeginWrite` overloads, `EndWrite`): `<summary>` of
+  behavior, including what happens on nested/recursive calls and which usage
+  errors raise, mirroring the RTL's style on `TLightweightMREW` so the
+  differences from the raw RTL type are obvious side by side.
+- `ILightweightMREWEx` and `TLightweightMREWExImpl` reference the record's
+  documentation rather than duplicating it.
+
 ## Testing (TDD)
 
 New tests (RED first; deadlock-shaped REDs observed via external timeout):
