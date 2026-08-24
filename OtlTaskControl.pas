@@ -35,9 +35,33 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
 ///   Last modification : 2026-08-24
-///   Version           : 3.09
+///   Version           : 3.10
 ///</para><para>
 ///   History:
+///     3.10: 2026-08-24
+///       - Fixed AV in TOmniTaskExecutor.EventInfo (oteCommNewMsgList nil,
+///         "Read of address 00000008") when a message arrived on a task's
+///         own default Comm channel with no additional comms registered -
+///         found via FABDVBService.exe (a real-world consumer) crashing on
+///         startup. Root cause: RebuildWaitHandles populated
+///         msgInfo.WaitHandles[] via implicit IOmniEvent->IOmniSynchro
+///         conversions (a static, QueryInterface-free vtable-prefix
+///         reference the compiler takes for compile-time-provable ancestor
+///         casts), while EventInfo's identity check compares against an
+///         explicit "as IOmniSynchro" cast (a real QueryInterface call) of
+///         the very same object - two different, individually valid, but
+///         non-identical interface pointers for one underlying TOmniEvent.
+///         (TOmniSynchroObject's direct IOmniSynchro declaration - which
+///         looked redundant given IOmniEvent already extends IOmniSynchro -
+///         turned out to be load-bearing: Delphi's GetInterface/
+///         QueryInterface does not auto-discover ancestor interfaces of a
+///         directly-declared descendant interface, so removing it broke
+///         every explicit "as IOmniSynchro"/Supports() cast outright,
+///         E_NOINTERFACE - confirmed via TOmniResourceCount.GetSynchro and
+///         a Parallel.For/.Join hang; reverted.) Fixed instead by making
+///         every handles.Add() in RebuildWaitHandles, and
+///         TerminateWhen's oteTerminateHandles.Add(), use an explicit "as
+///         IOmniSynchro" cast, matching EventInfo's comparison style.
 ///     3.09: 2026-08-24
 ///       - Added RegisterWaitObject/Asy_RegisterWaitObject(THandle,
 ///         TOmniWaitObjectProc), the anonymous-method counterpart to the
@@ -3037,8 +3061,20 @@ begin
     handles := TList<IOmniSynchro>.Create;
     try
       // termination events
+      // NOTE: every handles.Add() below that takes an IOmniEvent (or other
+      // IOmniSynchro-descendant) value explicitly casts it "as IOmniSynchro"
+      // rather than relying on the implicit ancestor-interface conversion.
+      // The two are NOT interchangeable: the implicit conversion is a
+      // static, QueryInterface-free vtable-prefix reference, while "as"
+      // performs a real QueryInterface - for the SAME underlying object
+      // these can yield DIFFERENT (both valid) interface pointers. Code
+      // that later compares a WaitHandles[] entry for identity (e.g.
+      // EventInfo's `synchObj = (oteMsgInfo.NewMessageEvent as IOmniSynchro)`)
+      // uses "as", so anything that might be compared must be stored via
+      // "as" too, or `=` between two references to the very same object can
+      // come back False. See OtlTaskControl.pas 3.10 history.
       msgInfo.IdxFirstTerminate := 0;
-      handles.Add(task.TerminateEvent);
+      handles.Add(task.TerminateEvent as IOmniSynchro);
       msgInfo.IdxLastTerminate := msgInfo.IdxFirstTerminate;
       if assigned(oteTerminateHandles) then
         for aHandle in oteTerminateHandles do begin
@@ -3048,18 +3084,18 @@ begin
 
       // rebuild handles
       msgInfo.IdxRebuildHandles := msgInfo.IdxLastTerminate + 1;
-      handles.Add(oteCommRebuildHandles);
+      handles.Add(oteCommRebuildHandles as IOmniSynchro);
 
       // message queues
       msgInfo.IdxFirstMessage := msgInfo.IdxRebuildHandles + 1;
       msgInfo.NewMessageEvent := task.Comm.NewMessageEvent;
-      handles.Add(msgInfo.NewMessageEvent);
+      handles.Add(msgInfo.NewMessageEvent as IOmniSynchro);
       msgInfo.IdxLastMessage := msgInfo.IdxFirstMessage;
       if assigned(oteCommList) then begin
         for iIntf := 0 to oteCommList.Count - 1 do begin
           intf := oteCommList[iIntf];
           Inc(msgInfo.IdxLastMessage);
-          handles.Add((intf as IOmniCommunicationEndpoint).NewMessageEvent);
+          handles.Add((intf as IOmniCommunicationEndpoint).NewMessageEvent as IOmniSynchro);
         end;
       end;
 
@@ -3069,7 +3105,7 @@ begin
       if assigned(oteWaitObjectList) then begin
         for iWaitObject := 0 to oteWaitObjectList.Count - 1 do begin
           Inc(msgInfo.IdxLastWaitObject);
-          handles.Add(oteWaitObjectList.WaitObjects[iWaitObject]);
+          handles.Add(oteWaitObjectList.WaitObjects[iWaitObject] as IOmniSynchro);
         end;
       end;
       msgInfo.NumWaitHandles := msgInfo.IdxLastWaitObject + 1;
@@ -3171,7 +3207,17 @@ procedure TOmniTaskExecutor.TerminateWhen(handle: IOmniEvent);
 begin
   if not assigned(oteTerminateHandles) then
     oteTerminateHandles := TList<IOmniSynchro>.Create;
-  oteTerminateHandles.Add(handle);
+  // Explicit cast, not an implicit IOmniEvent->IOmniSynchro widening: the
+  // compiler resolves an implicit ancestor-interface conversion via a
+  // static, QueryInterface-free vtable-prefix reference, which yields a
+  // DIFFERENT (but equally valid) interface pointer than an explicit "as"
+  // cast / real QueryInterface call. RebuildWaitHandles stores explicitly-
+  // cast IOmniSynchro references in msgInfo.WaitHandles, and identity
+  // comparisons against them (e.g. TOmniTaskExecutor.EventInfo) use "as"
+  // too - so every value that can end up compared must be obtained the
+  // same way, or "=" between two references to the very same object can
+  // come back False. See OtlTaskControl.pas 3.10 history.
+  oteTerminateHandles.Add(handle as IOmniSynchro);
 end; { TOmniTaskExecutor.TerminateWhen }
 
 function TOmniTaskExecutor.TestForInternalRebuild(const task: IOmniTask; var msgInfo:

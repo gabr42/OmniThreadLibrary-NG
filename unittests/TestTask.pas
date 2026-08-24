@@ -35,6 +35,7 @@ type
     [Test] procedure TestRegisterCommDispatchesMessages;
     [Test] procedure TestUnregisterCommStopsDispatch;
     [Test] procedure TestMultipleAdditionalComms;
+    [Test] procedure TestEventInfoOwnMessageChannel;
     [Test] procedure TestFatalExceptionFromAnonymousTask;
     [Test] procedure TestFatalExceptionFromWorker;
     [Test] procedure TestDetachExceptionTransfersOwnership;
@@ -1205,6 +1206,72 @@ begin
       task := nil;
     end;
   finally FreeAndNil(counter); end;
+end;
+
+const
+  MSG_PING = 4001;
+
+type
+  // Captures the TOmniWorkerEventInfo for the first message-type AfterWait
+  // call it sees, reproducing the exact TOmniWorker.AfterWait -> EventInfo
+  // call chain that crashed in FABDVBService.exe.
+  TEventInfoCaptureTask = class(TSynchronizedOmniWorker)
+  strict private
+    FCaptured: TOmniWorkerEventInfo;
+  protected
+    procedure AfterWait(waitFor: TWaitFor; awaited: TWaitFor.TWaitForResult); override;
+  public
+    procedure MsgPing(var msg: TOmniMessage); message MSG_PING;
+    property Captured: TOmniWorkerEventInfo read FCaptured;
+  end;
+
+procedure TEventInfoCaptureTask.AfterWait(waitFor: TWaitFor; awaited: TWaitFor.TWaitForResult);
+var
+  info: TOmniWorkerEventInfo;
+begin
+  inherited;
+  info := EventInfo(awaited);
+  if info.EventType = etMessage then begin
+    FCaptured := info;
+    FSynchronizer.Signal('gotMessage');
+  end;
+end;
+
+procedure TEventInfoCaptureTask.MsgPing(var msg: TOmniMessage);
+begin
+  // no-op - just needs to be received so AfterWait fires with etMessage
+end;
+
+procedure TestITaskControl.TestEventInfoOwnMessageChannel;
+// Regression: TOmniTaskExecutor.EventInfo crashed with an AV
+// (oteCommNewMsgList nil, "Read of address 00000008") when a message
+// arrived on a task's own default Comm channel with no additional comms
+// registered. Root cause: RebuildWaitHandles stored WaitHandles[] entries
+// via an implicit IOmniEvent->IOmniSynchro conversion (a static,
+// QueryInterface-free vtable-prefix reference), while EventInfo compared
+// against an explicit "as IOmniSynchro" cast of the very same
+// NewMessageEvent object - two different, individually valid, but
+// non-identical interface pointers. Fixed by making every handles.Add()
+// in RebuildWaitHandles (and TerminateWhen) use an explicit "as
+// IOmniSynchro" cast too, matching EventInfo's comparison style. See
+// OtlTaskControl.pas 3.10 history.
+var
+  task  : IOmniTaskControl;
+  worker: TEventInfoCaptureTask;
+begin
+  worker := TEventInfoCaptureTask.Create(Synchronizer);
+  task := CreateTask(worker, 'EventInfoOwnMessageChannel').Run;
+  try
+    task.Comm.Send(MSG_PING);
+    Assert.IsTrue(Synchronizer.WaitFor('gotMessage', 3000),
+      'AfterWait did not observe the message');
+    Assert.AreEqual<TOmniWorkerEventInfoType>(etMessage, worker.Captured.EventType);
+    Assert.AreEqual<integer>(-1, worker.Captured.CommChannel,
+      'Own default comm channel must report CommChannel = -1');
+  finally
+    task.Terminate;
+    task := nil;
+  end;
 end;
 
 end.
