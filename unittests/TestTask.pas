@@ -21,8 +21,10 @@ type
     [Test] procedure TestTerminateWhen;
     [Test] procedure TestWorkerInitialized;
     [Test] procedure TestRegisterWaitObject;
+    [Test] procedure TestRegisterWaitObjectProc;
     {$IFDEF MSWINDOWS}
     [Test] procedure TestRegisterWaitObjectHandle;
+    [Test] procedure TestRegisterWaitObjectHandleProc;
     [Test] procedure TestRegisterWaitObjectHandleUnregisterInHandler;
     {$ENDIF MSWINDOWS}
     [Test] procedure TestInvoke;
@@ -498,6 +500,77 @@ begin
   Sleep(0);
 end;
 
+type
+  // Exercises the TOmniWaitObjectProc (anonymous method) overload, in the
+  // "helper method returns a closure that captures its parameters by value"
+  // shape required by CLAUDE.md's closure-capture guidance - real-world
+  // usage is TTeletextGenerator.MakeCollectorEventHandler in
+  // dvbTeletext.Generator.pas. MakeHandler is called twice with different
+  // tags, so this also confirms each registration gets its own distinct
+  // captured value rather than sharing one.
+  TRegisterWaitObjectProcTask = class(TSynchronizedOmniWorker)
+  strict private
+    FWaitObject1: IOmniEvent;
+    FWaitObject2: IOmniEvent;
+  strict protected
+    function  MakeHandler(const tag: string): TOmniWaitObjectProc;
+  protected
+    function  Initialize: boolean; override;
+  public
+    constructor Create(Synchronizer: IOmniSynchronizer<string>;
+      const waitObject1, waitObject2: IOmniEvent);
+  end;
+
+constructor TRegisterWaitObjectProcTask.Create(Synchronizer: IOmniSynchronizer<string>;
+  const waitObject1, waitObject2: IOmniEvent);
+begin
+  inherited Create(Synchronizer);
+  FWaitObject1 := waitObject1;
+  FWaitObject2 := waitObject2;
+end;
+
+function TRegisterWaitObjectProcTask.Initialize: boolean;
+begin
+  Result := inherited Initialize;
+  if Result then begin
+    Task.RegisterWaitObject(FWaitObject1, MakeHandler('signal1'));
+    Task.RegisterWaitObject(FWaitObject2, MakeHandler('signal2'));
+  end;
+end;
+
+function TRegisterWaitObjectProcTask.MakeHandler(const tag: string): TOmniWaitObjectProc;
+begin
+  Result :=
+    procedure
+    begin
+      FSynchronizer.Signal(tag);
+    end;
+end;
+
+procedure TestITaskControl.TestRegisterWaitObjectProc;
+var
+  event1: IOmniEvent;
+  event2: IOmniEvent;
+  sw    : TStopwatch;
+  task  : IOmniTaskControl;
+begin
+  event1 := CreateOmniEvent(false, false);
+  event2 := CreateOmniEvent(false, false);
+
+  task := CreateTask(TRegisterWaitObjectProcTask.Create(Synchronizer, event1, event2), 'Test task');
+  task.Run;
+
+  event1.SetEvent;
+  event2.SetEvent;
+  Assert.IsTrue(Synchronizer.WaitFor('signal1', 3000), 'Wait object anon handler 1 was not triggered');
+  Assert.IsTrue(Synchronizer.WaitFor('signal2', 3000), 'Wait object anon handler 2 was not triggered');
+
+  sw := TStopwatch.StartNew;
+  task.Terminate;
+  Assert.IsTrue(sw.ElapsedMilliseconds < 500, 'Task took long time to terminate');
+  Sleep(0);
+end;
+
 {$IFDEF MSWINDOWS}
 type
   TRegisterWaitObjectHandleTask = class(TSynchronizedOmniWorker)
@@ -590,6 +663,81 @@ begin
     task.Terminate;
     Assert.IsTrue(sw.ElapsedMilliseconds < 500,
       'Task took too long to terminate after HANDLE registrations');
+    task := nil;
+  finally
+    Winapi.Windows.CloseHandle(handle1);
+    Winapi.Windows.CloseHandle(handle2);
+  end;
+end;
+
+type
+  // THandle counterpart to TRegisterWaitObjectProcTask: exercises
+  // RegisterWaitObject(THandle, TOmniWaitObjectProc), i.e. the bridge path
+  // (RegisterWaitForSingleObject -> proxy IOmniEvent) with an anonymous
+  // handler built by a by-value-capturing helper method.
+  TRegisterWaitObjectHandleProcTask = class(TSynchronizedOmniWorker)
+  strict private
+    FHandle1: THandle;
+    FHandle2: THandle;
+  strict protected
+    function  MakeHandler(const tag: string): TOmniWaitObjectProc;
+  protected
+    function  Initialize: boolean; override;
+  public
+    constructor Create(Synchronizer: IOmniSynchronizer<string>; handle1, handle2: THandle);
+  end;
+
+constructor TRegisterWaitObjectHandleProcTask.Create(
+  Synchronizer: IOmniSynchronizer<string>; handle1, handle2: THandle);
+begin
+  inherited Create(Synchronizer);
+  FHandle1 := handle1;
+  FHandle2 := handle2;
+end;
+
+function TRegisterWaitObjectHandleProcTask.Initialize: boolean;
+begin
+  Result := inherited Initialize;
+  if Result then begin
+    Task.RegisterWaitObject(FHandle1, MakeHandler('handle1'));
+    Task.RegisterWaitObject(FHandle2, MakeHandler('handle2'));
+  end;
+end;
+
+function TRegisterWaitObjectHandleProcTask.MakeHandler(const tag: string): TOmniWaitObjectProc;
+begin
+  Result :=
+    procedure
+    begin
+      FSynchronizer.Signal(tag);
+    end;
+end;
+
+procedure TestITaskControl.TestRegisterWaitObjectHandleProc;
+var
+  handle1: THandle;
+  handle2: THandle;
+  sw     : TStopwatch;
+  task   : IOmniTaskControl;
+begin
+  handle1 := Winapi.Windows.CreateEvent(nil, false, false, nil);
+  handle2 := Winapi.Windows.CreateEvent(nil, false, false, nil);
+  Assert.AreNotEqual(THandle(0), handle1, 'Failed to create handle1');
+  Assert.AreNotEqual(THandle(0), handle2, 'Failed to create handle2');
+  try
+    task := CreateTask(TRegisterWaitObjectHandleProcTask.Create(Synchronizer, handle1, handle2),
+      'TestRegisterWaitObjectHandleProc');
+    task.Run;
+
+    Winapi.Windows.SetEvent(handle1);
+    Winapi.Windows.SetEvent(handle2);
+    Assert.IsTrue(Synchronizer.WaitFor('handle1', 3000), 'Handle 1 anon handler was not triggered');
+    Assert.IsTrue(Synchronizer.WaitFor('handle2', 3000), 'Handle 2 anon handler was not triggered');
+
+    sw := TStopwatch.StartNew;
+    task.Terminate;
+    Assert.IsTrue(sw.ElapsedMilliseconds < 500,
+      'Task took too long to terminate after HANDLE+Proc registrations');
     task := nil;
   finally
     Winapi.Windows.CloseHandle(handle1);

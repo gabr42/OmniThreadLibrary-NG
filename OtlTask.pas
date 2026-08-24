@@ -35,10 +35,26 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Claude AI
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-04-22
-///   Version           : 3.02
+///   Last modification : 2026-08-24
+///   Version           : 3.04
 ///</para><para>
 ///   History:
+///     3.04: 2026-08-24
+///       - Added the {$IFDEF MSWINDOWS} RegisterWaitObject(THandle,
+///         TOmniWaitObjectProc) overload, for consistency with the
+///         TOmniWaitObjectMethod overload added alongside it in 3.02 - the
+///         3.03 entry below said no THandle+Proc combination was needed;
+///         that turned out to be premature.
+///     3.03: 2026-08-24
+///       - Restored TOmniWaitObjectProc (reference to procedure) and the
+///         matching IOmniTask.RegisterWaitObject(IOmniEvent, TOmniWaitObjectProc)
+///         overload, dropped during the OTL-NG rewrite with no MIGRATION.md
+///         entry (found via real-world callers - dvbTeletext.Generator.pas,
+///         dvbsGPI.pas, dvbTeletext.pas, amsActManAppUI.pas - that no longer
+///         compiled). TOmniWaitObjectList now keeps a third parallel list,
+///         owolAnonResponseHandlers, alongside the existing TMethod-based
+///         one; each Add overload fills its own list and leaves the other
+///         slot nil/empty.
 ///     3.02: 2026-04-22
 ///       - Reinstated Windows-only THandle overloads of
 ///         RegisterWaitObject/UnregisterWaitObject. Internally bridge via
@@ -118,20 +134,26 @@ type
   IOmniTask = interface;
 
   TOmniWaitObjectMethod = procedure of object;
+  TOmniWaitObjectProc = reference to procedure;
 
   TOmniWaitObjectList = class
   strict private
-    owolResponseHandlers: TList<TMethod>;
-    owolWaitObjects     : TList<IOmniEvent>;
+    owolAnonResponseHandlers: TList<TOmniWaitObjectProc>;
+    owolResponseHandlers    : TList<TMethod>;
+    owolWaitObjects         : TList<IOmniEvent>;
   strict protected
+    function  GetAnonResponseHandlers(idxHandler: integer): TOmniWaitObjectProc;
     function  GetResponseHandlers(idxHandler: integer): TOmniWaitObjectMethod;
     function  GetWaitObjects(idxWaitObject: integer): IOmniEvent;
   public
     constructor Create;
     destructor  Destroy; override;
-    procedure Add(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod);
+    procedure Add(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod); overload;
+    procedure Add(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectProc); overload;
     function  Count: integer;
     procedure Remove(waitObject: IOmniEvent);
+    property AnonResponseHandlers[idxHandler: integer]: TOmniWaitObjectProc read
+      GetAnonResponseHandlers;
     property ResponseHandlers[idxHandler: integer]: TOmniWaitObjectMethod read
       GetResponseHandlers;
     property WaitObjects[idxWaitObject: integer]: IOmniEvent read GetWaitObjects;
@@ -161,8 +183,10 @@ type
 //    procedure Invoke(remoteFunc: TOmniTaskInvokeFunctionEx); overload;
     procedure RegisterComm(const comm: IOmniCommunicationEndpoint);
     procedure RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod); overload;
+    procedure RegisterWaitObject(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectProc); overload;
     {$IFDEF MSWINDOWS}
     procedure RegisterWaitObject(waitHandle: THandle; responseHandler: TOmniWaitObjectMethod); overload;
+    procedure RegisterWaitObject(waitHandle: THandle; responseHandler: TOmniWaitObjectProc); overload;
     {$ENDIF MSWINDOWS}
     procedure SetException(exceptionObject: pointer);
     procedure SetExitStatus(exitCode: integer; const exitMessage: string);
@@ -208,10 +232,12 @@ begin
   inherited Create;
   owolWaitObjects := TList<IOmniEvent>.Create;
   owolResponseHandlers := TList<TMethod>.Create;
+  owolAnonResponseHandlers := TList<TOmniWaitObjectProc>.Create;
 end; { TOmniWaitObjectList.Create }
 
 destructor TOmniWaitObjectList.Destroy;
 begin
+  FreeAndNil(owolAnonResponseHandlers);
   FreeAndNil(owolResponseHandlers);
   FreeAndNil(owolWaitObjects);
   inherited Destroy;
@@ -223,12 +249,31 @@ begin
   Remove(waitObject);
   owolWaitObjects.Add(waitObject);
   owolResponseHandlers.Add(TMethod(responseHandler));
+  owolAnonResponseHandlers.Add(nil);
+end; { TOmniWaitObjectList.Add }
+
+procedure TOmniWaitObjectList.Add(waitObject: IOmniEvent;
+  responseHandler: TOmniWaitObjectProc);
+var
+  emptyMethod: TMethod;
+begin
+  Remove(waitObject);
+  owolWaitObjects.Add(waitObject);
+  emptyMethod.Code := nil;
+  emptyMethod.Data := nil;
+  owolResponseHandlers.Add(emptyMethod);
+  owolAnonResponseHandlers.Add(responseHandler);
 end; { TOmniWaitObjectList.Add }
 
 function TOmniWaitObjectList.Count: integer;
 begin
   Result := owolWaitObjects.Count;
 end; { TOmniWaitObjectList.Count }
+
+function TOmniWaitObjectList.GetAnonResponseHandlers(idxHandler: integer): TOmniWaitObjectProc;
+begin
+  Result := owolAnonResponseHandlers[idxHandler];
+end; { TOmniWaitObjectList.GetAnonResponseHandlers }
 
 function TOmniWaitObjectList.GetResponseHandlers(idxHandler: integer):
   TOmniWaitObjectMethod;
@@ -249,6 +294,7 @@ begin
   if idxWaitObject >= 0 then begin
     owolWaitObjects.Delete(idxWaitObject);
     owolResponseHandlers.Delete(idxWaitObject);
+    owolAnonResponseHandlers.Delete(idxWaitObject);
   end;
 end; { TOmniWaitObjectList.Remove }
 
