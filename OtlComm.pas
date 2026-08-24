@@ -35,10 +35,24 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-04-14
-///   Version           : 3.01
+///   Last modification : 2026-08-24
+///   Version           : 3.02
 ///</para><para>
 ///   History:
+///     3.02: 2026-08-24
+///       - Restored TOmniMessageQueue.OnMessage, dropped during the OTL-NG
+///         rewrite with no MIGRATION.md entry (found via a real-world caller,
+///         GpDVBMaster.pas, that failed to compile with E2003 Undeclared
+///         identifier). v3 built it on a hidden window bound to whichever
+///         thread first assigned a handler + TOmniContainerWindowsMessageObserver;
+///         reimplemented cross-platform on
+///         OtlBackgroundObserver.CreateContainerBackgroundObserver, binding to
+///         TThread.Current.ThreadID at assignment time instead. Delivery is
+///         automatic for OTL task/worker owners (TOmniTaskExecutor.WaitForEvent
+///         drains background observers every loop iteration); a plain,
+///         non-OTL thread must call
+///         OtlBackgroundObserver.DrainBackgroundObservers itself, or perform
+///         an alertable wait.
 ///     3.01: 2026-04-14
 ///       - Replaced TOmniTransitionEvent with IOmniEvent.
 ///     3.0: 2026-04-12 [OTL-NG]
@@ -129,6 +143,9 @@ type
 
   TOmniMessageQueue = class;
 
+  {:Callback signature for TOmniMessageQueue.OnMessage.}
+  TOmniMessageQueueMessageEvent = procedure(Sender: TObject; const msg: TOmniMessage) of object;
+
   {:Single producer/single consumer communication channel. No thread safety.
   }
   IOmniCommunicationEndpoint = interface ['{910D329C-D049-48B9-B0C0-9434D2E57870}']
@@ -165,8 +182,11 @@ type
   strict private
     mqEventObserver: IOmniContainerEventObserver;
     mqIsInitialized: boolean;
+    mqMsgObserver  : IOmniContainerObserver;
+    mqOnMessage    : TOmniMessageQueueMessageEvent;
   strict protected
     procedure AttachEventObserver;
+    procedure SetOnMessage(const value: TOmniMessageQueueMessageEvent);
   public
     constructor Create(numMessages: integer; createEventObserver: boolean = true); reintroduce;
     destructor  Destroy; override;
@@ -176,6 +196,14 @@ type
     function  GetNewMessageEvent: IOmniEvent;
     function  TryDequeue(var msg: TOmniMessage): boolean; reintroduce;
     property EventObserver: IOmniContainerEventObserver read mqEventObserver;
+    {:Callback invoked (on the thread that set OnMessage, or automatically
+      whenever that thread is an OTL task - see OtlBackgroundObserver.
+      CreateContainerBackgroundObserver) once per message as it is enqueued.
+      Assign nil to detach. Setting OnMessage does not replace TryDequeue -
+      either drain the queue yourself, or assign a handler, not both.
+      @since   2026-08-24
+    }
+    property OnMessage: TOmniMessageQueueMessageEvent read mqOnMessage write SetOnMessage;
   end; { TOmniMessageQueue }
 
   IOmniMessageQueueTee = interface ['{8A9526BF-71AA-4D78-BAE8-3490C3987327}']
@@ -204,6 +232,7 @@ implementation
 uses
   System.Types,
   {$IFDEF MSWINDOWS}{$IFDEF DEBUG}OtlCommBufferTest,{$ENDIF}{$ENDIF}
+  OtlBackgroundObserver,
   OtlEventMonitor;
 
 type
@@ -302,6 +331,7 @@ end; { TOmniMessageQueue.Create }
 
 destructor TOmniMessageQueue.Destroy;
 begin
+  OnMessage := nil; // detach mqMsgObserver before the queue underneath it disappears
   if assigned(mqEventObserver) then begin
     ContainerSubject.Detach(mqEventObserver, coiNotifyOnAllInserts);
     mqEventObserver := nil;
@@ -319,6 +349,36 @@ begin
   end;
   mqEventObserver.Activate;
 end; { TOmniMessageQueue.AttachEventObserver }
+
+{:Sets up (or tears down) delivery of OnMessage. The observer binds to
+  whichever thread is current when a handler is first assigned - matching
+  v3's hidden-window binding, but via CreateContainerBackgroundObserver
+  instead (cross-platform; Windows: QueueUserAPC, POSIX: thread-local
+  registry). Delivery is automatic for OTL task/worker threads
+  (TOmniTaskExecutor.WaitForEvent drains background observers on every loop
+  iteration); a plain, non-OTL thread must call
+  OtlBackgroundObserver.DrainBackgroundObservers itself, or perform an
+  alertable wait, for the callback to run.}
+procedure TOmniMessageQueue.SetOnMessage(const value: TOmniMessageQueueMessageEvent);
+begin
+  if (not assigned(mqOnMessage)) and assigned(value) then begin // set up observer
+    mqMsgObserver := CreateContainerBackgroundObserver(TThread.Current.ThreadID,
+      procedure
+      var
+        msg: TOmniMessage;
+      begin
+        while TryDequeue(msg) do
+          if assigned(mqOnMessage) then
+            mqOnMessage(Self, msg);
+      end);
+    ContainerSubject.Attach(mqMsgObserver, coiNotifyOnAllInserts);
+  end
+  else if assigned(mqOnMessage) and (not assigned(value)) then begin // tear down observer
+    ContainerSubject.Detach(mqMsgObserver, coiNotifyOnAllInserts);
+    mqMsgObserver := nil;
+  end;
+  mqOnMessage := value;
+end; { TOmniMessageQueue.SetOnMessage }
 
 function TOmniMessageQueue.Dequeue: TOmniMessage;
 begin

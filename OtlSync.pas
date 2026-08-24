@@ -35,10 +35,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
-///   Last modification : 2026-07-24
-///   Version           : 3.10
+///   Last modification : 2026-08-24
+///   Version           : 3.11
 ///</para><para>
 ///   History:
+///     3.11: 2026-08-24
+///       - Renamed the transitional global helper SetEvent(IOmniEvent) to
+///         SignalEvent - the old name collided with Winapi.Windows.SetEvent
+///         when OtlSync was used after the Windows unit.
 ///     3.10: 2026-07-24
 ///       - TLightweightMREWEx.BeginRead/TryBeginRead while owning the write
 ///         lock now raise BY DEFAULT - with strict TLightweightMREW semantics
@@ -927,7 +931,7 @@ function WaitForAllObjects(const handles: array of THandle; timeout_ms: cardinal
 
 function GetCPUTimeStamp: int64;
 
-function SetEvent(event: IOmniEvent): boolean;
+function SignalEvent(event: IOmniEvent): boolean;
 
 var
   GOmniCancellationToken: IOmniCancellationToken;
@@ -1134,12 +1138,12 @@ end; { InterlockedCompareExchange128 }
 
 { transitional }
 
-function SetEvent(event: IOmniEvent): boolean;
+function SignalEvent(event: IOmniEvent): boolean;
 begin
   Result := true;
   if assigned(event) then
     event.SetEvent;
-end; { SetEvent }
+end; { SignalEvent }
 
 { exports }
 

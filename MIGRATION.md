@@ -37,6 +37,18 @@ differences between OmniThreadLibrary v3.07.x (Windows-only) and OTL NG
    `CheckSynchronize` — required by all console apps (any platform),
    automatic in VCL / FMX (see
    [Thread Pool Monitor Callbacks Need CheckSynchronize](#thread-pool-monitor-callbacks-need-checksynchronize-console-apps))
+10. Replace `CreateContainerWindowsEventObserver(handle)` with
+    `CreateContainerEventObserver(CreateOmniEvent(handle, false))`, and
+    `CreateContainerWindowsMessageObserver(hwnd, ...)` with
+    `CreateContainerMainThreadObserver(callback)` (main-thread owners
+    only). Change any `TOmniContainerObserver`-typed field holding the
+    result to an interface type, `FreeAndNil` to `:= nil`, and call
+    `.Shutdown` before `Detach` for a main-thread observer (see
+    [Windows Message-Based Observers](#windows-message-based-observers))
+11. If your code uses `IOmniCommDispatchingObserver` /
+    `CreateDispatchingObserver` (`OtlComm.pas`), it's gone with no
+    replacement — reconstruct it yourself (see
+    [IOmniCommDispatchingObserver — Removed, No Replacement](#iomnicommdispatchingobserver--removed-no-replacement))
 
 ---
 
@@ -106,6 +118,203 @@ removed from `OtlContainerObserver.pas`.
   target thread's alertable wait; POSIX uses an atomic pending flag +
   thread-local registry drained by `DrainBackgroundObservers`.
 
+**`CreateContainerWindowsEventObserver(handle: THandle)` specifically:**
+there is no `THandle`-based replacement. Wrap the existing handle in an
+`IOmniEvent` first (`CreateOmniEvent(AExternalEvent: THandle; ATakeOwnership:
+boolean = false): IOmniEvent`, `OtlSync.pas`), then pass that to the
+platform-independent factory:
+
+```pascal
+// OTL v3
+wpoCommObserver := CreateContainerWindowsEventObserver(wpoOnMessageEvent);
+
+// OTL NG — wrap the raw handle, don't transfer ownership if the handle
+// is still owned/closed elsewhere (e.g. by the code that created it)
+wpoCommObserver := CreateContainerEventObserver(
+  CreateOmniEvent(wpoOnMessageEvent, false));
+```
+
+Use `ATakeOwnership := true` only if you want the `IOmniEvent` to
+`CloseHandle` the wrapped handle when its last reference is released —
+otherwise a double-close (once by your own cleanup code, once by the
+`IOmniEvent`) will raise or corrupt the handle table.
+
+**`CreateContainerWindowsMessageObserver(hwnd, msg, wParam, lParam)`
+specifically:** typically used as the "no external event supplied"
+fallback — a hidden window (`AllocateHWnd`/`DSiAllocateHWnd`) posts a
+window message on every container notification, and the owning code's
+`WndProc` reacts by draining the queue. The hidden window binds to
+*whichever thread created it*, which in practice is almost always the
+thread that owns/pumps the message loop the rest of the code already
+assumes — most commonly the main VCL/FMX thread. If that assumption
+holds for your call site, `CreateContainerMainThreadObserver` is the
+direct replacement — same "notify → drain" shape, no window needed:
+
+```pascal
+// OTL v3
+wpoMessageWindow := DSiAllocateHWnd(WndProc);
+wpoCommObserver := CreateContainerWindowsMessageObserver(wpoMessageWindow, WM_QUEUE_MESSAGE, 0, 0);
+// ...WndProc calls ProcessMessages on WM_QUEUE_MESSAGE...
+
+// OTL NG — main-thread owner
+wpoCommObserver := CreateContainerMainThreadObserver(
+  procedure begin ProcessMessages; end);
+```
+
+This drops the hidden-window machinery entirely (`AllocateHWnd`/
+`DeallocateHWnd`, the `WM_QUIT`-based teardown, the custom `WndProc`).
+Two things to watch:
+
+- **It only targets the main thread.** The old hidden window could be
+  created from (and thus pumped by) any thread with a message loop. If
+  a call site creates its owner off the main thread while relying on
+  *that* thread's own window pump, there is no direct replacement —
+  route that case through `CreateContainerEventObserver` +
+  `CreateOmniEvent` instead (a dedicated pump thread waiting on an
+  `IOmniEvent`, independent of window messages), or move ownership to
+  the main thread.
+- **Console apps need `CheckSynchronize`.** Same rule as
+  [Thread Pool Monitor Callbacks Need CheckSynchronize](#thread-pool-monitor-callbacks-need-checksynchronize-console-apps) —
+  `TThread.ForceQueue` only runs once something pumps it.
+
+**Two knock-on changes are usually needed at the same time** for
+either factory, because both return an interface, not a class
+instance (containers are interface-refcounted since v2.06 — see
+[Container Observer Lifetime Is Interface-Refcounted](#container-observer-lifetime-is-interface-refcounted)):
+
+1. Any field/variable declared as `TOmniContainerObserver` (or the
+   removed `TOmniContainerWindowsEventObserver` /
+   `TOmniContainerWindowsMessageObserver`) must become an interface
+   type — `IOmniContainerObserver` covers both the event- and
+   main-thread-observer factories if the same field can hold either
+   one, depending on which branch of your code ran.
+2. Any `FreeAndNil(observer)` must become `observer := nil` — you
+   cannot `FreeAndNil` an interface reference; releasing the last
+   reference frees the underlying object automatically. If the field
+   might hold a main-thread observer, call `.Shutdown` on it (via
+   `Supports(observer, IOmniContainerMainThreadObserver, obs)`) before
+   `Detach`, so a callback already queued on the main thread becomes a
+   no-op instead of running after your teardown starts.
+
+---
+
+### Container Observer Lifetime Is Interface-Refcounted
+
+`OtlContainerObserver.pas` v2.06 made all container observers
+`TInterfacedObject`-based and refcounted, so `TOmniContainerSubject`
+can snapshot its observer list under a read lock and dispatch outside
+the lock without holding a class reference that another thread might
+free mid-dispatch. The practical effect at call sites:
+
+- Factories (`CreateContainerEventObserver`,
+  `CreateContainerMainThreadObserver`,
+  `CreateContainerBackgroundObserver`, ...) return interfaces
+  (`IOmniContainerObserver` or a descendant), never class instances.
+- Store them in interface-typed fields, not `TOmniContainerObserver`
+  (the class still exists as the base implementation, but you should
+  not hold a bare class reference to an instance you didn't create
+  yourself).
+- Release with `observer := nil` (or just let the variable go out of
+  scope), not `FreeAndNil`. `Detach` from `TOmniContainerSubject`
+  before releasing your reference if the subject might otherwise be
+  the last thing keeping the observer alive mid-dispatch.
+
+---
+
+### IOmniCommDispatchingObserver — Removed, No Replacement
+
+Unlike the observers above, `IOmniCommDispatchingObserver` /
+`CreateDispatchingObserver` (`OtlComm.pas`) were dropped from OTL NG
+with no replacement and no `MIGRATION.md` entry until this one — the
+only trace left in the source is a changelog line ("Implemented
+TOmniMessageQueueTee and IOmniCommDispatchingObserver", v1.06, 2010).
+If your code still references either name, you're on your own to
+reconstruct it; there is no OTL NG equivalent to call.
+
+In OTL v3 it was a composition of a hidden window + a
+`TOmniContainerWindowsMessageObserver`, bound to whichever thread
+created it, whose `WndProc` drained the target `TOmniMessageQueue` and
+called classic `TObject.Dispatch` on a caller-supplied `dispatchTo`
+object for each message:
+
+```pascal
+// OTL v3 (OtlComm.pas)
+constructor TOmniCommDispatchingObserverImpl.Create(queue: TOmniMessageQueue; dispatchTo: TObject);
+begin
+  cdoDispatchWnd := DSiAllocateHWnd(WndProc);
+  cdoObserver := CreateContainerWindowsMessageObserver(cdoDispatchWnd, WM_USER, 0, 0);
+  cdoQueue.ContainerSubject.Attach(cdoObserver, coiNotifyOnAllInserts);
+end;
+
+procedure TOmniCommDispatchingObserverImpl.WndProc(var msg: TMessage);
+begin
+  if msg.msg = WM_USER then
+    while cdoQueue.TryDequeue(omsg) do
+      cdoDispatchTo.Dispatch(omsg);
+end;
+```
+
+If the owner is reliably the main thread, port it the same way as
+[`CreateContainerWindowsMessageObserver`](#windows-message-based-observers)
+above: `CreateContainerMainThreadObserver`, callback drains the queue
+and calls `Dispatch`.
+
+If the owner thread is **not** guaranteed to be the main thread (the
+general case — v3's hidden window worked from any thread with a
+message pump, which OTL NG has no equivalent for), use
+`CreateContainerBackgroundObserver` bound to the creating thread's ID
+instead:
+
+```pascal
+// OTL NG — owner thread not guaranteed to be main
+observer := CreateContainerBackgroundObserver(TThread.Current.ThreadID,
+  procedure
+  var
+    omsg: TOmniMessage;
+  begin
+    while queue.TryDequeue(omsg) do
+      dispatchTo.Dispatch(omsg);
+  end);
+queue.ContainerSubject.Attach(observer, coiNotifyOnAllInserts);
+```
+
+Whether this is a drop-in behaviorally depends on what kind of thread
+owns it:
+
+- **OTL task/worker owner** (the observer is created from code running
+  on a task started via `CreateTask(...).Run`, e.g. inside a
+  `TOmniWorker` method): delivery is automatic and needs no extra
+  code. `TOmniTaskExecutor.WaitForEvent` (`OtlTaskControl.pas`) calls
+  `OtlBackgroundObserver.DrainBackgroundObservers` unconditionally on
+  *every* task-loop iteration — regardless of whether the wait that
+  just completed was alertable, timed out, or was satisfied by a
+  handle/message — so any OTL task already drains its background
+  observers as a side effect of its own message loop. Latency is
+  bounded by how often the loop cycles (timers, comm-channel traffic,
+  etc.), not by anything you need to add.
+- **Plain, non-OTL `TThread` owner** (never calls into an OTL task
+  loop): delivery is *not* automatic — v3's hidden window delivered to
+  any window-message pump on the owner thread, but OTL NG's background
+  observer only fires via `QueueUserAPC`, which needs either an
+  alertable wait or an explicit `OtlBackgroundObserver.
+  DrainBackgroundObservers` call added somewhere in that thread's own
+  loop.
+
+`X:\gp\dvb\DVBDriver.Common.pas`'s only current owner
+(`TDVBMixerEngine`, `dvbMixerEngine.pas`) is itself an OTL task, so it
+needed no changes beyond `CreateObserver`/`DetachObserver` — don't
+assume that's true for every consumer without checking what kind of
+thread constructs the observer.
+
+Also unlike v3, `IOmniContainerObserver` has no self-detaching
+destructor to rely on — `observer := nil` alone does **not** detach it
+from `ContainerSubject`. `Detach` explicitly before freeing the queue,
+or you'll get exactly the use-after-free the observer pattern exists
+to avoid. See `X:\gp\dvb\DVBDriver.Common.pas` (`CreateObserver`/
+`DetachObserver`, v3.06) for a worked example, including the paired
+teardown at every call site that used to say `observer := nil; //
+will detach automatically`.
+
 ---
 
 ## Deprecated APIs
@@ -172,6 +381,26 @@ evt.WaitFor(INFINITE);
 If your code passed `TOmniTransitionEvent` to Windows API functions
 (`WaitForSingleObject`, `WaitForMultipleObjects`), you must switch to
 `IOmniEvent.WaitFor` or `TWaitFor.WaitAny`.
+
+**More generally:** wherever an OTL NG API now expects an `IOmniEvent`
+parameter but your existing code only has a raw `THandle` (a
+`CreateEvent` result, a handle stored on some legacy object, etc.),
+don't rewrite that code to create/own an `IOmniEvent` from scratch —
+wrap the existing handle instead:
+
+```pascal
+function CreateOmniEvent(AExternalEvent: THandle; ATakeOwnership: boolean = false): IOmniEvent; overload;
+```
+
+`ATakeOwnership` defaults to `false`, so the wrapped `IOmniEvent` will
+`WaitFor`/`SetEvent`/`Reset` through the handle without closing it —
+pass `true` only if you want the `IOmniEvent` to `CloseHandle` it when
+the last reference is released (and make sure nothing else still
+closes that same handle, or you get a double-close). This is the same
+helper used to port
+[`CreateContainerWindowsEventObserver`](#windows-message-based-observers)
+above; it applies to any THandle-to-IOmniEvent conversion, not just
+that one call site.
 
 ### WaitForMultipleObjects Replaced
 

@@ -28,6 +28,21 @@ type
   end;
 
   [TestFixture]
+  TestOmniMessageQueueOnMessage = class(TOtlTestBase)
+  public
+    [Test]
+    procedure TestFiresOnEnqueue;
+    [Test]
+    procedure TestDrainsAllQueuedMessagesInOrder;
+    [Test]
+    procedure TestNotCalledBeforeDrain;
+    [Test]
+    procedure TestNilDetaches;
+    [Test]
+    procedure TestDestroyWithActiveHandlerDoesNotRaise;
+  end;
+
+  [TestFixture]
   TestIOmniTwoWayChannel = class(TOtlTestBase)
   public
     [Test]
@@ -56,7 +71,7 @@ uses
   System.SysUtils, System.Types, System.Classes, System.Threading,
   System.SyncObjs,
   OtlSync, OtlSync.Utils,
-  OtlCommon, OtlComm;
+  OtlCommon, OtlComm, OtlBackgroundObserver;
 
 type
   TLeakCheckObj = class
@@ -337,6 +352,128 @@ begin
     on E: EAggregateException do
       Assert.Fail('Writer: ' + E.InnerExceptions[0].Message);
   end;
+end;
+
+{ TMessageCollector }
+
+type
+  // Collects OnMessage deliveries. TOmniMessageQueueMessageEvent is "of
+  // object", so it needs a real instance to bind to (nested procedures /
+  // anonymous methods don't have the right calling convention for it).
+  TMessageCollector = class
+  strict private
+    FMsgIDs: TArray<integer>;
+    FSender: TObject;
+  public
+    procedure HandleMessage(Sender: TObject; const msg: TOmniMessage);
+    property MsgIDs: TArray<integer> read FMsgIDs;
+    property Sender: TObject read FSender;
+    function Count: integer;
+  end;
+
+procedure TMessageCollector.HandleMessage(Sender: TObject; const msg: TOmniMessage);
+begin
+  FSender := Sender;
+  SetLength(FMsgIDs, Length(FMsgIDs) + 1);
+  FMsgIDs[High(FMsgIDs)] := msg.MsgID;
+end;
+
+function TMessageCollector.Count: integer;
+begin
+  Result := Length(FMsgIDs);
+end;
+
+{ TestOmniMessageQueueOnMessage }
+
+procedure TestOmniMessageQueueOnMessage.TestFiresOnEnqueue;
+begin
+  var collector := TMessageCollector.Create;
+  try
+    var mq := TOmniMessageQueue.Create(3);
+    try
+      mq.OnMessage := collector.HandleMessage;
+      Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(42, 'hello')));
+      DrainBackgroundObservers;
+      Assert.AreEqual<integer>(1, collector.Count, 'handler should have fired once');
+      Assert.AreEqual<integer>(42, collector.MsgIDs[0], 'MsgID');
+      Assert.IsTrue(collector.Sender = mq, 'Sender should be the queue itself');
+      // OnMessage already dequeued the message
+      var msg: TOmniMessage;
+      Assert.IsFalse(mq.TryDequeue(msg), 'message should already be drained');
+    finally FreeAndNil(mq); end;
+  finally FreeAndNil(collector); end;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestDrainsAllQueuedMessagesInOrder;
+begin
+  var collector := TMessageCollector.Create;
+  try
+    var mq := TOmniMessageQueue.Create(5);
+    try
+      mq.OnMessage := collector.HandleMessage;
+      // Multiple Enqueues before a single drain: Notify coalesces internally
+      // (one APC queued, not three), but the handler drains the whole queue
+      // in a loop, so all three must still be delivered, in FIFO order.
+      Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
+      Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(2, '2')));
+      Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(3, '3')));
+      DrainBackgroundObservers;
+      Assert.AreEqual<integer>(3, collector.Count, 'all three messages should have been delivered');
+      Assert.AreEqual<integer>(1, collector.MsgIDs[0], 'FIFO order #1');
+      Assert.AreEqual<integer>(2, collector.MsgIDs[1], 'FIFO order #2');
+      Assert.AreEqual<integer>(3, collector.MsgIDs[2], 'FIFO order #3');
+    finally FreeAndNil(mq); end;
+  finally FreeAndNil(collector); end;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestNotCalledBeforeDrain;
+begin
+  var collector := TMessageCollector.Create;
+  try
+    var mq := TOmniMessageQueue.Create(3);
+    try
+      mq.OnMessage := collector.HandleMessage;
+      Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
+      // No DrainBackgroundObservers call: delivery goes through a queued APC
+      // (Windows) / pending flag (POSIX), not a synchronous call from Enqueue.
+      Assert.AreEqual<integer>(0, collector.Count,
+        'handler must not fire synchronously from Enqueue');
+    finally FreeAndNil(mq); end;
+  finally FreeAndNil(collector); end;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestNilDetaches;
+begin
+  var collector := TMessageCollector.Create;
+  try
+    var mq := TOmniMessageQueue.Create(3);
+    try
+      mq.OnMessage := collector.HandleMessage;
+      mq.OnMessage := nil;
+      Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
+      DrainBackgroundObservers;
+      Assert.AreEqual<integer>(0, collector.Count, 'detached handler must not fire');
+      // Message is still there — nobody drained it
+      var msg: TOmniMessage;
+      Assert.IsTrue(mq.TryDequeue(msg), 'message should still be queued');
+      Assert.AreEqual<integer>(1, msg.MsgID);
+    finally FreeAndNil(mq); end;
+  finally FreeAndNil(collector); end;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestDestroyWithActiveHandlerDoesNotRaise;
+// Regression: Destroy must detach OnMessage (observer := nil) before tearing
+// down the queue underneath it. Destroy does `OnMessage := nil` first for
+// exactly this reason - this test just confirms it doesn't raise/AV even
+// with a message still pending and undelivered.
+begin
+  var collector := TMessageCollector.Create;
+  try
+    var mq := TOmniMessageQueue.Create(3);
+    mq.OnMessage := collector.HandleMessage;
+    Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
+    FreeAndNil(mq); // must not raise
+  finally FreeAndNil(collector); end;
 end;
 
 { TestOmniMessageQueueSize1 }
