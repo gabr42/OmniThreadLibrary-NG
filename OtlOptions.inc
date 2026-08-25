@@ -30,10 +30,15 @@
 ///<remarks><para>
 ///   Author            : Primoz Gabrijelcic
 ///   Creation date     : 2010-07-01
-///   Last modification : 2026-04-25
-///   Version           : 3.02
+///   Last modification : 2026-08-25
+///   Version           : 3.03
 ///</para><para>
 ///   History:
+///     3.03: 2026-08-25
+///       - Added OTL_NG define, unconditionally set. Lets code that must
+///         support both OTLv3 and OTL-NG in parallel (e.g. via a shared
+///         source tree or {$I} include) branch with `{$IFDEF OTL_NG}`.
+///         See MIGRATION.md.
 ///     3.02: 2026-04-25
 ///       - Removed OTL_HaveCmpx16b. The lock-free 128-bit-CAS path it gated
 ///         is now reachable on every supported target (32-bit via 8-byte
@@ -79,6 +84,8 @@
 {$IF CompilerVersion < 35}
 {$MESSAGE ERROR 'OmniThreadLibrary NG requires Delphi 11 Alexandria or newer'}
 {$IFEND}
+
+{$DEFINE OTL_NG}   // Marks this as the OTL-NG codebase; see MIGRATION.md.
 
 {$ALIGN 8}
 {$BOOLEVAL OFF}

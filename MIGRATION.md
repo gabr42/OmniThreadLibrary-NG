@@ -725,6 +725,15 @@ always true in Delphi 11+:
 If your code tested these defines with `{$IFDEF}`, the guarded code will now
 always compile (which is the correct behavior for Delphi 11+).
 
+### New: OTL_NG
+
+`OtlOptions.inc` now unconditionally defines `OTL_NG`. If a project needs to
+support both OTL v3 and OTL NG side by side (e.g. a shared unit compiled
+against either library, or a transitional codebase migrating incrementally),
+guard the version-specific code with `{$IFDEF OTL_NG} ... {$ELSE} ... {$ENDIF}`.
+OTL v3's `OtlOptions.inc` does not define `OTL_NG`, so the same source
+compiles correctly against either library.
+
 ---
 
 ## Test Migration
