@@ -43,10 +43,22 @@ type
     [Test] procedure TestNoWaitWithoutWaitForRaises;
   end;
 
+  [TestFixture]
+  TestLoopExceptions = class(TOtlTestBase)
+  public
+    // issue #57: exceptions in loop bodies must not hang the loop or get lost
+    [Test, Timeout(20000)] procedure TestForRaises;
+    [Test, Timeout(20000)] procedure TestForEachRaises;
+    [Test, Timeout(20000)] procedure TestForEachIntoRaises;
+    // issue #49: ForEach<TOmniValue> over a blocking collection with PreserveOrder + Into
+    [Test, Timeout(20000)] procedure TestForEachOmniValueCollectionOrdered;
+  end;
+
 implementation
 
 uses
   System.Math,
+  OtlCollections,
   System.Diagnostics,
   System.SyncObjs,
   OtlParallel,
@@ -436,6 +448,86 @@ begin
       join := nil; // drop without WaitFor — should raise
     end,
     Exception);
+end;
+
+{ TestLoopExceptions }
+
+type
+  ELoopTest = class(Exception);
+
+procedure TestLoopExceptions.TestForRaises;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      Parallel.For(0, 1).Execute(
+        procedure (i: integer)
+        begin
+          raise ELoopTest.Create('Error Message');
+        end);
+    end,
+    EJoinException);
+end;
+
+procedure TestLoopExceptions.TestForEachRaises;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      Parallel.ForEach(0, 9).Execute(
+        procedure (const value: integer)
+        begin
+          raise ELoopTest.Create('Error Message');
+        end);
+    end,
+    EJoinException);
+end;
+
+procedure TestLoopExceptions.TestForEachIntoRaises;
+begin
+  Assert.WillRaise(
+    procedure
+    var
+      outQueue: IOmniBlockingCollection;
+    begin
+      outQueue := TOmniBlockingCollection.Create;
+      Parallel.ForEach(0, 9).Into(outQueue).Execute(
+        procedure (const value: integer; var res: TOmniValue)
+        begin
+          raise ELoopTest.Create('Error Message');
+        end);
+    end,
+    EJoinException);
+end;
+
+procedure TestLoopExceptions.TestForEachOmniValueCollectionOrdered;
+const
+  CNumItems = 100;
+var
+  i       : integer;
+  inQueue : IOmniBlockingCollection;
+  loop    : IOmniParallelLoop<TOmniValue>;
+  outQueue: IOmniBlockingCollection;
+  value   : TOmniValue;
+begin
+  inQueue := TOmniBlockingCollection.Create;
+  outQueue := TOmniBlockingCollection.Create;
+  loop := Parallel.ForEach<TOmniValue>(inQueue);
+  loop.PreserveOrder.NoWait.Into(outQueue).Execute(
+    procedure (const value: TOmniValue; var res: TOmniValue)
+    begin
+      res := value.AsInteger * 2;
+    end);
+  for i := 1 to CNumItems do
+    inQueue.Add(i);
+  inQueue.CompleteAdding;
+  for i := 1 to CNumItems do begin
+    Assert.IsTrue(outQueue.TryTake(value, CTimeout_ms), 'Missing item ' + IntToStr(i));
+    Assert.AreEqual(i * 2, value.AsInteger, 'Item ' + IntToStr(i));
+  end;
+  // let the NoWait loop finish before it is destroyed
+  while not outQueue.IsCompleted do
+    Sleep(10);
 end;
 
 end.
