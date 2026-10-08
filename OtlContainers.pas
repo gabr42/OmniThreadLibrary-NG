@@ -38,10 +38,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Sean B. Durkin, Claude AI
 ///   Creation date     : 2008-07-13
-///   Last modification : 2026-04-25
-///   Version           : 4.02
+///   Last modification : 2026-10-08
+///   Version           : 4.03
 ///</para><para>
 ///   History:
+///     4.03: 2026-10-08
+///       - Fixed: Destroying a TOmniValueQueue that still contained items raised an
+///         access violation (#201). TQueue<T>.Destroy notifies about every removed item
+///         and CollectionNotifyEvent accessed the already nil-ed FInnerQueue.
 ///     4.02: 2026-04-25
 ///       - Removed the OTL_HaveCmpx16b dual-path. The lock-free 128-bit-CAS
 ///         primitive is now reachable on every supported target via
@@ -1675,6 +1679,9 @@ end; { TOmniValueQueue.Create }
 destructor TOmniValueQueue.Destroy;
 begin
   FreeAndNil(FContainerSubject);
+  // TQueue<T>.Destroy clears the queue and fires OnNotify for every item left in it,
+  // but FreeAndNil nils FInnerQueue before the destructor runs and the handler uses it.
+  FInnerQueue.OnNotify := nil;
   FreeAndNil(FInnerQueue);
   inherited
 end; { TOmniValueQueue.Destroy }

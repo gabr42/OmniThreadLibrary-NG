@@ -33,6 +33,8 @@ type
     procedure TestBoundedQueueMPMC;
     [Test]
     procedure TestBoundedStackMPMC;
+    [Test]
+    procedure TestValueQueueDestroyNonEmpty;
   end;
 
 implementation
@@ -496,6 +498,22 @@ begin
         'Observer should be notified on push');
     finally observer := nil; end;
   finally FreeAndNil(stack); end;
+end;
+
+// Issue #201: destroying a TOmniValueQueue with items still in it raised an AV.
+procedure TTestContainers.TestValueQueueDestroyNonEmpty;
+var
+  queue        : IOmniValueQueue;
+  useBusLocking: boolean;
+begin
+  for useBusLocking in [false, true] do begin
+    queue := CreateOmniValueQueue(useBusLocking);
+    queue.Enqueue(1);
+    queue.Enqueue(2);
+    queue.Enqueue(3);
+    queue := nil;
+  end;
+  Assert.IsTrue(true, 'Destroying non-empty value queues did not raise');
 end;
 
 end.
