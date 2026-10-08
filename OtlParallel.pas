@@ -36,7 +36,12 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin, HHasenack, SMelnyk64, Claude AI
 ///   Last modification : 2026-10-08
-///   Version           : 3.03
+///   Version           : 3.04
+///     3.04: 2026-10-08
+///       - Fixed: If a Parallel.For/ForEach task could not be created or started (for example
+///         because an OnTaskCreate hook raised), the loop destructor waited forever for
+///         workers that were never started (issue #213). The exception is now raised to the
+///         caller of Execute.
 ///     3.03: 2026-10-08
 ///       - Exceptions raised in the body of Parallel.For and Parallel.ForEach (including
 ///         Into/Aggregate variants) no longer hang the loop (ForEach) or get lost (For).
@@ -3446,6 +3451,7 @@ var
   dmOptions    : TOmniDataManagerOptions;
   iTask        : integer;
   lockAggregate: IOmniCriticalSection;
+  numStarted   : integer;
   numTasks     : integer;
   task         : IOmniTaskControl;
 begin
@@ -3463,40 +3469,51 @@ begin
   FExceptions := TOmniLoopExceptions.Create;
   FCountStopped := CreateResourceCount(numTasks + 1);
   lockAggregate := CreateOmniCriticalSection;
-  for iTask := 1 to numTasks do begin
-    task := CreateTask(
-      procedure (const task: IOmniTask)
-      begin
-        // Count down even if the loop body raises, otherwise the loop (and its destructor)
-        // would wait forever. The exception is raised in the caller of Execute.
-        try
+  numStarted := 0;
+  try
+    for iTask := 1 to numTasks do begin
+      task := CreateTask(
+        procedure (const task: IOmniTask)
+        begin
+          // Count down even if the loop body raises, otherwise the loop (and its destructor)
+          // would wait forever. The exception is raised in the caller of Execute.
           try
-            if assigned(FOnTaskCreate) then
-              FOnTaskCreate(task);
-            taskDelegate(task);
-          except
-            FExceptions.Capture;
-          end;
-        finally
-          if FCountStopped.Allocate = 1 then begin
-            if ploNoWait in Options then begin
-              if assigned(FIntoQueueIntf) then
-                FIntoQueueIntf.CompleteAdding;
-              DoOnStop(task);
+            try
+              if assigned(FOnTaskCreate) then
+                FOnTaskCreate(task);
+              taskDelegate(task);
+            except
+              FExceptions.Capture;
             end;
-            FCountStopped.Allocate;
+          finally
+            if FCountStopped.Allocate = 1 then begin
+              if ploNoWait in Options then begin
+                if assigned(FIntoQueueIntf) then
+                  FIntoQueueIntf.CompleteAdding;
+                DoOnStop(task);
+              end;
+              FCountStopped.Allocate;
+            end;
           end;
-        end;
-      end,
-      'Parallel.ForEach worker #' + IntToStr(iTask))
-      .WithLock(lockAggregate);
-    Parallel.ApplyConfig(FTaskConfig, task);
-    task.Unobserved;
-    for var msgPair in FOnMessageList do
-      task.OnMessage(msgPair.Key, TOmniMessageExec.Clone(TOmniMessageExec(msgPair.Value)));
-    if assigned(FOnTaskControlCreate) then
-      FOnTaskControlCreate(task);
-    Parallel.Start(task, FTaskConfig);
+        end,
+        'Parallel.ForEach worker #' + IntToStr(iTask))
+        .WithLock(lockAggregate);
+      Parallel.ApplyConfig(FTaskConfig, task);
+      task.Unobserved;
+      for var msgPair in FOnMessageList do
+        task.OnMessage(msgPair.Key, TOmniMessageExec.Clone(TOmniMessageExec(msgPair.Value)));
+      if assigned(FOnTaskControlCreate) then
+        FOnTaskControlCreate(task);
+      Parallel.Start(task, FTaskConfig);
+      Inc(numStarted);
+    end;
+  except
+    // Tasks that were never started will never count down; do it for them, otherwise
+    // the destructor would wait for them forever.
+    for iTask := numStarted + 1 to numTasks do
+      if FCountStopped.Allocate = 1 then
+        FCountStopped.Allocate;
+    raise;
   end;
   if not (ploNoWait in Options) then begin
     FCountStopped.Synchro.WaitFor(INFINITE);
@@ -4328,6 +4345,7 @@ var
   dmOptions     : TOmniDataManagerOptions;
   iTask         : integer;
   lockAggregate : IOmniCriticalSection;
+  numStarted    : integer;
   task          : IOmniTaskControl;
   taskCount     : integer;
 begin
@@ -4340,13 +4358,24 @@ begin
   FExceptions := TOmniLoopExceptions.Create;
   FCountStopped := CreateResourceCount(taskCount + 1);
   lockAggregate := CreateOmniCriticalSection;
-  for iTask := 0 to taskCount - 1 do begin
-    task := CreateForTask(iTask, taskDelegate);
-    Parallel.ApplyConfig(FTaskConfig, task);
-    task.Unobserved;
-    for var msgPair in FOnMessageList do
-      task.OnMessage(msgPair.Key, TOmniMessageExec.Clone(TOmniMessageExec(msgPair.Value)));
-    Parallel.Start(task, FTaskConfig);
+  numStarted := 0;
+  try
+    for iTask := 0 to taskCount - 1 do begin
+      task := CreateForTask(iTask, taskDelegate);
+      Parallel.ApplyConfig(FTaskConfig, task);
+      task.Unobserved;
+      for var msgPair in FOnMessageList do
+        task.OnMessage(msgPair.Key, TOmniMessageExec.Clone(TOmniMessageExec(msgPair.Value)));
+      Parallel.Start(task, FTaskConfig);
+      Inc(numStarted);
+    end;
+  except
+    // Tasks that were never started will never count down; do it for them, otherwise
+    // the destructor would wait for them forever.
+    for iTask := numStarted to taskCount - 1 do
+      if FCountStopped.Allocate = 1 then
+        FCountStopped.Allocate;
+    raise;
   end;
   if not FNoWait then begin
     if taskCount = 0 then

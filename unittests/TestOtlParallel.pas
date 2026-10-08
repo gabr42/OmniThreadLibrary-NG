@@ -50,6 +50,8 @@ type
     [Test, Timeout(20000)] procedure TestForRaises;
     [Test, Timeout(20000)] procedure TestForEachRaises;
     [Test, Timeout(20000)] procedure TestForEachIntoRaises;
+    // issue #213: a loop whose workers cannot be started must not wait for them forever
+    [Test, Timeout(20000)] procedure TestForEachTaskCreateRaises;
     // issue #49: ForEach<TOmniValue> over a blocking collection with PreserveOrder + Into
     [Test, Timeout(20000)] procedure TestForEachOmniValueCollectionOrdered;
   end;
@@ -63,6 +65,7 @@ uses
   System.SyncObjs,
   OtlParallel,
   OtlCommon,
+  OtlTaskControl,
   OtlSync;
 
 const
@@ -498,6 +501,22 @@ begin
         end);
     end,
     EJoinException);
+end;
+
+procedure TestLoopExceptions.TestForEachTaskCreateRaises;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      Parallel.ForEach(1, 100).NoWait
+        .OnTaskCreate(
+          procedure (const task: IOmniTaskControl)
+          begin
+            raise ELoopTest.Create('OnTaskCreate failed');
+          end)
+        .Execute(procedure (const value: integer) begin end);
+    end,
+    ELoopTest);
 end;
 
 procedure TestLoopExceptions.TestForEachOmniValueCollectionOrdered;
