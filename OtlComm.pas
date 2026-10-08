@@ -35,10 +35,16 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-08-24
-///   Version           : 3.02
+///   Last modification : 2026-10-08
+///   Version           : 3.03
 ///</para><para>
 ///   History:
+///     3.03: 2026-10-08
+///       - Receive and ReceiveWait no longer return OTL's internal messages (the calls of
+///         the methods passed to IOmniTaskControl.Run/Invoke etc.) to the user code, where
+///         they used to be swallowed. They are put back into the queue, so that the task
+///         executor processes them later (issue #50). OTL itself reads everything with the
+///         new IOmniCommunicationEndpointInternal.ReceiveAny.
 ///     3.02: 2026-08-24
 ///       - Restored TOmniMessageQueue.OnMessage, dropped during the OTL-NG
 ///         rewrite with no MIGRATION.md entry (found via a real-world caller,
@@ -142,6 +148,7 @@ type
   end; { TOmniMessage }
 
   TOmniMessageQueue = class;
+  TOmniMessageArray = array of TOmniMessage;
 
   {:Callback signature for TOmniMessageQueue.OnMessage.}
   TOmniMessageQueueMessageEvent = procedure(Sender: TObject; const msg: TOmniMessage) of object;
@@ -169,6 +176,12 @@ type
     property Reader: TOmniMessageQueue read GetReader;
     property Writer: TOmniMessageQueue read GetWriter;
   end; { IOmniCommunicationEndpoint }
+
+  ///<summary>For use by OTL only.</summary>
+  IOmniCommunicationEndpointInternal = interface ['{4F872DE9-6E9A-4881-B9EC-E2189DAC00F4}']
+    procedure DetachFromQueues;
+    function  ReceiveAny(var msg: TOmniMessage): boolean;
+  end; { IOmniCommunicationEndpointInternal }
 
   IOmniTwoWayChannel = interface ['{3ED1AB88-4209-4E01-AA79-A577AD719520}']
     function Endpoint1: IOmniCommunicationEndpoint;
@@ -236,10 +249,6 @@ uses
   OtlEventMonitor;
 
 type
-  IOmniCommunicationEndpointInternal = interface ['{4F872DE9-6E9A-4881-B9EC-E2189DAC00F4}']
-    procedure DetachFromQueues;
-  end; { IOmniCommunicationEndpointInternal }
-
   TOmniTwoWayChannel = class;
 
   TOmniCommunicationEndpoint = class(TInterfacedObject,
@@ -253,11 +262,15 @@ type
     FMultiWaitLock           : IOmniCriticalSection;
   protected
     procedure DetachFromQueues;
+    function  DequeueUserMessage(var msg: TOmniMessage;
+      var deferred: TOmniMessageArray): boolean;
     function  GetNewMessageEvent: IOmniEvent;
     function  GetOtherEndpoint: IOmniCommunicationEndpoint;
     function  GetReader: TOmniMessageQueue;
     function  GetWriter: TOmniMessageQueue;
+    procedure RequeueInternalMessages(const deferred: TOmniMessageArray);
   public
+    function  ReceiveAny(var msg: TOmniMessage): boolean;
     constructor Create(owner: TOmniTwoWayChannel; readQueue, writeQueue: TOmniMessageQueue;
       taskTerminatedEvent_ref: IOmniEvent);
     destructor  Destroy; override;
@@ -477,13 +490,50 @@ begin
   end;
 end; { TOmniCommunicationEndpoint.Receive }
 
+///<summary>Returns the next message for the user code. OTL's internal messages (COtlReservedMsgID)
+///    that are found on the way are not returned; they are collected in 'deferred'.</summary>
+function TOmniCommunicationEndpoint.DequeueUserMessage(var msg: TOmniMessage;
+  var deferred: TOmniMessageArray): boolean;
+begin
+  repeat
+    Result := ceReader_ref.TryDequeue(msg);
+    if (not Result) or (msg.MsgID <> COtlReservedMsgID) then
+      Exit;
+    SetLength(deferred, Length(deferred) + 1);
+    deferred[High(deferred)] := msg;
+  until false;
+end; { TOmniCommunicationEndpoint.DequeueUserMessage }
+
+///<summary>Puts the internal messages that Receive/ReceiveWait have skipped back into the
+///    queue, where the task executor will find them (the enqueue wakes it up).</summary>
+procedure TOmniCommunicationEndpoint.RequeueInternalMessages(const deferred: TOmniMessageArray);
+var
+  i: integer;
+begin
+  for i := Low(deferred) to High(deferred) do
+    if not ceReader_ref.Enqueue(deferred[i]) then
+      raise Exception.Create('TOmniCommunicationEndpoint.RequeueInternalMessages: Message queue is full');
+end; { TOmniCommunicationEndpoint.RequeueInternalMessages }
+
 function TOmniCommunicationEndpoint.Receive(var msg: TOmniMessage): boolean;
+var
+  deferred: TOmniMessageArray;
+begin
+  SetLength(deferred, 0);
+  try
+    Result := DequeueUserMessage(msg, deferred);
+  finally RequeueInternalMessages(deferred); end;
+end; { TOmniCommunicationEndpoint.Receive }
+
+///<summary>Returns every message, including OTL's internal ones. For use by OTL only.</summary>
+function TOmniCommunicationEndpoint.ReceiveAny(var msg: TOmniMessage): boolean;
 begin
   Result := ceReader_ref.TryDequeue(msg);
-end; { TOmniCommunicationEndpoint.Receive }
+end; { TOmniCommunicationEndpoint.ReceiveAny }
 
 function TOmniCommunicationEndpoint.ReceiveWait(var msg: TOmniMessage; timeout_ms: cardinal): boolean;
 var
+  deferred      : TOmniMessageArray;
   insertObserver: IOmniContainerEventObserver;
   insertEvent   : IOmniEvent;
   insertWaiter  : TWaitFor;
@@ -492,37 +542,40 @@ var
   waitResult    : TWaitFor.TWaitForResult;
   waitTime      : int64;
 begin
-  Result := Receive(msg);
-  if (not Result) and (timeout_ms > 0) then begin
-    if ceTaskTerminatedEvent_ref = nil then
-      raise Exception.Create('TOmniCommunicationEndpoint.ReceiveWait: <task terminated> event is not set');
-    startTime := Time.Timestamp_ms;
-    insertObserver := CreateContainerEventObserver;
-    try
-      insertEvent := insertObserver.GetEvent;
-      insertWaiter := TWaitFor.Create([insertEvent, ceTaskTerminatedEvent_ref], FMultiWaitLock);
+  SetLength(deferred, 0);
+  try
+    Result := DequeueUserMessage(msg, deferred);
+    if (not Result) and (timeout_ms > 0) then begin
+      if ceTaskTerminatedEvent_ref = nil then
+        raise Exception.Create('TOmniCommunicationEndpoint.ReceiveWait: <task terminated> event is not set');
+      startTime := Time.Timestamp_ms;
+      insertObserver := CreateContainerEventObserver;
       try
-        ceReader_ref.ContainerSubject.Attach(insertObserver, coiNotifyOnAllInserts);
+        insertEvent := insertObserver.GetEvent;
+        insertWaiter := TWaitFor.Create([insertEvent, ceTaskTerminatedEvent_ref], FMultiWaitLock);
         try
-          repeat
-            Result := ceReader_ref.TryDequeue(msg);
-            if Result then
-              break;
-            waitTime := Int64(timeout_ms) - Time.Elapsed_ms(startTime);
-            if waitTime < 0 then
-              break;
-            waitResult := insertWaiter.WaitAny(cardinal(waitTime), Signaller);
-            if (waitResult = waAwaited) and (Signaller = insertEvent) then
-              Result := ceReader_ref.TryDequeue(msg)
-            else if waitResult = waIOCompletion then
-              continue // spurious wakeup, retry
-            else
-              break; // timeout or terminated
-          until Result or (Time.Elapsed_ms(startTime) >= Int64(timeout_ms));
-        finally ceReader_ref.ContainerSubject.Detach(insertObserver, coiNotifyOnAllInserts); end;
-      finally FreeAndNil(insertWaiter); end;
-    finally insertObserver := nil; end;
-  end;
+          ceReader_ref.ContainerSubject.Attach(insertObserver, coiNotifyOnAllInserts);
+          try
+            repeat
+              Result := DequeueUserMessage(msg, deferred);
+              if Result then
+                break;
+              waitTime := Int64(timeout_ms) - Time.Elapsed_ms(startTime);
+              if waitTime < 0 then
+                break;
+              waitResult := insertWaiter.WaitAny(cardinal(waitTime), Signaller);
+              if (waitResult = waAwaited) and (Signaller = insertEvent) then
+                Result := DequeueUserMessage(msg, deferred)
+              else if waitResult = waIOCompletion then
+                continue // spurious wakeup, retry
+              else
+                break; // timeout or terminated
+            until Result or (Time.Elapsed_ms(startTime) >= Int64(timeout_ms));
+          finally ceReader_ref.ContainerSubject.Detach(insertObserver, coiNotifyOnAllInserts); end;
+        finally FreeAndNil(insertWaiter); end;
+      finally insertObserver := nil; end;
+    end;
+  finally RequeueInternalMessages(deferred); end;
 end; { TOmniCommunicationEndpoint.ReceiveWait }
 
 function TOmniCommunicationEndpoint.ReceiveWait(var msgID: word; var msgData: TOmniValue;

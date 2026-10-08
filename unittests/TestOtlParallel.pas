@@ -56,15 +56,26 @@ type
     [Test, Timeout(20000)] procedure TestForEachOmniValueCollectionOrdered;
   end;
 
+  [TestFixture]
+  TestRegressions = class(TOtlTestBase)
+  public
+    // issue #176: ForEach over an enumerable that returns objects
+    [Test, Timeout(20000)] procedure TestForEachObjects;
+    // issue #50: ReceiveWait must not swallow OTL's internal messages
+    [Test, Timeout(20000)] procedure TestReceiveWaitKeepsInternalMessages;
+  end;
+
 implementation
 
 uses
+  System.Classes,
   System.Math,
   OtlCollections,
   System.Diagnostics,
   System.SyncObjs,
   OtlParallel,
   OtlCommon,
+  OtlComm,
   OtlTaskControl,
   OtlSync;
 
@@ -547,6 +558,80 @@ begin
   // let the NoWait loop finish before it is destroyed
   while not outQueue.IsCompleted do
     Sleep(10);
+end;
+
+{ TestRegressions }
+
+type
+  TIssue50Worker = class(TOmniWorker)
+  public
+    Executed       : boolean;
+    SawInternalMsg : boolean;
+    function Initialize: boolean; override;
+  published
+    procedure Execute;
+  end;
+
+function TIssue50Worker.Initialize: boolean;
+var
+  found: boolean;
+  msg  : TOmniMessage;
+begin
+  Result := true;
+  found := false;
+  repeat
+    if not Task.Comm.ReceiveWait(msg, 5000) then
+      exit;
+    if msg.MsgID = 1 then
+      found := true
+    else
+      SawInternalMsg := true;
+  until found;
+end;
+
+procedure TIssue50Worker.Execute;
+begin
+  Executed := true;
+end;
+
+procedure TestRegressions.TestForEachObjects;
+const
+  CNumItems = 100;
+var
+  collection: TCollection;
+  count     : integer;
+  i         : integer;
+begin
+  count := 0;
+  collection := TCollection.Create(TCollectionItem);
+  try
+    for i := 1 to CNumItems do
+      collection.Add;
+    Parallel.ForEach<TCollectionItem>(collection).Execute(
+      procedure (const item: TCollectionItem)
+      begin
+        TInterlocked.Increment(count);
+      end);
+  finally FreeAndNil(collection); end;
+  Assert.AreEqual(CNumItems, count);
+end;
+
+procedure TestRegressions.TestReceiveWaitKeepsInternalMessages;
+var
+  start : cardinal;
+  task  : IOmniTaskControl;
+  worker: TIssue50Worker;
+begin
+  worker := TIssue50Worker.Create;
+  task := CreateTask(worker, 'Issue50').Unobserved.Run(@TIssue50Worker.Execute);
+  Sleep(300); // the worker waits in Initialize with the internal message in its queue
+  task.Comm.Send(1);
+  start := TThread.GetTickCount;
+  while (not worker.Executed) and (TThread.GetTickCount - start < 3000) do
+    Sleep(10);
+  Assert.IsFalse(worker.SawInternalMsg, 'The user code received an internal message');
+  Assert.IsTrue(worker.Executed, 'Execute was not called');
+  task.Terminate;
 end;
 
 end.
