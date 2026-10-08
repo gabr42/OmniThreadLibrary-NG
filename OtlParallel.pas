@@ -36,7 +36,12 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin, HHasenack, SMelnyk64, Claude AI
 ///   Last modification : 2026-10-08
-///   Version           : 3.04
+///   Version           : 3.05
+///     3.05: 2026-10-08
+///       - Parallel.ForEach(...).NoWait over a collection could use an already destroyed
+///         collection when the program released its last reference to it before the loop finished (issue found while testing #49). The loop now keeps
+///         the source of a Parallel.ForEach(IOmniValueEnumerable/IOmniBlockingCollection) alive until
+///         its tasks have finished.
 ///     3.04: 2026-10-08
 ///       - Fixed: If a Parallel.For/ForEach task could not be created or started (for example
 ///         because an OnTaskCreate hook raised), the loop destructor waited forever for
@@ -733,6 +738,7 @@ type
     FOnTaskCreate       : TOmniTaskCreateDelegate;
     FOptions            : TOmniParallelLoopOptions;
     FRttiContext        : TRttiContext;
+    FSourceOwner        : IInterface; // keeps the source of the data alive, see KeepAlive
     FSourceProvider     : TOmniSourceProvider;
     FTaskConfig         : IOmniTaskConfig;
     FTaskFinalizer      : TOmniTaskFinalizerDelegate;
@@ -770,6 +776,7 @@ type
     constructor Create(const sourceProvider: TOmniSourceProvider; managedProvider: boolean); overload;
     constructor Create(const enumerator: TEnumeratorDelegate); overload;
     constructor Create(enumerable: TObject); overload;
+    procedure KeepAlive(const source: IInterface);
     destructor  Destroy; override;
     property Options: TOmniParallelLoopOptions read FOptions write FOptions;
   end; { TOmniParallelLoopBase }
@@ -2373,9 +2380,13 @@ end; { Parallel }
 
 class function Parallel.ForEach(const enumerable: IOmniValueEnumerable):
   IOmniParallelLoop;
+var
+  loop: TOmniParallelLoop;
 begin
   // Assumes that enumerator's TryTake method is threadsafe!
-  Result := Parallel.ForEach(enumerable.GetEnumerator);
+  loop := TOmniParallelLoop.Create(CreateSourceProvider(enumerable.GetEnumerator), true);
+  Result := loop;
+  loop.KeepAlive(enumerable);
 end; { Parallel.ForEach }
 
 class function Parallel.ForEach(first, last: integer; step: integer = 1):
@@ -2422,9 +2433,13 @@ end; { Parallel.ForEach }
 
 class function Parallel.ForEach<T>(const enumerable: IOmniValueEnumerable):
   IOmniParallelLoop<T>;
+var
+  loop: TOmniParallelLoop<T>;
 begin
   // Assumes that enumerator's TryTake method is threadsafe!
-  Result := Parallel.ForEach<T>(enumerable.GetEnumerator);
+  loop := TOmniParallelLoop<T>.Create(CreateSourceProvider(enumerable.GetEnumerator), true);
+  Result := loop;
+  loop.KeepAlive(enumerable);
 end; { Parallel.ForEach<T> }
 
 class function Parallel.ForEach<T>(const enum: IOmniValueEnumerator):
@@ -3231,12 +3246,21 @@ begin
   );
 end; { TOmniParallelLoopBase.Create }
 
+///<summary>Keeps the object that supplies the data (for example a blocking collection) alive
+///    until the loop is destroyed. The provider references the data source without owning it,
+///    but a NoWait loop can outlive the caller's reference to the source.</summary>
+procedure TOmniParallelLoopBase.KeepAlive(const source: IInterface);
+begin
+  FSourceOwner := source;
+end; { TOmniParallelLoopBase.KeepAlive }
+
 destructor TOmniParallelLoopBase.Destroy;
 begin
   if assigned(FCountStopped) then begin
     FCountStopped.Synchro.WaitFor(INFINITE);
   end;
   FreeAndNil(FExceptions);
+  FSourceOwner := nil; // after all tasks have stopped
   if FManagedProvider then
     FreeAndNil(FSourceProvider);
   FreeAndNil(FDelegateEnum);

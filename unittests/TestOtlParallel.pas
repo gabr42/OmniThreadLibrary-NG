@@ -61,6 +61,8 @@ type
   public
     // issue #176: ForEach over an enumerable that returns objects
     [Test, Timeout(20000)] procedure TestForEachObjects;
+    // a NoWait loop over a collection must keep the collection alive
+    [Test, Timeout(20000)] procedure TestNoWaitLoopOutlivesCollection;
     // issue #50: ReceiveWait must not swallow OTL's internal messages
     [Test, Timeout(20000)] procedure TestReceiveWaitKeepsInternalMessages;
   end;
@@ -592,6 +594,35 @@ end;
 procedure TIssue50Worker.Execute;
 begin
   Executed := true;
+end;
+
+procedure TestRegressions.TestNoWaitLoopOutlivesCollection;
+const
+  CNumItems = 200;
+var
+  i       : integer;
+  inQueue : IOmniBlockingCollection;
+  loop    : IOmniParallelLoop<integer>;
+  outQueue: IOmniBlockingCollection;
+  value   : TOmniValue;
+begin
+  inQueue := TOmniBlockingCollection.Create;
+  outQueue := TOmniBlockingCollection.Create;
+  loop := Parallel.ForEach<integer>(inQueue);
+  loop.PreserveOrder.NoWait.Into(outQueue).Execute(
+    procedure (const value: integer; var res: TOmniValue)
+    begin
+      res := value * 2;
+    end);
+  for i := 1 to CNumItems do
+    inQueue.Add(i);
+  inQueue.CompleteAdding;
+  inQueue := nil; // the loop is the only owner of the collection from now on
+  for i := 1 to CNumItems do begin
+    Assert.IsTrue(outQueue.TryTake(value, CTimeout_ms), 'Missing item ' + IntToStr(i));
+    Assert.AreEqual(i * 2, value.AsInteger, 'Item ' + IntToStr(i));
+  end;
+  loop := nil; // must not hang
 end;
 
 procedure TestRegressions.TestForEachObjects;
