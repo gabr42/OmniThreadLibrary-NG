@@ -35,10 +35,15 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
-///   Last modification : 2026-08-24
-///   Version           : 3.11
+///   Last modification : 2026-10-09
+///   Version           : 3.12
 ///</para><para>
 ///   History:
+///     3.12: 2026-10-09
+///       - When compiled for C++Builder (BCB is defined), the generated header declares
+///         IOmniCriticalSection.Release and IOmniResourceCount.Release as Leave, because
+///         Release conflicts with IUnknown::Release in C++ (issue #72). The Delphi API is
+///         unchanged.
 ///     3.11: 2026-08-24
 ///       - Renamed the transitional global helper SetEvent(IOmniEvent) to
 ///         SignalEvent - the old name collided with Winapi.Windows.SetEvent
@@ -373,6 +378,11 @@ type
     function  GetLockCount: integer;
     //
     procedure Acquire;
+    {$IFDEF BCB}
+    // IInterface is IUnknown in C++, and a Release method conflicts with IUnknown::Release.
+    // In the generated header, C++ code sees the method as Leave.
+    [HPPGEN('virtual void __fastcall Leave() = 0')]
+    {$ENDIF BCB}
     procedure Release;
     function  GetSyncObj: TSynchroObject;
     property LockCount: integer read GetLockCount;
@@ -489,6 +499,10 @@ type
     function  GetHandle: THandle;
     {$ENDIF MSWINDOWS}
     function  Allocate: cardinal;
+    {$IFDEF BCB}
+    // see IOmniCriticalSection.Release
+    [HPPGEN('virtual unsigned __fastcall Leave() = 0')]
+    {$ENDIF BCB}
     function  Release: cardinal;
     function  TryAllocate(var resourceCount: cardinal; timeout_ms: cardinal = 0): boolean;
     {$IFDEF MSWINDOWS}

@@ -35,10 +35,16 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, scarre, Sean B. Durkin, HHasenack, Claude AI
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-10-08
-///   Version           : 3.04
+///   Last modification : 2026-10-09
+///   Version           : 3.05
 ///</para><para>
 ///   History:
+///     3.05: 2026-10-09
+///       - When compiled for C++Builder (BCB is defined), the overloaded properties
+///         TOmniValue.AsArrayItem[string | TOmniValue] and
+///         TOmniValueContainer.Item[string | TOmniValue] are available as AsArrayItemByName,
+///         AsArrayItemOV, ItemByName and ItemOV, because the generated C++ header cannot
+///         express overloaded properties (issue #72). The Delphi API is unchanged.
 ///     3.04: 2026-10-08
 ///       - TOmniValue.SetAsTValue supports objects (tkClass). Parallel.ForEach<T> over an
 ///         enumerable whose enumerator returns objects, e.g. TListView.Items, failed (issue #176).
@@ -518,8 +524,15 @@ type
     class operator Implicit(const a: TOmniValue): TDateTime; inline;
     property AsArray: TOmniValueContainer read GetAsArray;
     property AsArrayItem[idx: integer]: TOmniValue read GetAsArrayItem write SetAsArrayItem; default;
+    {$IFNDEF BCB}
     property AsArrayItem[const name: string]: TOmniValue read GetAsArrayItem write SetAsArrayItem; default;
     property AsArrayItem[const param: TOmniValue]: TOmniValue read GetAsArrayItem write SetAsArrayItem; default;
+    {$ELSE}
+    // C++Builder cannot express overloaded properties in the generated header, so the
+    // other indexed properties have different names when compiling for C++Builder.
+    property AsArrayItemByName[const name: string]: TOmniValue read GetAsArrayItem write SetAsArrayItem;
+    property AsArrayItemOV[const param: TOmniValue]: TOmniValue read GetAsArrayItem write SetAsArrayItem;
+    {$ENDIF ~BCB}
     property AsBoolean: boolean read CastToBoolean write SetAsBoolean;
     property AsCardinal: cardinal read CastToCardinal write SetAsCardinal;
     property AsDouble: Double read CastToDouble write SetAsDouble;
@@ -685,8 +698,14 @@ type
     function  IsLocked: boolean; inline;
     procedure Lock; inline;
     property Item[paramIdx: integer]: TOmniValue read GetItem write SetItem; default;
+    {$IFNDEF BCB}
     property Item[const paramName: string]: TOmniValue read GetItem write SetItem; default;
     property Item[const param: TOmniValue]: TOmniValue read GetItem write SetItem; default;
+    {$ELSE}
+    // C++Builder cannot express overloaded properties in the generated header; see AsArrayItem.
+    property ItemByName[const paramName: string]: TOmniValue read GetItem write SetItem;
+    property ItemOV[const param: TOmniValue]: TOmniValue read GetItem write SetItem;
+    {$ENDIF ~BCB}
     property Name[paramIdx: integer]: string read GetName;
   end; { TOmniValueContainer }
 
@@ -2052,7 +2071,7 @@ function TOmniValue.GetAsArrayItem(const name: string): TOmniValue;
 begin
   if not IsArray then
     raise Exception.Create('TOmniValue does not contain an array');
-  Result := TOmniValueContainer(ovData)[name];
+  Result := TOmniValueContainer(ovData){$IFDEF BCB}.ItemByName{$ENDIF}[name];
 end; { TOmniValue.GetAsArrayItem }
 
 function TOmniValue.GetAsArrayItem(const param: TOmniValue): TOmniValue;
@@ -2601,7 +2620,7 @@ begin
     SetAsArray(TOmniValueContainer.Create);
   if not IsArray then
     raise Exception.Create('TOmniValue does not contain an array');
-  TOmniValueContainer(ovData)[name] := value;
+  TOmniValueContainer(ovData){$IFDEF BCB}.ItemByName{$ENDIF}[name] := value;
 end; { TOmniValue.SetAsArrayItem }
 
 procedure TOmniValue.SetAsArrayItem(const param, value: TOmniValue);
