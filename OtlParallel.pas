@@ -36,7 +36,10 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin, HHasenack, SMelnyk64, Claude AI
 ///   Last modification : 2026-10-09
-///   Version           : 3.07
+///   Version           : 3.08
+///     3.08: 2026-10-09
+///       - Added IOmniPipeline.DeThrottle, which switches throttling off on all stages of a
+///         running pipeline and unblocks the stages waiting on a full queue (issue #61).
 ///     3.07: 2026-10-09
 ///       - Parallel.For supports Int64 (issue #180): new overload Parallel.For(first, last, step: Int64),
 ///         Int64 loop bodies (procedure(value: Int64) and the taskIndex/task variants) and
@@ -684,6 +687,9 @@ type
     function  OnStop(stopCode: TProc): IOmniPipeline; overload;
     function  OnStop(stopCode: TOmniTaskStopDelegate): IOmniPipeline; overload;
     function  OnStopInvoke(stopCode: TProc): IOmniPipeline;
+    ///<summary>Switches throttling off on all stages of a running pipeline and unblocks
+    ///  stages that wait for a full queue. See also NoThrottling, which is used before Run.</summary>
+    procedure DeThrottle;
     function  NoThrottling: IOmniPipeline;
     function  Run: IOmniPipeline;
     function  Stage(pipelineStage: TPipelineSimpleStageDelegate; taskConfig: IOmniTaskConfig = nil): IOmniPipeline; overload;
@@ -1724,6 +1730,7 @@ type
     procedure Cancel;
     function  From(const queue: IOmniBlockingCollection): IOmniPipeline;
     function  HandleExceptions: IOmniPipeline;
+    procedure DeThrottle;
     function  NoThrottling: IOmniPipeline;
     function  NumTasks(numTasks: integer): IOmniPipeline;
     function  OnStop(stopCode: TProc): IOmniPipeline; overload;
@@ -5147,6 +5154,14 @@ begin
   for outQueue in opOutQueues do
     (outQueue as IOmniBlockingCollection).CompleteAdding;
 end; { TOmniPipeline.Cancel }
+
+procedure TOmniPipeline.DeThrottle;
+var
+  outQueue: IInterface;
+begin
+  for outQueue in opOutQueues do
+    (outQueue as IOmniBlockingCollection).DeThrottle;
+end; { TOmniPipeline.DeThrottle }
 
 procedure TOmniPipeline.DoOnStop(const task: IOmniTask);
 begin
