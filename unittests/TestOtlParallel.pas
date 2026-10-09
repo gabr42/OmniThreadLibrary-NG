@@ -65,6 +65,8 @@ type
     [Test, Timeout(20000)] procedure TestNoWaitLoopOutlivesCollection;
     // issue #50: ReceiveWait must not swallow OTL's internal messages
     [Test, Timeout(20000)] procedure TestReceiveWaitKeepsInternalMessages;
+    // issue #180: Parallel.For over an Int64 range
+    [Test, Timeout(20000)] procedure TestForInt64;
   end;
 
 implementation
@@ -594,6 +596,32 @@ end;
 procedure TIssue50Worker.Execute;
 begin
   Executed := true;
+end;
+
+procedure TestRegressions.TestForInt64;
+const
+  CBase: int64 = Int64($100000000) * 4; // does not fit into an integer
+var
+  count: integer;
+  sum  : int64;
+begin
+  count := 0;
+  sum := 0;
+  Parallel.For(CBase, CBase + 999).Execute(
+    procedure(value: Int64)
+    begin
+      TInterlocked.Increment(count);
+      TInterlocked.Add(sum, value - CBase);
+    end);
+  Assert.AreEqual(1000, count);
+  Assert.AreEqual(Int64(499500), sum);
+  count := 0;
+  Parallel.For(CBase + 100, CBase, -2).Execute(
+    procedure(taskIndex: integer; value: Int64)
+    begin
+      TInterlocked.Increment(count);
+    end);
+  Assert.AreEqual(51, count);
 end;
 
 procedure TestRegressions.TestNoWaitLoopOutlivesCollection;
