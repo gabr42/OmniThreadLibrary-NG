@@ -27,7 +27,7 @@ var
 implementation
 
 uses
-  OleAuto,
+  ComObj,
   ActiveX,
   OtlTaskControl;
 

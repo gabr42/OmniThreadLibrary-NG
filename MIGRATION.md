@@ -372,10 +372,11 @@ messages through a dedicated message pump.
 
 ## API Changes
 
-### TOmniTransitionEvent Unified
+### TOmniTransitionEvent Replaced by IOmniEvent
 
-In OTL v3, `TOmniTransitionEvent` is a `THandle`. In OTL NG it is an
-`IOmniEvent` on all platforms:
+In OTL v3, `TOmniTransitionEvent` is a `THandle`. In OTL NG the type no
+longer exists; every property that used it is an `IOmniEvent` on all
+platforms:
 
 ```pascal
 // OTL v3 (Windows)
@@ -383,13 +384,36 @@ var evt: TOmniTransitionEvent;  // = THandle
 WaitForSingleObject(evt, INFINITE);
 
 // OTL NG (all platforms)
-var evt: TOmniTransitionEvent;  // = IOmniEvent
+var evt: IOmniEvent;
 evt.WaitFor(INFINITE);
 ```
 
-If your code passed `TOmniTransitionEvent` to Windows API functions
+If your code declared a `TOmniTransitionEvent` variable, change it to
+`IOmniEvent`. If it passed the value to Windows API functions
 (`WaitForSingleObject`, `WaitForMultipleObjects`), you must switch to
 `IOmniEvent.WaitFor` or `TWaitFor.WaitAny`.
+
+The properties affected are the ones typed `TOmniTransitionEvent` in v3:
+`IOmniTask.TerminateEvent`, `IOmniTaskControl.TerminatedEvent` and
+`IOmniCommunicationEndpoint.NewMessageEvent`. The smallest Windows-only fix is
+the `Handle` property that `IOmniEvent` keeps on Windows:
+
+```pascal
+// OTL v3
+if WaitForSingleObject(task.TerminateEvent, 0) = WAIT_OBJECT_0 then
+  break;
+
+// OTL NG - minimal change (Windows only)
+if WaitForSingleObject(task.TerminateEvent.Handle, 0) = WAIT_OBJECT_0 then
+  break;
+
+// OTL NG - portable
+if task.TerminateEvent.WaitFor(0) = wrSignaled then
+  break;
+```
+
+`tests\12_Lock`, `tests\13_Exceptions` and `tests\02_TwoWayHello` show the
+`.Handle` form.
 
 **More generally:** wherever an OTL NG API now expects an `IOmniEvent`
 parameter but your existing code only has a raw `THandle` (a
@@ -744,6 +768,42 @@ compiles correctly against either library.
 
 ---
 
+## Project File Migration
+
+Porting the `tests\` and `examples\` projects to OTL NG exposed a few
+problems in the project files (`.dproj`) that have nothing to do with the
+OTL API but still break or silently change a build:
+
+- **Put the OTL NG source folder on the search path of every
+  configuration.** Many old projects set `DCC_UnitSearchPath` only in the
+  Debug/Win32 configuration. A Release or Win64 build then falls back to
+  whatever OTL is on the IDE library path - quite possibly the installed
+  OTL v3, which either fails with errors such as `Undeclared identifier:
+  'IOmniContainerMainThreadObserver'` or, worse, compiles against the wrong
+  library. Set the path in the base configuration (`Base`) and make sure no
+  OTL v3 folder is left on the IDE library path or in the project's path.
+- **Win64 needs the `Winapi` and `System.Win` unit scopes.** Old projects
+  define them only for Win32 (`Base_Win32`), so Win64 builds fail with
+  `Unit 'Windows' not found` as soon as a unit uses `Windows`, `Messages`
+  or `ShellAPI` without a prefix. Add the scopes to the base
+  `DCC_Namespace` (or switch to the prefixed unit names).
+- **Remove old boolean compiler options.** Project files written by
+  Delphi 2009/2010 contain `<DCC_E>false</DCC_E>`, `<DCC_N>false</DCC_N>`,
+  `<DCC_S>false</DCC_S>`, `<DCC_F>false</DCC_F>`, `<DCC_K>false</DCC_K>` and
+  `<DCC_DebugInformation>false</DCC_DebugInformation>`. Current compilers
+  pass the word `false` on the command line and fail with
+  `F1026: File not found: 'false.dpr'` (Release configurations are
+  affected first because they set `DCC_DebugInformation`). Delete the
+  `DCC_E/N/S/F/K` lines and use `0` instead of `false` for
+  `DCC_DebugInformation`.
+- **Make sure a stale `DCC_UnitSearchPath` does not point to another
+  copy of OTL** (for example `x:\common\omnithreadlibrary`) or to
+  folders that no longer exist (`..\src`).
+- **`Vcl.OleAuto` is not available on Win64.** Code that uses it only for
+  `OleCheck` (see `examples\checkVat`) should use `ComObj` instead.
+
+---
+
 ## Test Migration
 
 Tests have been migrated from DUnit to DUnitX. If you maintain custom OTL tests:
@@ -865,11 +925,36 @@ on the main thread.
 
 ---
 
+## Sample Projects
+
+All projects in `tests\` and `examples\` compile with Delphi 13.1 for
+Win32 and Win64 (Debug and Release, both from the `.dproj` files and
+directly from the `.dpr`). The console projects (`app_62_console`,
+`app_68_Channel`, `app_69_Select`, `app_70_Merge`) run to completion, and
+the VCL/FMX demos start and stay up on Win32 (the Windows service
+`tests\63_Service`, `examples\twofish` and `examples\folder scanner` were not
+run). They are good, working examples of the migration patterns in this
+document:
+
+| Pattern | Project |
+|---------|---------|
+| `IOmniEvent.Handle` instead of a `THandle` event | `tests\02_TwoWayHello`, `tests\12_Lock`, `tests\13_Exceptions`, `tests\29_ImplicitEventMonitor` |
+| Three-parameter `SetTimer` | `tests\05_TwoWayHello_without_loop`, `tests\06_TwoWayHello_with_object_worker`, `tests\18_StringMsgDispatch` |
+| `.MsgWait` for a worker using `TTimer` | `tests\17_MsgWait` |
+| Main-thread observer for a plain `TThread` | `examples\TThread communication` |
+| Console app draining `CheckSynchronize` | `tests\62_Console` |
+| Channels, `Select`, `Merge`, `Race` (also in v3.09) | `tests\68_Channel`, `tests\69_Select`, `tests\70_Merge` |
+
+`tests\62_Console` and `tests\63_Service` have only Delphi 2009, 2010 and XE
+project files; the `.dpr` files build with the current compiler.
+
+---
+
 ## File Changes Summary
 
 | File | Change |
 |------|--------|
-| `OtlSync.pas` | Removed inline assembly; unified `TOmniTransitionEvent` to `IOmniEvent`; removed `IOmniHandleObject`; added `TWaitFor` |
+| `OtlSync.pas` | Removed inline assembly; replaced `TOmniTransitionEvent` with `IOmniEvent`; removed `IOmniHandleObject`; added `TWaitFor` |
 | `OtlContainers.pas` | Replaced asm pause with `TThread.SpinWait`; lock-free fallback on non-x86 |
 | `OtlCollections.pas` | Replaced `WaitForMultipleObjects` with `TWaitFor.WaitAny` |
 | `OtlContainerObserver.pas` | Removed Windows message/event observers; `IOmniEvent`-only; added `CreateContainerMainThreadObserver` (TThread.Queue dispatch with coalescing + Shutdown gate) |

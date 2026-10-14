@@ -264,7 +264,7 @@ type
 
 
 implementation
-  uses SysUtils, Classes, OtlTaskControl, OtlParallel, OtlTask, OLEAUTO, ACTIVEX ;
+  uses SysUtils, Classes, OtlTaskControl, OtlParallel, OtlTask, ComObj, ACTIVEX ;
 
 procedure  findVAT ( const nazione, piva : string ) ;
  var rich : checkVat ;

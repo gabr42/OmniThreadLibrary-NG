@@ -41,7 +41,7 @@
         <Base>true</Base>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base)'!=''">
-        <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;FireDAC;FireDAC.Stan;FireDAC.Phys;FireDAC.Comp;FireDAC.DApt;FireDAC.UI;FireDAC.VCLUI;$(DCC_Namespace)</DCC_Namespace>
+        <DCC_Namespace>Winapi;System.Win;System;Xml;Data;Datasnap;Web;Soap;Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;FireDAC;FireDAC.Stan;FireDAC.Phys;FireDAC.Comp;FireDAC.DApt;FireDAC.UI;FireDAC.VCLUI;$(DCC_Namespace)</DCC_Namespace>
         <DCC_UsePackage>fmx;IndySystem;DBXInterBaseDriver;DataSnapCommon;DataSnapClient;DataSnapServer;DataSnapProviderClient;DbxCommonDriver;dbxcds;DBXOracleDriver;CustomIPTransport;dsnap;fmxase;IndyCore;CloudService;FmxTeeUI;inetdbxpress;IPIndyImpl;bindcompfmx;rtl;dbrtl;DbxClientDriver;bindcomp;inetdb;xmlrtl;ibxpress;IndyProtocols;DBXMySQLDriver;FMXTee;bindengine;soaprtl;DBXInformixDriver;DBXFirebirdDriver;inet;fmxobj;DBXSybaseASADriver;fmxdae;kbmMemRunDXE2Std;dbexpress;DataSnapIndy10ServerTransport;$(DCC_UsePackage)</DCC_UsePackage>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>

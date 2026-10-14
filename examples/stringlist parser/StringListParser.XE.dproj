@@ -27,12 +27,9 @@
 			<DCC_ImageBase>00400000</DCC_ImageBase>
 			<DCC_DcuOutput>.\$(Config)\$(Platform)</DCC_DcuOutput>
 			<DCC_UnitAlias>WinTypes=Windows;WinProcs=Windows;DbiTypes=BDE;DbiProcs=BDE;$(DCC_UnitAlias)</DCC_UnitAlias>
+			<DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;Winapi;System.Win;$(DCC_Namespace)</DCC_Namespace>
+			<DCC_UnitSearchPath>..\..;..\..\fastmm4;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
 			<DCC_ExeOutput>.\$(Config)\$(Platform)</DCC_ExeOutput>
-			<DCC_E>false</DCC_E>
-			<DCC_N>false</DCC_N>
-			<DCC_S>false</DCC_S>
-			<DCC_F>false</DCC_F>
-			<DCC_K>false</DCC_K>
 		</PropertyGroup>
 		<PropertyGroup Condition="'$(Cfg_1)'!=''">
 			<DCC_MapFile>3</DCC_MapFile>
@@ -46,7 +43,7 @@
 			<DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
 			<DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
 			<DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
-			<DCC_DebugInformation>false</DCC_DebugInformation>
+			<DCC_DebugInformation>0</DCC_DebugInformation>
 		</PropertyGroup>
 		<ItemGroup>
 			<DelphiCompile Include="StringListParser.dpr">

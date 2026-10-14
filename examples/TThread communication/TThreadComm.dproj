@@ -41,8 +41,9 @@
         <Base>true</Base>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base)'!=''">
+        <DCC_UnitSearchPath>..\..;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <SanitizedProjectName>TThreadComm</SanitizedProjectName>
-        <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;$(DCC_Namespace)</DCC_Namespace>
+        <DCC_Namespace>Winapi;System.Win;System;Xml;Data;Datasnap;Web;Soap;Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;$(DCC_Namespace)</DCC_Namespace>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <DCC_UsePackage>fmx;IndySystem;DBXInterBaseDriver;DbxCommonDriver;dbxcds;CustomIPTransport;JvCore;dsnap;fmxase;IndyCore;CloudService;FmxTeeUI;inetdbxpress;bindcompfmx;rtl;dbrtl;DbxClientDriver;bindcomp;inetdb;xmlrtl;ibxpress;IndyProtocols;DBXMySQLDriver;bindengine;soaprtl;FMXTee;inet;fmxobj;fmxdae;kbmMemRunDXE2Std;dbexpress;$(DCC_UsePackage)</DCC_UsePackage>
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
