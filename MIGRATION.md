@@ -1,15 +1,24 @@
 # Migrating from OmniThreadLibrary v3 to OTL NG
 
 This guide covers all breaking changes, removed features, new APIs, and behavioral
-differences between OmniThreadLibrary v3.07.x (Windows-only) and OTL NG
+differences between OmniThreadLibrary v3.09 (Windows-only) and OTL NG
 (cross-platform).
+
+Features added to v3 in 3.08 and 3.09 that OTL NG also has are **not**
+differences and are not listed below: `TLightweightMREWEx` and the
+`Locked<T>` additions, `Parallel.For` over `Int64` ranges,
+`DeThrottle` on blocking collections and pipelines, the CSP-style
+`Parallel.Channel<T>` / `Select` / `Merge<T>` / `Race<T>`, `EJoinException`
+for exceptions in `Parallel.For` / `ForEach`, and the restored
+`IOmniValueQueue`. If you are upgrading from v3.07 or older, read the v3
+release notes for 3.08 and 3.09 first.
 
 ## Minimum Requirements
 
 | Aspect | OTL v3 | OTL NG |
 |--------|--------|--------|
 | Minimum Delphi | 2007 | **Delphi 11 Alexandria** |
-| Platforms | Win32, Win64 | Win32, Win64 (313/313), Linux64 (308/311 + 3 POSIX skips), Android64 (308/311 + 3 POSIX skips, FMX runner on ARM64 device); WinARM64 compiles (no runtime); macOS/iOS targeted but unverified |
+| Platforms | Win32, Win64 | Win32, Win64, Linux64, Android64 (tested with the FMX runner on an ARM64 device); WinARM64 compiles (no runtime); macOS/iOS targeted but unverified |
 | Test framework | DUnit | DUnitX |
 | External dependencies | GpLists, GpStringHash, DSiWin32 | **None** (all inlined or replaced with RTL) |
 
@@ -365,8 +374,8 @@ messages through a dedicated message pump.
 
 ### TOmniTransitionEvent Unified
 
-In OTL v3, `TOmniTransitionEvent` was `THandle` on Windows and `IOmniEvent`
-elsewhere. In OTL NG it is always `IOmniEvent`:
+In OTL v3, `TOmniTransitionEvent` is a `THandle`. In OTL NG it is an
+`IOmniEvent` on all platforms:
 
 ```pascal
 // OTL v3 (Windows)
@@ -710,20 +719,19 @@ Remove `DSiWin32` from your uses clauses if it was only there for OTL.
 The following defines from `OtlOptions.inc` have been removed because they are
 always true in Delphi 11+:
 
-- `OTL_CountdownHasSpinCount`
 - `OTL_NameThreadHasStringParameter`
 - `OTL_TypeInfoHasTypeData`
 - `OTL_VariantHasInt64`
 - `OTL_StrPasInAnsiStrings`
-- `OTL_HasVolatileAttribute`
 - `OTL_FixedGenericIncompletelyDefined`
-- `OTL_MobileSupport`
 - `OTL_CanInlineOperators`
-- `OTL_HasForceQueue`
 - `OTL_HasLightweightMREW`
 
 If your code tested these defines with `{$IFDEF}`, the guarded code will now
 always compile (which is the correct behavior for Delphi 11+).
+
+`OTL_MobileSupport` was removed in v3.09 as well (v3 is Windows-only from
+3.09 on), so it is no longer a difference between the two libraries.
 
 ### New: OTL_NG
 
