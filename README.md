@@ -1,35 +1,44 @@
-### What is OmniThreadLibrary?
+### What is OmniThreadLibrary NG?
 
-OmniThreadLibrary is a powerful threading library for Delphi. OmniThreadLibrary's main "selling" points (besides the prices, of course ;) are power, simplicity, and openess. With just few lines of code, you can set up multiple threads, send messages between them, process Windows messages and more. OmniThreadLibrary doesn't limit you in any way - if it is not powerfull enough for you, you can ignore any part of its "smartness" and replace it with your own code.
+OmniThreadLibrary NG ("New Generation") is the cross-platform successor of [OmniThreadLibrary](https://github.com/gabr42/OmniThreadLibrary) (OTL v3), a threading library for Delphi. It keeps the core OTL programming model - tasks, workers, message passing, thread pools, blocking collections, pipelines, `Parallel.For`/`ForEach`, futures and more - and removes the dependency on Windows.
 
-### How do I get OmniThreadLibrary?
+OTL NG is **pre-alpha**. It is not a drop-in replacement for OTL v3; see [MIGRATION.md](MIGRATION.md) for all differences from v3.09 and how to migrate.
 
-Clone the [latest version](https://github.com/gabr42/OmniThreadLibrary/tree/release-3.07.8) or [follow the trunk](https://github.com/gabr42/OmniThreadLibrary/). 
+### How do I get OTL NG?
 
-Download the [latest release](https://github.com/gabr42/OmniThreadLibrary/tree/release-3.07.8).
+Clone the repository and use the `develop` branch:
 
-Download an [older release](https://drive.google.com/folderview?id=0BwqVlLNTK4OxVEgzZnZGM1FNMGc&usp=drive_web#list).
+    git clone https://github.com/gabr42/OmniThreadLibrary-NG.git
 
-If you have Delphi XE8 or newer, you can install OmniThreadLibrary via [GetIt](http://docwiki.embarcadero.com/RADStudio/en/GetIt).
+The library has no external dependencies. The unit tests use [DUnitX](https://github.com/VSoftTechnologies/DUnitX), and the `FastMM4` submodule is used by the test runners only.
 
-If you have Delphi XE or newer, you can install [Delphinus package manager](https://github.com/Memnarch/Delphinus/wiki/Installing-Delphinus) and install OmniThreadLibrary there. (Delphinus-Support)
+OTL NG is not available through GetIt, Delphinus or DPM.
 
-### How do I use OmniThreadLibrary?
+### How do I use OTL NG?
 
-Download and install the sources. Compile and install the OmniThreadLibrary package. Read the tutorials. Examine the demos, which are part of the OmniThreadLibrary download.
+Add the folder with the sources to your library path (or use the runtime package from the `packages` folder) and add the OTL units to your `uses` clause. There are no design-time packages. Examples are in the `examples` folder; [OtlParallel.md](OtlParallel.md) documents the high-level `Parallel` abstractions. Tutorials for OTL v3 on [www.omnithreadlibrary.com](http://www.omnithreadlibrary.com) are mostly applicable, except for the differences listed in [MIGRATION.md](MIGRATION.md).
 
-### Is OmniThreadLibrary supported on my platform?
+### Is OTL NG supported on my platform?
 
-At the moment, OTL supports Delphi 2007, 2009, 2010, XE, XE2, XE3, XE4, XE5, 
-XE6, XE7, XE8, 10 Seattle, 10.1 Berlin, 10.2 Tokyo, 10.3 Rio, and 10.4 Sydney 
-on Win32 and Win64 platforms using the VCL framework. 
+Minimum compiler version is **Delphi 11 Alexandria**; Delphi 12 and 13 are also supported. Runtime packages are provided for Delphi 11, 12 and 13.
 
-There are no plans to support older Delphi compilers. 
-We are working on support for mobile devices, OS X, Linux, and FireMonkey.
+| Platform | Status |
+|----------|--------|
+| Win32, Win64 | Tested (VCL, FMX and console) |
+| Linux64 | Tested (console), Delphi 13 only |
+| Android64 | Tested (FMX runner on an ARM64 device), Delphi 13 only |
+| Windows ARM64EC | Compiles, not tested |
+| macOS, iOS | Targeted, not verified |
+
+There are no plans to support older Delphi compilers. If you need Delphi 2007-10.4 or you only target Windows, use [OTL v3](https://github.com/gabr42/OmniThreadLibrary).
+
+### How do I run the tests?
+
+Build and run `unittests/ConsoleTestRunner.dpr` (Win32, Win64, Linux64) or `unittests/OtlAndroidTests.dpr` (Android). `unittests/CompileAllUnits.dpr` is a compile-only smoke test across all units. See [CLAUDE.md](CLAUDE.md) for the exact compiler command lines.
 
 ### How do I get support?
 
-Support is provided through the [OmniThreadLibrary forum](https://en.delphipraxis.net/forum/32-omnithreadlibrary/).
+Support is provided through the [OmniThreadLibrary forum](https://en.delphipraxis.net/forum/32-omnithreadlibrary/). Bugs can be reported on the [issue tracker](https://github.com/gabr42/OmniThreadLibrary-NG/issues).
 
 ### Where can I get more information?
 
