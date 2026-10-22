@@ -36,10 +36,13 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Claude AI
 ///   Creation date     : 2026-04-12
-///   Last modification : 2026-06-01
-///   Version           : 1.04
+///   Last modification : 2026-10-22
+///   Version           : 1.05
 ///</para><para>
 ///   History:
+///     1.05: 2026-10-22
+///       - Documented the final drain done by TOmniTaskExecutor.Asy_Execute
+///         (OtlTaskControl 3.11) for APCs queued after the owner's last wait.
 ///     1.04: 2026-06-01
 ///       - Fixed orphaned APC-ref leak: when Notify had queued an APC but the
 ///         target thread terminated without ever entering an alertable wait,

@@ -34,10 +34,16 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
-///   Last modification : 2026-08-24
-///   Version           : 3.10
+///   Last modification : 2026-10-22
+///   Version           : 3.11
 ///</para><para>
 ///   History:
+///     3.11: 2026-10-22
+///       - TOmniTaskExecutor.Asy_Execute drains pending background-observer
+///         APCs after Cleanup. An APC queued after the last WaitForEvent
+///         (typically by an Unobserved child task released in Cleanup) was
+///         discarded with the thread, leaking TAPCState and the dispatcher
+///         closure it held (FastMM leak found in SttwinService).
 ///     3.10: 2026-08-24
 ///       - Fixed AV in TOmniTaskExecutor.EventInfo (oteCommNewMsgList nil,
 ///         "Read of address 00000008") when a message arrived on a task's
@@ -2210,7 +2216,16 @@ begin
         else
           raise Exception.Create('TOmniTaskExecutor.Asy_Execute: Executor is not set');
       end;
-    finally Cleanup; end;
+    finally
+      try
+        Cleanup;
+      finally
+        // Run APCs queued after the last WaitForEvent (e.g. by an Unobserved
+        // child task notifying us while Cleanup was releasing it); they would
+        // be discarded with the thread and leak their observer state.
+        DrainBackgroundObservers;
+      end;
+    end;
   {$IFDEF MSWINDOWS}
   finally
     if oteCOMInitType <> citNone then
