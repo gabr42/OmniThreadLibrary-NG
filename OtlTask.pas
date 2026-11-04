@@ -35,10 +35,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Claude AI
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-08-24
-///   Version           : 3.04
+///   Last modification : 2026-11-04
+///   Version           : 3.05
 ///</para><para>
 ///   History:
+///     3.05: 2026-11-04
+///       - Added TOmniWaitObjectList.IndexOfSynchro, used by
+///         TOmniTaskExecutor.DispatchEvent to find a signalled wait object by
+///         identity instead of by a position computed from a stale snapshot.
 ///     3.04: 2026-08-24
 ///       - Added the {$IFDEF MSWINDOWS} RegisterWaitObject(THandle,
 ///         TOmniWaitObjectProc) overload, for consistency with the
@@ -151,6 +155,7 @@ type
     procedure Add(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectMethod); overload;
     procedure Add(waitObject: IOmniEvent; responseHandler: TOmniWaitObjectProc); overload;
     function  Count: integer;
+    function  IndexOfSynchro(const synchro: IOmniSynchro): integer;
     procedure Remove(waitObject: IOmniEvent);
     property AnonResponseHandlers[idxHandler: integer]: TOmniWaitObjectProc read
       GetAnonResponseHandlers;
@@ -285,6 +290,20 @@ function TOmniWaitObjectList.GetWaitObjects(idxWaitObject: integer): IOmniEvent;
 begin
   Result := owolWaitObjects[idxWaitObject];
 end; { TOmniWaitObjectList.GetWaitObjects }
+
+{:Returns the index of the wait object whose IOmniSynchro identity equals
+  'synchro' (compared via 'as IOmniSynchro', matching how RebuildWaitHandles
+  stores them), or -1 if it is not (or no longer) in the list.
+}
+function TOmniWaitObjectList.IndexOfSynchro(const synchro: IOmniSynchro): integer;
+var
+  i: integer;
+begin
+  for i := 0 to owolWaitObjects.Count - 1 do
+    if (owolWaitObjects[i] as IOmniSynchro) = synchro then
+      Exit(i);
+  Result := -1;
+end; { TOmniWaitObjectList.IndexOfSynchro }
 
 procedure TOmniWaitObjectList.Remove(waitObject: IOmniEvent);
 var

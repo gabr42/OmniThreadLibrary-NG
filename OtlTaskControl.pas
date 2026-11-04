@@ -34,10 +34,28 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
-///   Last modification : 2026-10-22
-///   Version           : 3.11
+///   Last modification : 2026-11-04
+///   Version           : 3.12
 ///</para><para>
 ///   History:
+///     3.12: 2026-11-04
+///       - Fixed EArgumentOutOfRangeException ("List index out of bounds")
+///         in TOmniTaskExecutor.DispatchEvent. The wait-object branch indexed
+///         oteWaitObjectList with info.Index - IdxFirstWaitObject taken from
+///         the msgInfo snapshot of the last RebuildWaitHandles. A handler
+///         (HandleBackgroundNotification unregisters itself) or another
+///         thread (a child task's Destroy) can shrink the list while later
+///         entries of the same Signalled set are still to be dispatched, so
+///         the index was out of range - or silently pointed at another
+///         entry's handler. The signalled event is now looked up in the list
+///         by identity (msgInfo.WaitHandles[info.Index]), under
+///         oteInternalLock; an entry that was unregistered meanwhile is
+///         skipped. The oteWaitObjectList nil test moved under the lock too,
+///         since Asy_UnregisterWaitObject frees the list when it empties.
+///       - Fixed access violation in Asy_UnregisterWaitObject: the list is freed
+///         when it empties, and the second unregistration of the same object
+///         (HandleBackgroundNotification, then the child's Destroy) called
+///         Remove on nil.
 ///     3.11: 2026-10-22
 ///       - TOmniTaskExecutor.Asy_Execute drains pending background-observer
 ///         APCs after Cleanup. An APC queued after the last WaitForEvent
@@ -2442,9 +2460,14 @@ begin
       'WaitObject support is only available when working with an IOmniWorker');
   oteInternalLock.Acquire;
   try
-    oteWaitObjectList.Remove(waitObject);
-    if oteWaitObjectList.Count = 0 then
-      FreeAndNil(oteWaitObjectList);
+    // The list is freed when it empties, so a second unregistration of the same
+    // object (HandleBackgroundNotification followed by the child's Destroy) finds
+    // it nil; that must remain a no-op.
+    if assigned(oteWaitObjectList) then begin
+      oteWaitObjectList.Remove(waitObject);
+      if oteWaitObjectList.Count = 0 then
+        FreeAndNil(oteWaitObjectList);
+    end;
     oteCommRebuildHandles.SetEvent;
   finally oteInternalLock.Release; end;
 end; { TOmniTaskExecutor.Asy_UnregisterWaitObject }
@@ -2565,6 +2588,13 @@ end; { TOmniTaskExecutor.DispatchCommMessage }
 function TOmniTaskExecutor.DispatchEvent(awaited: TWaitFor.TWaitForResult;
   const task: IOmniTask; var msgInfo: TOmniMessageInfo): boolean;
 var
+  firstMessage   : integer;
+  firstWaitObject: integer;
+  idxRebuild     : integer;
+  idxWaitObject  : integer;
+  lastMessage    : integer;
+  lastWaitObject : integer;
+  wakeHandles    : TOmniSynchroArray;
   info           : TWaitFor.THandleInfo;
   rebuildHandles : boolean;
   responseHandler: TOmniWaitObjectMethod;
@@ -2596,27 +2626,45 @@ begin
           Exit;
         end;
 
-    // Only then test other events
+    // Only then test other events.
+    // The loop below can change msgInfo (a comm message handler may trigger
+    // RebuildWaitHandles via TestForInternalRebuild) while Signalled still
+    // holds indices of the wake-up, so interpret those indices against a
+    // snapshot taken before the first handler runs.
+    wakeHandles := msgInfo.WaitHandles;
+    firstMessage := msgInfo.IdxFirstMessage;
+    lastMessage := msgInfo.IdxLastMessage;
+    firstWaitObject := msgInfo.IdxFirstWaitObject;
+    lastWaitObject := msgInfo.IdxLastWaitObject;
+    idxRebuild := msgInfo.IdxRebuildHandles;
     for info in msgInfo.Waiter.Signalled do begin
-      if (info.Index >= msgInfo.IdxFirstMessage) and (info.Index <= msgInfo.IdxLastMessage) then begin
-        if (info.Index = msgInfo.IdxFirstMessage) or assigned(oteCommList) then
-          DispatchCommMessage(msgInfo.WaitHandles[info.Index] as IOmniEvent, task, msgInfo);
+      if (info.Index >= firstMessage) and (info.Index <= lastMessage) then begin
+        if (info.Index = firstMessage) or assigned(oteCommList) then
+          DispatchCommMessage(wakeHandles[info.Index] as IOmniEvent, task, msgInfo);
       end
-      else if (info.Index >= msgInfo.IdxFirstWaitObject) and (info.Index <= msgInfo.IdxLastWaitObject) then begin
-        if assigned(oteWaitObjectList) then begin
-          oteInternalLock.Acquire;
-          try
-            responseHandler := oteWaitObjectList.ResponseHandlers[info.Index - msgInfo.IdxFirstWaitObject];
-            responseProc := oteWaitObjectList.AnonResponseHandlers[info.Index - msgInfo.IdxFirstWaitObject];
-          finally oteInternalLock.Release; end;
-          if assigned(responseHandler) then
-            responseHandler();
-          if assigned(responseProc) then
-            responseProc();
-          CheckTimers;
-        end;
+      else if (info.Index >= firstWaitObject) and (info.Index <= lastWaitObject) then begin
+        responseHandler := nil;
+        responseProc := nil;
+        oteInternalLock.Acquire;
+        try
+          // The list may have shrunk (a handler unregisters itself, a child
+          // task's Destroy unregisters from another thread) since the snapshot
+          // was built, so find the signalled event by identity, not by position.
+          if assigned(oteWaitObjectList) then begin
+            idxWaitObject := oteWaitObjectList.IndexOfSynchro(wakeHandles[info.Index]);
+            if idxWaitObject >= 0 then begin
+              responseHandler := oteWaitObjectList.ResponseHandlers[idxWaitObject];
+              responseProc := oteWaitObjectList.AnonResponseHandlers[idxWaitObject];
+            end;
+          end;
+        finally oteInternalLock.Release; end;
+        if assigned(responseHandler) then
+          responseHandler();
+        if assigned(responseProc) then
+          responseProc();
+        CheckTimers;
       end
-      else if info.Index = msgInfo.IdxRebuildHandles then
+      else if info.Index = idxRebuild then
         rebuildHandles := true;
     end;
   end;

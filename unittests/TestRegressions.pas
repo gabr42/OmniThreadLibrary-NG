@@ -9,6 +9,8 @@ uses
 type
   [TestFixture]
   TestBugfixes = class(TOtlTestBase)
+  strict private
+    procedure RunWaitObjectShrinkScenario(useMsgWait: boolean);
   {$IFDEF MSWINDOWS}
   strict private
     function  AllocatedBytes: NativeUInt;
@@ -39,6 +41,10 @@ type
     procedure TestBgObserverApcRefLeakOnDeadTarget;
     [Test]
     procedure TestTerminatedEventSurvivesControllerDestroy;
+    [Test]
+    procedure TestWaitObjectListShrinkDuringDispatch;
+    [Test]
+    procedure TestWaitObjectListShrinkDuringDispatchMsgWait;
   end;
 
 implementation
@@ -47,7 +53,7 @@ uses
   {$IFDEF MSWINDOWS}Winapi.Windows,{$ENDIF}
   System.Classes, System.SysUtils, System.SyncObjs, System.Diagnostics,
   System.Generics.Collections,
-  OtlCommon, OtlSync, OtlParallel, OtlCollections, OtlTask, OtlTaskControl,
+  OtlCommon, OtlComm, OtlSync, OtlParallel, OtlCollections, OtlTask, OtlTaskControl,
   OtlBackgroundObserver;
 
 procedure TestBugfixes.TestTOmniValueArrayInt64Cast;
@@ -732,6 +738,142 @@ begin
 
   Assert.AreEqual(CIterations, fireCount,
     'OnTerminated fire count mismatch — bg-observer drop regression');
+end;
+
+type
+  TWaitObjShrinkState = class
+    Go   : TEvent;
+    Fired: integer;
+    Msgs : integer;
+    constructor Create;
+    destructor  Destroy; override;
+  end;
+
+  TWaitObjShrinkWorker = class(TOmniWorker)
+  strict private
+    FChildCount: integer;
+    FState     : TWaitObjShrinkState;
+  public
+    constructor Create(state: TWaitObjShrinkState; childCount: integer);
+    procedure Spawn;
+  end;
+
+constructor TWaitObjShrinkState.Create;
+begin
+  inherited Create;
+  Go := TEvent.Create(nil, true, false, '');
+end;
+
+destructor TWaitObjShrinkState.Destroy;
+begin
+  FreeAndNil(Go);
+  inherited;
+end;
+
+constructor TWaitObjShrinkWorker.Create(state: TWaitObjShrinkState; childCount: integer);
+begin
+  inherited Create;
+  FState := state;
+  FChildCount := childCount;
+end;
+
+procedure TWaitObjShrinkWorker.Spawn;
+// Runs on the worker thread. Every child created here registers its own
+// background-notification event in THIS executor's wait-object list.
+var
+  i : integer;
+  st: TWaitObjShrinkState;
+begin
+  st := FState;
+  for i := 1 to FChildCount do
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        st.Go.WaitFor(10000);
+        // A comm message is what signals the owner's notification event.
+        task.Comm.Send(1);
+      end, 'wait-object shrink child')
+    .Unobserved
+    .OnMessage(
+      procedure (const task: IOmniTaskControl; const msg: TOmniMessage)
+      begin
+        TInterlocked.Increment(st.Msgs);
+      end)
+    .OnTerminated(
+      procedure (const task: IOmniTaskControl)
+      begin
+        TInterlocked.Increment(st.Fired);
+      end)
+    .Run;
+end;
+
+procedure TestBugfixes.RunWaitObjectShrinkScenario(useMsgWait: boolean);
+// Reproduces the sttdbProcessor crash (2026-11-04):
+//   EArgumentOutOfRangeException "List index out of bounds (3). TList<TMethod>
+//   range is 0..2" in TOmniWaitObjectList.GetResponseHandlers, called from
+//   TOmniTaskExecutor.DispatchEvent.
+// DispatchEvent computes the list index from the msgInfo snapshot taken at
+// the last RebuildWaitHandles. A handler that unregisters a wait object
+// shrinks the list, but the remaining signalled entries of the same wake-up
+// keep their old indices -> out-of-range (or the wrong handler).
+const
+  CChildren   = 6;
+  CRounds     = 40;
+  CTimeout_ms = 15000;
+var
+  round: integer;
+  state: TWaitObjShrinkState;
+  sw   : TStopwatch;
+  task : IOmniTaskControl;
+begin
+  for round := 1 to CRounds do begin
+    state := TWaitObjShrinkState.Create;
+    try
+      task := CreateTask(TWaitObjShrinkWorker.Create(state, CChildren) as IOmniWorker,
+        'wait-object shrink owner');
+      {$IFDEF MSWINDOWS}
+      if useMsgWait then
+        task := task.MsgWait;
+      {$ENDIF}
+      task := task.Run;
+      try
+        task.Invoke(@TWaitObjShrinkWorker.Spawn);
+        Sleep(300); // let the worker loop rebuild its handle set with the children registered
+        // Worker is now idle in its wait. Release all children at once so that
+        // several notification events are signalled within one wake-up.
+        state.Go.SetEvent;
+        sw := TStopwatch.StartNew;
+        while ((state.Fired < CChildren) or (state.Msgs < CChildren))
+              and (sw.ElapsedMilliseconds < CTimeout_ms)
+        do
+          Sleep(10);
+      finally
+        task.Terminate(5000);
+      end;
+      if assigned(task.FatalException) then
+        Assert.Fail(Format('Round %d: owner task died with exception: %s: %s (exit message: %s)',
+          [round, task.FatalException.ClassName, task.FatalException.Message, task.ExitMessage]));
+      Assert.AreEqual(CChildren, state.Fired,
+        Format('Round %d: OnTerminated fire count', [round]));
+      Assert.AreEqual(CChildren, state.Msgs,
+        Format('Round %d: OnMessage fire count', [round]));
+      task := nil;
+    finally FreeAndNil(state); end;
+  end;
+end;
+
+procedure TestBugfixes.TestWaitObjectListShrinkDuringDispatch;
+begin
+  RunWaitObjectShrinkScenario(false);
+end;
+
+procedure TestBugfixes.TestWaitObjectListShrinkDuringDispatchMsgWait;
+begin
+  {$IFDEF MSWINDOWS}
+  RunWaitObjectShrinkScenario(true);
+  {$ELSE}
+  Assert.Pass('Windows-only test: .MsgWait is Windows-only');
+  {$ENDIF}
 end;
 
 {$IFDEF MSWINDOWS}
