@@ -36,9 +36,12 @@
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin
 ///   Creation date     : 2008-06-12
 ///   Last modification : 2026-11-23
-///   Version           : 3.05
+///   Version           : 3.06
 /// </para><para>
 ///   History:
+///     3.06: 2026-11-23
+///       - CancelAll and pool destruction no longer wait for a task that did not stop in
+///         WaitOnTerminate_sec. Its worker thread is detached, same as in Cancel.
 ///     3.05: 2026-11-23
 ///       - Fixed race in CancelAll and in pool destruction: a task that was already sent
 ///         to a worker thread, but not yet picked up by it, was not cancelled. The task
@@ -441,6 +444,7 @@ type
     function  ActiveWorkItemDescriptions: string;
     procedure Asy_ForwardUnhandledWorkerException(thread: TThread; E: Exception);
     function  CreateWorker: TOTPWorkerThread;
+    procedure DetachWorker(worker: TOTPWorkerThread);
     procedure ForwardThreadCreated(threadID: TThreadID);
     procedure ForwardThreadDestroying(threadID: TThreadID;
       threadPoolOperation: TThreadPoolOperation; worker: TOTPWorkerThread = nil);
@@ -1070,6 +1074,18 @@ begin
   FreeAndNil(owWorkItemQueue);
 end; { TOTPWorker.Cleanup }
 
+/// <summary>Detach the OS thread of an unstoppable worker instead of killing it.</summary>
+/// <remarks>See the comment in TOTPWorker.Cancel. The worker can outlive the pool, so it must
+///    not call back into it.</remarks>
+/// <since>2026-11-23</since>
+procedure TOTPWorker.DetachWorker(worker: TOTPWorkerThread);
+begin
+  worker.Asy_OnUnhandledException := nil;
+  ForwardThreadDestroying(worker.threadID, tpoKillThread, worker);
+  TInterlocked.Increment(GLeakedWorkerThreads);
+  worker.FreeOnTerminate := true; // last, as the worker can be destroyed at any time from here on
+end; { TOTPWorker.DetachWorker }
+
 procedure TOTPWorker.ForwardThreadCreated(threadID: TThreadID);
 begin
   if assigned(owMonitorObserver) then
@@ -1143,9 +1159,15 @@ begin
   end;
   for iWorker := 0 to owStoppingWorkers.Count - 1 do begin
     worker := TOTPWorkerThread(owStoppingWorkers[iWorker]);
-    if worker.Asy_TerminateWorkItem(workItem) then
+    if worker.Asy_TerminateWorkItem(workItem) then begin
       FreeAndNil(workItem);
-    FreeAndNil(worker);
+      DetachWorker(worker); // task did not stop in WaitOnTerminate_sec
+    end
+    else begin
+      if not worker.Stopped then
+        ForwardThreadDestroying(worker.threadID, tpoDestroyThread, worker);
+      FreeAndNil(worker);
+    end;
   end;
   owStoppingWorkers.Clear;
 end; { TOTPWorker.InternalStop }

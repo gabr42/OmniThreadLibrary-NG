@@ -40,6 +40,9 @@
     already sent to a worker thread but not yet picked up by it. Such task
     started executing after the cancellation and CancelAll could wait for it
     forever.
+  - Thread pool: CancelAll and pool destruction waited for a task that ignores
+    cancellation until that task finished. Its worker thread is now detached
+    after WaitOnTerminate_sec, same as in Cancel.
 
 3.07.11: 2025-10-22
 

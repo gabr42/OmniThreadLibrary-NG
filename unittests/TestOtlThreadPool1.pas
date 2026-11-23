@@ -24,6 +24,7 @@ type
     [Test] procedure TestIsIdleAfterCompletion;
     [Test] procedure TestCancelAll;
     [Test] procedure TestCancelAllAfterSchedule;
+    [Test] procedure TestCancelAllStuckTask;
     [Test] procedure TestCancelSingleTask;
     [Test] procedure TestWorkerRecycling;
     [Test] procedure TestIdleWorkerThreadTimeout;
@@ -507,6 +508,55 @@ begin
     pool.CancelAll(true);
     pool := nil;
     Assert.AreEqual<integer>(0, missed, Format('Tasks not cancelled in round %d', [iRound]));
+  end;
+end;
+
+procedure TestIOmniThreadPool.TestCancelAllStuckTask;
+// CancelAll must not wait for a task that ignores cancellation longer than
+// WaitOnTerminate_sec and the pool must stay functional.
+const
+  CStuck_ms = 10000;
+var
+  finished: IOmniEvent;
+  pool    : IOmniThreadPool;
+  release : IOmniEvent;
+  started : IOmniEvent;
+  sw      : TStopwatch;
+  worked  : IOmniEvent;
+begin
+  finished := CreateOmniEvent(true, false);
+  release := CreateOmniEvent(true, false);
+  started := CreateOmniEvent(true, false);
+  worked := CreateOmniEvent(true, false);
+  pool := CreateThreadPool('TestCancelAllStuckTask');
+  pool.WaitOnTerminate_sec := 1;
+  try
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        started.SetEvent;
+        release.WaitFor(CStuck_ms);
+        finished.SetEvent;
+      end)
+    .Unobserved
+    .Schedule(pool);
+    Assert.AreEqual(wrSignaled, started.WaitFor(CTimeout_ms), 'Task did not start');
+    sw := TStopwatch.StartNew;
+    pool.CancelAll(true);
+    Assert.IsTrue(sw.ElapsedMilliseconds < CStuck_ms div 2,
+      Format('CancelAll returned after %d ms', [sw.ElapsedMilliseconds]));
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        worked.SetEvent;
+      end)
+    .Unobserved
+    .Schedule(pool);
+    Assert.AreEqual(wrSignaled, worked.WaitFor(CTimeout_ms), 'Pool is not functional after CancelAll');
+  finally
+    release.SetEvent; // don't leave a running thread behind
+    finished.WaitFor(CTimeout_ms);
+    pool := nil;
   end;
 end;
 

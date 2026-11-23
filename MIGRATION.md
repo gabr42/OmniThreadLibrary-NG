@@ -636,8 +636,8 @@ no longer tracked by OTL. Leaking one worker thread is a far smaller problem
 than process-wide heap corruption. Two diagnostic counters surface how often
 this happens:
 
-- `OtlThreadPool.GLeakedWorkerThreads` — incremented at the two pool detach
-  sites (TOTPWorker.Cancel and the maintenance timer)
+- `OtlThreadPool.GLeakedWorkerThreads` — incremented at the pool detach
+  sites (TOTPWorker.Cancel, CancelAll/pool destruction and the maintenance timer)
 - `OtlTaskControl.GTaskControlLeakedThreads` — incremented at the
   TOmniTaskControl.Terminate fallback site
 
