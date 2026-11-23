@@ -28,10 +28,12 @@ type
     FSeenReservedMsgID : boolean;
     FPoolWorkItemCount : integer;
     FPoolThreadCreated : integer;
+    FQueuedError       : string;
     procedure HandleTaskMessage(const task: IOmniTaskControl; const msg: TOmniMessage);
     procedure HandleTaskTerminated(const task: IOmniTaskControl);
     procedure HandlePoolWorkItemCompleted(const pool: IOmniThreadPool; taskID: int64);
     procedure HandlePoolThreadCreated(const pool: IOmniThreadPool; threadID: integer);
+    procedure HandleQueuedException(Sender: TObject);
     procedure SkipIfNotMainThread;
   public
     [Setup] procedure SetupTest;
@@ -46,6 +48,8 @@ type
     [Test] procedure TestMonitorDestroyWhileTaskRunning;
     [Test] procedure TestMonitorPoolWorkItemCompleted;
     [Test] procedure TestDetachFromPool;
+    [Test] procedure TestNotifyPoolWhileDestroying;
+    [Test] procedure TestNotifyMessageAfterDestroy;
   end;
 
 implementation
@@ -56,6 +60,7 @@ uses
   System.Diagnostics,
   System.SyncObjs,
   OtlSync,
+  OtlContainerObserver,
   OtlTask;
 
 const
@@ -100,6 +105,13 @@ procedure TestOmniEventMonitor.HandlePoolThreadCreated(
   const pool: IOmniThreadPool; threadID: integer);
 begin
   TInterlocked.Increment(FPoolThreadCreated);
+end;
+
+procedure TestOmniEventMonitor.HandleQueuedException(Sender: TObject);
+// CheckSynchronize swallows exceptions in queued procedures if this handler is not assigned
+begin
+  if FQueuedError = '' then
+    FQueuedError := Exception(ExceptObject).ClassName + ': ' + Exception(ExceptObject).Message;
 end;
 
 procedure TestOmniEventMonitor.SkipIfNotMainThread;
@@ -471,6 +483,143 @@ begin
     .Unobserved.Schedule(pool);
     Assert.AreEqual(wrSignaled, done.WaitFor(CTimeout_ms),
       Format('Thread pool manager is not working in round %d', [iRound]));
+  end;
+end;
+
+type
+  // Blocks the sender after it has made a snapshot of all observers.
+  TBlockingObserver = class(TOmniContainerObserver)
+  strict private
+    FEntered: IOmniEvent;
+    FRelease: IOmniEvent;
+  public
+    constructor Create(const entered, release: IOmniEvent);
+    procedure Notify; override;
+  end;
+
+constructor TBlockingObserver.Create(const entered, release: IOmniEvent);
+begin
+  inherited Create;
+  FEntered := entered;
+  FRelease := release;
+end;
+
+procedure TBlockingObserver.Notify;
+begin
+  FEntered.SetEvent;
+  FRelease.WaitFor(CTimeout_ms);
+end;
+
+procedure TestOmniEventMonitor.TestNotifyPoolWhileDestroying;
+// Thread pool notifies a monitor that is just being destroyed and is not yet removed from the
+// pool. Destructor is stopped in that state by owning the lock that is needed to remove the
+// monitor from a task.
+var
+  done      : IOmniEvent;
+  locked    : IOmniEvent;
+  locker    : TThread;
+  monitor   : TOmniEventMonitor;
+  oldHandler: procedure (Sender: TObject) of object;
+  pool      : IOmniThreadPool;
+  task      : IOmniTaskControl;
+begin
+  SkipIfNotMainThread;
+  FQueuedError := '';
+  done := CreateOmniEvent(true, false);
+  locked := CreateOmniEvent(true, false);
+  pool := CreateThreadPool('TestNotifyPoolWhileDestroying');
+  oldHandler := ApplicationHandleException;
+  ApplicationHandleException := HandleQueuedException;
+  try
+    monitor := TOmniEventMonitor.Create(nil);
+    pool.MonitorWith(monitor);
+    task := CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+      end, 'monitored');
+    monitor.Monitor(task);
+    locker := TThread.CreateAnonymousThread(
+      procedure
+      begin
+        var sharedInfo := (task as IOmniTaskControlSharedInfo).SharedInfo;
+        sharedInfo.MonitorLock.Acquire;
+        try
+          locked.SetEvent;
+          Sleep(100); // destructor is now waiting for the lock
+          CreateTask(
+            procedure (const task: IOmniTask)
+            begin
+              done.SetEvent;
+            end, 'in pool')
+          .Unobserved.Schedule(pool);
+          done.WaitFor(CTimeout_ms);
+          Sleep(100); // thread pool manager processes 'completed' notification
+        finally sharedInfo.MonitorLock.Release; end;
+      end);
+    locker.FreeOnTerminate := false;
+    try
+      locker.Start;
+      Assert.AreEqual(wrSignaled, locked.WaitFor(CTimeout_ms), 'locker');
+      FreeAndNil(monitor);
+      Assert.AreEqual(wrSignaled, done.WaitFor(0), 'Pool task was not executed while monitor was being destroyed');
+      locker.WaitFor;
+    finally FreeAndNil(locker); end;
+    CheckSynchronize(100);
+    CheckSynchronize;
+    Assert.AreEqual('', FQueuedError);
+  finally ApplicationHandleException := oldHandler; end;
+end;
+
+procedure TestOmniEventMonitor.TestNotifyMessageAfterDestroy;
+// Sender makes a snapshot of all observers before the monitor is removed from the task and
+// notifies the monitor after it was destroyed.
+var
+  entered   : IOmniEvent;
+  exitTask  : IOmniEvent;
+  monitor   : TOmniEventMonitor;
+  observer  : IOmniContainerObserver;
+  oldHandler: procedure (Sender: TObject) of object;
+  release   : IOmniEvent;
+  sent      : IOmniEvent;
+  task      : IOmniTaskControl;
+begin
+  SkipIfNotMainThread;
+  FQueuedError := '';
+  entered := CreateOmniEvent(true, false);
+  exitTask := CreateOmniEvent(true, false);
+  release := CreateOmniEvent(true, false);
+  sent := CreateOmniEvent(true, false);
+  observer := TBlockingObserver.Create(entered, release);
+  oldHandler := ApplicationHandleException;
+  ApplicationHandleException := HandleQueuedException;
+  try
+    task := CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        task.Comm.Send(CMsgUser, 42);
+        sent.SetEvent;
+        exitTask.WaitFor(CTimeout_ms); // queued procedures are deleted when the thread is destroyed
+      end, 'sender');
+    task.Comm; // creates communication channel
+    (task as IOmniTaskControlSharedInfo).SharedInfo.CommChannel.Endpoint2.Writer.ContainerSubject
+      .Attach(observer, coiNotifyOnAllInserts); // must be notified before the monitor
+    monitor := TOmniEventMonitor.Create(nil);
+    monitor.Monitor(task);
+    task.Run;
+    Assert.AreEqual(wrSignaled, entered.WaitFor(CTimeout_ms), 'entered');
+    FreeAndNil(monitor);
+    release.SetEvent;
+    Assert.AreEqual(wrSignaled, sent.WaitFor(CTimeout_ms), 'Send failed');
+    CheckSynchronize(100);
+    CheckSynchronize;
+    Assert.AreEqual('', FQueuedError);
+    exitTask.SetEvent;
+    Assert.IsTrue(task.Terminate(CTimeout_ms), 'Terminate');
+    Assert.IsFalse(assigned(task.FatalException), 'FatalException');
+  finally
+    exitTask.SetEvent;
+    release.SetEvent;
+    ApplicationHandleException := oldHandler;
   end;
 end;
 

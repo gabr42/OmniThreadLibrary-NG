@@ -35,10 +35,15 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, Claude AI
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-04-22
-///   Version           : 2.0f
+///   Last modification : 2026-11-23
+///   Version           : 2.0g
 ///</para><para>
 ///   History:
+///     2.0g: 2026-11-23
+///       - Fixed: If the monitor was destroyed while it was monitoring a thread pool or a
+///         task, a notification sent at the same time accessed a destroyed monitor or
+///         queued a procedure that raised an access violation in the main thread. Tasks
+///         and thread pools now hold a reference counted dispatcher, not the monitor.
 ///     2.0f: 2026-04-22
 ///       - Fixed UAF in Notify{Message,Terminated,ThreadPool}: queued closures
 ///         captured Self as a raw pointer (TComponent IInterface does not
@@ -139,7 +144,7 @@ type
   TOmniMonitorPoolThreadEvent = procedure(const pool: IOmniThreadPool; threadID: integer) of object;
   TOmniMonitorPoolWorkItemEvent = procedure(const pool: IOmniThreadPool; taskID: int64) of object;
 
-  IOmniEventMonitorDispatcher = interface ['{3FBDB96C-3C0D-4C7C-8A42-0D42CFB2B6DE}']
+  IOmniEventMonitorDispatcher = interface(IOmniEventMonitorNotify) ['{3FBDB96C-3C0D-4C7C-8A42-0D42CFB2B6DE}']
     procedure Clear;
     procedure DispatchNewMessage(taskControlID: int64);
     procedure DispatchTerminated(taskControlID: int64);
@@ -247,7 +252,11 @@ type
     property RefCount: integer read cemRefCount;
   end; { TOmniCountedEventMonitor }
 
-  ///<summary>Lock-serialized proxy that keeps queued TOmniEventMonitor
+  ///<summary>Reference counted proxy that is registered with the monitored tasks and
+  ///   thread pools. They can send notifications while the monitor is being destroyed
+  ///   or even after that, so they must not access the monitor directly.
+  ///
+  ///   Also a lock-serialized proxy that keeps queued TOmniEventMonitor
   ///   closures UAF-safe. Queued closures capture the dispatcher interface
   ///   (refcounted) rather than the TComponent-based monitor (not refcounted
   ///   through IInterface). Clear, called from the monitor destructor,
@@ -255,17 +264,23 @@ type
   ///   so any in-flight Dispatch finishes first and any later Dispatch is
   ///   a no-op. DispatchThreadPool still frees threadPoolInfo when the
   ///   monitor is gone so ownership semantics are preserved.</summary>
-  TOmniEventMonitorDispatcher = class(TInterfacedObject, IOmniEventMonitorDispatcher)
+  TOmniEventMonitorDispatcher = class(TInterfacedObject, IOmniEventMonitorDispatcher,
+                                                         IOmniEventMonitorNotify)
   strict private
+    FID    : int64;
     FLock  : TCriticalSection;
     FTarget: Pointer; // raw TOmniEventMonitor; nil after Clear
   public
-    constructor Create(target: Pointer);
+    constructor Create(target: Pointer; id: int64);
     destructor  Destroy; override;
     procedure Clear;
     procedure DispatchNewMessage(taskControlID: int64);
     procedure DispatchTerminated(taskControlID: int64);
     procedure DispatchThreadPool(threadPoolInfo: TOmniThreadPoolMonitorInfo);
+    function  GetID: int64;
+    procedure NotifyMessage(taskControlID: int64);
+    procedure NotifyTerminated(taskControlID: int64);
+    procedure NotifyThreadPool(threadPoolInfo: TOmniThreadPoolMonitorInfo);
   end; { TOmniEventMonitorDispatcher }
 
 { TOmniEventMonitor }
@@ -281,7 +296,7 @@ begin
                               [emThreadID]);
   emMonitoredTasks := CreateInterfaceDictionary;
   emMonitoredPools := CreateInterfaceDictionary;
-  emDispatcher := TOmniEventMonitorDispatcher.Create(Self);
+  emDispatcher := TOmniEventMonitorDispatcher.Create(Self, emID);
 end; { TOmniEventMonitor.Create }
 
 destructor TOmniEventMonitor.Destroy;
@@ -335,53 +350,29 @@ end; { TOmniEventMonitor.GetID }
 function TOmniEventMonitor.Monitor(const task: IOmniTaskControl): IOmniTaskControl;
 begin
   emMonitoredTasks.Add(task.UniqueID, task);
-  Result := task.SetMonitor(Self as IOmniEventMonitorNotify);
+  Result := task.SetMonitor(emDispatcher);
 end; { TOmniEventMonitor.Monitor }
 
 function TOmniEventMonitor.Monitor(const pool: IOmniThreadPool): IOmniThreadPool;
 begin
   emMonitoredPools.Add(pool.UniqueID, pool);
-  Result := pool.SetMonitor(Self as IOmniEventMonitorNotify);
+  Result := pool.SetMonitor(emDispatcher);
 end; { TOmniEventMonitor.Monitor }
 
 procedure TOmniEventMonitor.NotifyMessage(taskControlID: int64);
-var
-  dispatcher: IOmniEventMonitorDispatcher;
 begin
-  dispatcher := emDispatcher; // strong ref keeps dispatcher alive inside the closure
-  TThread.ForceQueue(
-    TThread.CurrentThread,
-    procedure
-    begin
-      dispatcher.DispatchNewMessage(taskControlID);
-    end);
+  emDispatcher.NotifyMessage(taskControlID);
 end; { TOmniEventMonitor.NotifyMessage }
 
 procedure TOmniEventMonitor.NotifyTerminated(taskControlID: int64);
-var
-  dispatcher: IOmniEventMonitorDispatcher;
 begin
-  dispatcher := emDispatcher;
-  TThread.ForceQueue(
-    TThread.CurrentThread,
-    procedure
-    begin
-      dispatcher.DispatchTerminated(taskControlID);
-    end);
+  emDispatcher.NotifyTerminated(taskControlID);
 end; { TOmniEventMonitor.NotifyTerminated }
 
 procedure TOmniEventMonitor.NotifyThreadPool(
   threadPoolInfo: TOmniThreadPoolMonitorInfo);
-var
-  dispatcher: IOmniEventMonitorDispatcher;
 begin
-  dispatcher := emDispatcher;
-  TThread.ForceQueue(
-    TThread.CurrentThread,
-    procedure
-    begin
-      dispatcher.DispatchThreadPool(threadPoolInfo);
-    end);
+  emDispatcher.NotifyThreadPool(threadPoolInfo);
 end; { TOmniEventMonitor.NotifyThreadPool }
 
 procedure TOmniEventMonitor.ProcessMessages;
@@ -476,9 +467,10 @@ end; { TOmniEventMonitor.ProcessThreadPool }
 
 { TOmniEventMonitorDispatcher }
 
-constructor TOmniEventMonitorDispatcher.Create(target: Pointer);
+constructor TOmniEventMonitorDispatcher.Create(target: Pointer; id: int64);
 begin
   inherited Create;
+  FID := id;
   FLock := TCriticalSection.Create;
   FTarget := target;
 end; { TOmniEventMonitorDispatcher.Create }
@@ -527,6 +519,51 @@ begin
       FreeAndNil(threadPoolInfo);
   finally FLock.Leave; end;
 end; { TOmniEventMonitorDispatcher.DispatchThreadPool }
+
+function TOmniEventMonitorDispatcher.GetID: int64;
+begin
+  Result := FID;
+end; { TOmniEventMonitorDispatcher.GetID }
+
+procedure TOmniEventMonitorDispatcher.NotifyMessage(taskControlID: int64);
+var
+  dispatcher: IOmniEventMonitorDispatcher;
+begin
+  dispatcher := Self; // strong ref keeps dispatcher alive inside the closure
+  TThread.ForceQueue(
+    TThread.CurrentThread,
+    procedure
+    begin
+      dispatcher.DispatchNewMessage(taskControlID);
+    end);
+end; { TOmniEventMonitorDispatcher.NotifyMessage }
+
+procedure TOmniEventMonitorDispatcher.NotifyTerminated(taskControlID: int64);
+var
+  dispatcher: IOmniEventMonitorDispatcher;
+begin
+  dispatcher := Self;
+  TThread.ForceQueue(
+    TThread.CurrentThread,
+    procedure
+    begin
+      dispatcher.DispatchTerminated(taskControlID);
+    end);
+end; { TOmniEventMonitorDispatcher.NotifyTerminated }
+
+procedure TOmniEventMonitorDispatcher.NotifyThreadPool(
+  threadPoolInfo: TOmniThreadPoolMonitorInfo);
+var
+  dispatcher: IOmniEventMonitorDispatcher;
+begin
+  dispatcher := Self;
+  TThread.ForceQueue(
+    TThread.CurrentThread,
+    procedure
+    begin
+      dispatcher.DispatchThreadPool(threadPoolInfo);
+    end);
+end; { TOmniEventMonitorDispatcher.NotifyThreadPool }
 
 { TOmniCountedEventMonitor }
 

@@ -53,6 +53,9 @@
     released before the task exited. They now stay alive until the task exits.
   - TOmniEventMonitor.Detach(pool) waits until the thread pool manager releases the
     monitor. Previously, the manager could access a destroyed monitor and crash.
+  - Destroying a TOmniEventMonitor that was monitoring a thread pool or a task could
+    cause an access violation in the main thread or in the task (if a notification
+    was sent at that moment).
   - Thread pool: CancelAll did not cancel a task that was
     already sent to a worker thread but not yet picked up by it. Such task
     started executing after the cancellation and CancelAll could wait for it
