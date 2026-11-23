@@ -36,6 +36,10 @@
     were not released from then on).
   - An exception in the unobserved task cleanup thread no longer stops that
     thread. Exceptions are counted in OtlTaskControl.GUnobservedCleanupErrors.
+  - Thread pool: CancelAll and pool destruction did not cancel a task that was
+    already sent to a worker thread but not yet picked up by it. Such task
+    started executing after the cancellation and CancelAll could wait for it
+    forever.
 
 3.07.11: 2025-10-22
 

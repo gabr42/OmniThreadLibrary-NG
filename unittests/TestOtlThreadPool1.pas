@@ -23,6 +23,7 @@ type
     [Test] procedure TestCountExecuting;
     [Test] procedure TestIsIdleAfterCompletion;
     [Test] procedure TestCancelAll;
+    [Test] procedure TestCancelAllAfterSchedule;
     [Test] procedure TestCancelSingleTask;
     [Test] procedure TestWorkerRecycling;
     [Test] procedure TestIdleWorkerThreadTimeout;
@@ -468,6 +469,45 @@ begin
         cancelledArr[idx] := true;
       TInterlocked.Increment(finished^);
     end;
+end;
+
+procedure TestIOmniThreadPool.TestCancelAllAfterSchedule;
+// CancelAll must also cancel tasks that were already sent to a worker thread but were not
+// yet picked up by it. Otherwise, such task starts after the cancellation and CancelAll
+// waits for it.
+const
+  CGiveUp_ms = 3000; // must be shorter than the default WaitOnTerminate_sec
+  CRounds    = 100;
+  CTaskCount = 8;
+var
+  missed: integer;
+  pool  : IOmniThreadPool;
+begin
+  missed := 0;
+  for var iRound := 1 to CRounds do begin
+    pool := CreateThreadPool('TestCancelAllAfterSchedule');
+    pool.MaxExecuting := 4;
+    for var iTask := 1 to CTaskCount do
+      CreateTask(
+        procedure (const task: IOmniTask)
+        var
+          sw: TStopwatch;
+        begin
+          sw := TStopwatch.StartNew;
+          while not task.CancellationToken.IsSignalled do begin
+            if sw.ElapsedMilliseconds > CGiveUp_ms then begin // don't hang the test
+              TInterlocked.Increment(missed);
+              break; //while
+            end;
+            Sleep(1);
+          end;
+        end)
+      .Unobserved
+      .Schedule(pool);
+    pool.CancelAll(true);
+    pool := nil;
+    Assert.AreEqual<integer>(0, missed, Format('Tasks not cancelled in round %d', [iRound]));
+  end;
 end;
 
 procedure TestIOmniThreadPool.TestCancelSingleTask;
