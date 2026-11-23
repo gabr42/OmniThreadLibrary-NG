@@ -222,7 +222,8 @@ var
   logger  : TOmniLogger;
   roundSL : TStringList;
 begin
-  fileName := TPath.Combine(TPath.GetTempPath, 'otl_logger_test.log');
+  // unique name, so that several test runners can run at once
+  fileName := TPath.Combine(TPath.GetTempPath, 'otl_logger_test_' + TPath.GetGUIDFileName + '.log');
   if TFile.Exists(fileName) then
     TFile.Delete(fileName);
 
