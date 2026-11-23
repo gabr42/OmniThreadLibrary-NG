@@ -40,10 +40,10 @@
 /// </para><para>
 ///   History:
 ///     3.06: 2026-11-23
-///       - CancelAll and pool destruction no longer wait for a task that did not stop in
+///       - CancelAll no longer waits for a task that did not stop in
 ///         WaitOnTerminate_sec. Its worker thread is detached, same as in Cancel.
 ///     3.05: 2026-11-23
-///       - Fixed race in CancelAll and in pool destruction: a task that was already sent
+///       - Fixed race in CancelAll: a task that was already sent
 ///         to a worker thread, but not yet picked up by it, was not cancelled. The task
 ///         started executing after the cancellation and the pool waited for it forever
 ///         (if the task depended on the cancellation token or termination to exit).

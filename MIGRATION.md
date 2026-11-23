@@ -637,7 +637,7 @@ than process-wide heap corruption. Two diagnostic counters surface how often
 this happens:
 
 - `OtlThreadPool.GLeakedWorkerThreads` — incremented at the pool detach
-  sites (TOTPWorker.Cancel, CancelAll/pool destruction and the maintenance timer)
+  sites (TOTPWorker.Cancel, CancelAll and the maintenance timer)
 - `OtlTaskControl.GTaskControlLeakedThreads` — incremented at the
   TOmniTaskControl.Terminate fallback site
 
