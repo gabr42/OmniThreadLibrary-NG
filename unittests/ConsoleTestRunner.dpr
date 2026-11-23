@@ -8,6 +8,7 @@
 {$DEFINE CONSOLE_TESTRUNNER}
 
 uses
+  ExitPoolCheck in 'ExitPoolCheck.pas', // must be initialized before OTL
   {$IFDEF USE_MAD}
   madExcept,
   madLinkDisAsm,
@@ -58,6 +59,7 @@ uses
   , TestTask in 'TestTask.pas'
   , TestOtlParallel in 'TestOtlParallel.pas'
   , TestDetach1 in 'TestDetach1.pas'
+  , TestExitPool1 in 'TestExitPool1.pas'
   , TestUnobserved in 'TestUnobserved.pas'
   , TestOtlThreadPool1 in 'TestOtlThreadPool1.pas'
   , TestOtlEventMonitor1 in 'TestOtlEventMonitor1.pas'

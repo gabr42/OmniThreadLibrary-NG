@@ -56,6 +56,13 @@
   - Destroying a TOmniEventMonitor that was monitoring a thread pool or a task could
     cause an access violation in the main thread or in the task (if a notification
     was sent at that moment).
+  - Program crashed or hung at exit if a thread pool task was still running. (The
+    pool was referenced from the task and was not stopped when OTL units were
+    finalized.) All thread pools are now stopped first; exit can take up to
+    WaitOnTerminate_sec if a task ignores cancellation.
+    DLLs are not changed as waiting for threads in DllMain could hang.
+  - Thread pool: Task, scheduled while the pool is being stopped, is cancelled.
+    Cancel, CancelAll etc don't wait forever if the pool manager is not running.
   - Thread pool: CancelAll did not cancel a task that was
     already sent to a worker thread but not yet picked up by it. Such task
     started executing after the cancellation and CancelAll could wait for it

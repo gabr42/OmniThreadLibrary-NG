@@ -35,9 +35,11 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
 ///   Last modification : 2026-11-23
-///   Version           : 3.15
+///   Version           : 3.16
 ///</para><para>
 ///   History:
+///     3.16: 2026-11-23
+///       - All thread pools are stopped before the unit is finalized.
 ///     3.15: 2026-11-23
 ///       - Fixed: A task that was detached because it did not stop in time (Terminate with a
 ///         timeout, thread pool Cancel and CancelAll) used destroyed objects if its task
@@ -5302,6 +5304,7 @@ initialization
   GTaskControlEventMonitorPool := TOmniTaskControlEventMonitorPool.Create;
   GUnobservedCleanup := TOmniUnobservedCleanupThread.Create;
 finalization
+  StopAllThreadPools; // tasks must not be running when their controllers are released
   FreeAndNil(GUnobservedCleanup);
   FreeAndNil(GTaskControlEventMonitorPool);
 end.
