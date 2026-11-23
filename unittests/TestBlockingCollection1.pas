@@ -37,6 +37,18 @@ type
     [Test]
     procedure TestFromArrayToArray;
     [Test]
+    procedure TestToArrayWordMax;
+    [Test]
+    procedure TestToArraySmallintNegative;
+    [Test]
+    procedure TestToArrayInt64;
+    [Test]
+    procedure TestToArrayCardinalMax;
+    [Test]
+    procedure TestToArrayObjectAtHighAddress;
+    [Test]
+    procedure TestToArrayTooBig;
+    [Test]
     procedure TestAddRange;
     [Test]
     procedure TestMultiConsumerTryTake;
@@ -293,6 +305,79 @@ begin
   Assert.AreEqual<integer>(5, Length(result));
   Assert.AreEqual<integer>(1, result[0]);
   Assert.AreEqual<integer>(5, result[4]);
+end;
+
+procedure TestIOmniBlockingCollection.TestToArrayWordMax;
+begin
+  var coll := TOmniBlockingCollection.FromRange<word>([0, 65535]);
+  coll.CompleteAdding;
+  var result := TOmniBlockingCollection.ToArray<word>(coll);
+  Assert.AreEqual<integer>(2, Length(result));
+  Assert.IsTrue(result[0] = 0);
+  Assert.IsTrue(result[1] = 65535);
+end;
+
+procedure TestIOmniBlockingCollection.TestToArraySmallintNegative;
+begin
+  var coll := TOmniBlockingCollection.FromRange<smallint>([-1, -32768, 32767]);
+  coll.CompleteAdding;
+  var result := TOmniBlockingCollection.ToArray<smallint>(coll);
+  Assert.AreEqual<integer>(3, Length(result));
+  Assert.IsTrue(result[0] = -1);
+  Assert.IsTrue(result[1] = -32768);
+  Assert.IsTrue(result[2] = 32767);
+end;
+
+procedure TestIOmniBlockingCollection.TestToArrayInt64;
+begin
+  var coll := TOmniBlockingCollection.FromRange<int64>([0, 5, -1, Low(int64), High(int64)]);
+  coll.CompleteAdding;
+  var result := TOmniBlockingCollection.ToArray<int64>(coll);
+  Assert.AreEqual<integer>(5, Length(result));
+  Assert.IsTrue(result[0] = 0);
+  Assert.IsTrue(result[1] = 5);
+  Assert.IsTrue(result[2] = -1);
+  Assert.IsTrue(result[3] = Low(int64));
+  Assert.IsTrue(result[4] = High(int64));
+end;
+
+procedure TestIOmniBlockingCollection.TestToArrayCardinalMax;
+begin
+  var coll: IOmniBlockingCollection := TOmniBlockingCollection.Create;
+  var ov: TOmniValue;
+  ov.AsCardinal := $FFFFFFFF; // stored as int64; AddRange<cardinal> would store it as integer
+  coll.Add(ov);
+  coll.CompleteAdding;
+  var result := TOmniBlockingCollection.ToArray<cardinal>(coll);
+  Assert.AreEqual<integer>(1, Length(result));
+  Assert.IsTrue(result[0] = $FFFFFFFF);
+end;
+
+procedure TestIOmniBlockingCollection.TestToArrayObjectAtHighAddress;
+begin
+  // A large-address-aware 32-bit process can allocate objects above $FF000000.
+  // The object is never dereferenced, so a fake address is enough.
+  var obj := TObject(NativeUInt($FF15C760));
+  var coll := TOmniBlockingCollection.FromRange<TObject>([obj]);
+  coll.CompleteAdding;
+  var result := TOmniBlockingCollection.ToArray<TObject>(coll);
+  Assert.AreEqual<integer>(1, Length(result));
+  Assert.IsTrue(result[0] = obj);
+end;
+
+procedure TestIOmniBlockingCollection.TestToArrayTooBig;
+begin
+  var coll: IOmniBlockingCollection := TOmniBlockingCollection.Create;
+  coll.Add(65536);
+  coll.CompleteAdding;
+  var raised := false;
+  try
+    TOmniBlockingCollection.ToArray<word>(coll);
+  except
+    on E: EOmniValueConv do
+      raised := true;
+  end;
+  Assert.IsTrue(raised, 'EOmniValueConv was not raised');
 end;
 
 procedure TestIOmniBlockingCollection.TestAddRange;

@@ -35,10 +35,12 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, scarre, Sean B. Durkin, HHasenack, Claude AI
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-10-09
-///   Version           : 3.05
+///   Last modification : 2026-11-23
+///   Version           : 3.05a
 ///</para><para>
 ///   History:
+///     3.05a: 2026-11-23
+///       - Fixed range check in TOmniValue.CastTo<T> for 2- and 4-byte types.
 ///     3.05: 2026-10-09
 ///       - When compiled for C++Builder (BCB is defined), the overloaded properties
 ///         TOmniValue.AsArrayItem[string | TOmniValue] and
@@ -1945,7 +1947,7 @@ begin
   end
   else begin // simple types
     if ds < 8 then begin
-      maxValue := uint64($FF) SHL ((ds-1) * 8);
+      maxValue := (uint64(1) SHL (ds * 8)) - 1;
       if ovData > maxValue then
         raise EOmniValueConv.CreateFmt('Value %d is too big to fit into %s', [ovData, ti^.Name]);
     end;

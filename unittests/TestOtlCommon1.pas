@@ -55,6 +55,12 @@ type
     [Test] procedure TestCastToString;
     [Test] procedure TestCastToBoolean;
     [Test] procedure TestCastToInt64;
+    [Test] procedure TestCastToIntegerNegative;
+    [Test] procedure TestCastToByteMax;
+    [Test] procedure TestCastToWordMax;
+    [Test] procedure TestCastToSmallintNegative;
+    [Test] procedure TestCastToCardinalMax;
+    [Test] procedure TestCastToObjectAtHighAddress;
   end;
 
   [TestFixture]
@@ -349,6 +355,50 @@ procedure TestOmniValueWrap.TestCastToInt64;
 begin
   var v: TOmniValue := int64(123456789012345);
   Assert.AreEqual<int64>(123456789012345, v.CastTo<int64>);
+end;
+
+procedure TestOmniValueWrap.TestCastToIntegerNegative;
+begin
+  var v: TOmniValue;
+  v := -1;
+  Assert.IsTrue(v.CastTo<integer> = -1);
+end;
+
+procedure TestOmniValueWrap.TestCastToByteMax;
+begin
+  var v: TOmniValue;
+  v := TOmniValue.CastFrom<byte>(255);
+  Assert.IsTrue(v.CastTo<byte> = 255);
+end;
+
+procedure TestOmniValueWrap.TestCastToWordMax;
+begin
+  var v: TOmniValue;
+  v := TOmniValue.CastFrom<word>(65535);
+  Assert.IsTrue(v.CastTo<word> = 65535);
+end;
+
+procedure TestOmniValueWrap.TestCastToSmallintNegative;
+begin
+  var v: TOmniValue;
+  v := TOmniValue.CastFrom<smallint>(-1);
+  Assert.IsTrue(v.CastTo<smallint> = -1);
+end;
+
+procedure TestOmniValueWrap.TestCastToCardinalMax;
+begin
+  var v: TOmniValue;
+  v.AsCardinal := $FFFFFFFF;
+  Assert.IsTrue(v.CastTo<cardinal> = $FFFFFFFF);
+end;
+
+procedure TestOmniValueWrap.TestCastToObjectAtHighAddress;
+begin
+  // A large-address-aware 32-bit process can allocate objects above $FF000000.
+  // The object is never dereferenced, so a fake address is enough.
+  var obj := TObject(NativeUInt($FF15C760));
+  var v := TOmniValue.CastFrom<TObject>(obj);
+  Assert.IsTrue(v.CastTo<TObject> = obj);
 end;
 
 { TestOmniValueOwned }
