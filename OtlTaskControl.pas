@@ -5392,6 +5392,7 @@ initialization
   GTaskControlEventMonitorPool := TOmniTaskControlEventMonitorPool.Create;
   GUnobservedCleanup := TOmniUnobservedCleanupThread.Create;
 finalization
+  ModuleFinalization;
   StopAllThreadPools; // tasks must not be running when their controllers are released
   StopUnobservedCleanup;
   FreeAndNil(GTaskControlEventMonitorPool);

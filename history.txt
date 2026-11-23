@@ -70,6 +70,9 @@
     time, the program will probably crash. At process exit threads are not waited for.
     (If they are killed while allocating memory, the RTL can still hang. This also
     happens without OTL. Call StopAllOmniThreads before the program exits.)
+    Unload is detected with DllProcEx. A DLL that assigns its own DllProc/DllProcEx can
+    still hang if it releases a thread pool in the finalization of its units and does
+    not call StopAllOmniThreads (or the previous DllProcEx).
   - Thread pool: Task, scheduled while the pool is being stopped, is cancelled.
     Cancel, CancelAll etc don't wait forever if the pool manager is not running.
   - Thread pool: CancelAll did not cancel a task that was

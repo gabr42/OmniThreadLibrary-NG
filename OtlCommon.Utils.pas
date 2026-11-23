@@ -107,6 +107,10 @@ function  ProcessIsExiting: boolean;
 ///   lock is owned so threads cannot exit; waiting for that would block forever.</summary>
 function  ModuleIsUnloading: boolean;
 
+/// <summary>Must be called first in the finalization of units that wait for threads. Needed if
+///   the DLL has replaced DllProc so that unload was not detected.</summary>
+procedure ModuleFinalization;
+
 /// <summary>Remaining part of COmniUnloadTimeout_ms.</summary>
 function  UnloadTimeLeft_ms: cardinal;
 
@@ -243,39 +247,44 @@ end; { NumTrackedThreads }
 
 {$IFDEF MSWINDOWS}
 var
-  GUnloadStart_ms : UInt64;
-  GUnloadThreadID : cardinal; // owns the loader lock
+  GNextDllProcEx : TDllProcEx;
+  GUnloading     : boolean;
+  GUnloadStart_ms: UInt64;
 
 function  RtlDllShutdownInProgress: ByteBool; stdcall; external 'ntdll.dll';
-function  RtlGetCurrentPeb: PByte; stdcall; external 'ntdll.dll';
 
-function LoaderLockOwner: cardinal;
-const
-  CPebLoaderLock = {$IFDEF CPU64BITS}$110{$ELSE}$A0{$ENDIF};
-type
-  PPRTLCriticalSection = ^PRTLCriticalSection;
+procedure MarkUnloading;
 begin
-  Result := cardinal(PPRTLCriticalSection(RtlGetCurrentPeb + CPebLoaderLock)^.OwningThread);
-end; { LoaderLockOwner }
+  if GUnloading or ProcessIsExiting then
+    Exit;
+  GUnloadStart_ms := GetTickCount64;
+  GUnloading := true;
+end; { MarkUnloading }
 
 function ProcessIsExiting: boolean;
 begin
   Result := RtlDllShutdownInProgress;
 end; { ProcessIsExiting }
 
+/// Called before units are finalized. Not called if the DLL assigns its own DllProc and doesn't
+/// call the previous one; ModuleFinalization is then called from the finalization of OTL units.
+procedure OtlDllProcEx(reason: integer; reserved: pointer);
+begin
+  if (reason = DLL_PROCESS_DETACH) and (not assigned(reserved)) then // otherwise process is exiting
+    MarkUnloading;
+  if assigned(GNextDllProcEx) then
+    GNextDllProcEx(reason, reserved);
+end; { OtlDllProcEx }
+
+procedure ModuleFinalization;
+begin
+  if ModuleIsLib and (not ModuleIsPackage) then
+    MarkUnloading;
+end; { ModuleFinalization }
+
 function ModuleIsUnloading: boolean;
 begin
-  if (not IsLibrary) or ProcessIsExiting then
-    Exit(false);
-  // The thread that is unloading the module comes here first. Other threads must know that, too,
-  // but only as long as it owns the lock; DLL initialization also runs under the loader lock.
-  if (LoaderLockOwner = GetCurrentThreadID) and (GUnloadThreadID <> GetCurrentThreadID) then begin
-    GUnloadStart_ms := GetTickCount64;
-    GUnloadThreadID := GetCurrentThreadID;
-  end
-  else if (GUnloadThreadID <> 0) and (LoaderLockOwner <> GUnloadThreadID) then
-    GUnloadThreadID := 0;
-  Result := (GUnloadThreadID <> 0);
+  Result := GUnloading;
 end; { ModuleIsUnloading }
 
 function UnloadTimeLeft_ms: cardinal;
@@ -297,13 +306,14 @@ var
 begin
   if not assigned(thread) then
     Exit;
-  if IsLibrary and (not ProcessIsExiting) then begin
+  if not ProcessIsExiting then begin
     handle := thread.Handle;
     if ModuleIsUnloading then begin
       if WaitForSingleObject(handle, 0) <> WAIT_OBJECT_0 then
         Exit;
     end
-    else if (GetCurrentThreadID <> MainThreadID) // TThread.WaitFor calls CheckSynchronize in the main thread
+    else if ModuleIsLib and (not ModuleIsPackage)
+            and (GetCurrentThreadID <> MainThreadID) // TThread.WaitFor calls CheckSynchronize in the main thread
             and (not thread.Suspended) then
     begin
       thread.Terminate;
@@ -319,6 +329,10 @@ function ProcessIsExiting: boolean;
 begin
   Result := false;
 end; { ProcessIsExiting }
+
+procedure ModuleFinalization;
+begin
+end; { ModuleFinalization }
 
 function ModuleIsUnloading: boolean;
 begin
@@ -341,6 +355,10 @@ var
   GKernel32: HMODULE;
 
 initialization
+  if ModuleIsLib and (not ModuleIsPackage) then begin
+    GNextDllProcEx := DllProcEx;
+    DllProcEx := OtlDllProcEx;
+  end;
   GKernel32 := GetModuleHandle('kernel32.dll');
   if GKernel32 <> 0 then
     GSetThreadDescription := GetProcAddress(GKernel32, 'SetThreadDescription');

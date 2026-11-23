@@ -4,7 +4,8 @@ library OtlUnloadDll;
 
 uses
   System.SysUtils,
-  OtlTask, OtlTaskControl, OtlThreadPool, OtlParallel;
+  OtlTask, OtlTaskControl, OtlThreadPool, OtlParallel,
+  UnloadOwner in 'UnloadOwner.pas';
 
 const
   CPrivatePool = 1;
@@ -14,6 +15,9 @@ const
   CThreads     = 16; // tasks in their own threads, released in finalization
   CStuck       = 32; // task ignores cancellation
   CIdleTimeout = 64; // workers are being removed from the pool when the DLL is unloaded
+  COwnDllProc  = 128; // DLL replaces DllProc
+  COwned       = 512; // pool is released in the finalization of a unit
+  CInit        = 256; // OTL is used in the DLL initialization
 
 var
   GTask: IOmniTaskControl;
@@ -30,6 +34,8 @@ begin
     if mode and CLeaked <> 0 then
       pool._AddRef;
   end;
+  if mode and COwned <> 0 then
+    GOwnedPool := pool;
   if mode and CIdleTimeout <> 0 then
     pool.IdleWorkerThreadTimeout_sec := 1;
   if mode and CParallel <> 0 then
@@ -67,9 +73,21 @@ begin
   Result := StopAllOmniThreads(timeout_ms);
 end;
 
+procedure OwnDllProc(reason: integer);
+begin
+end;
+
 exports
   Go, Shutdown;
 
+var
+  mode: integer;
+
 begin
   Randomize;
+  mode := StrToIntDef(GetEnvironmentVariable('OTL_UNLOAD_MODE'), 0); // set in UnloadHost
+  if mode and COwnDllProc <> 0 then
+    DllProc := OwnDllProc;
+  if mode and CInit <> 0 then
+    CreateTask(procedure (const task: IOmniTask) begin end).WaitFor(10); // not started
 end.

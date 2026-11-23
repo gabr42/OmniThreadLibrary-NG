@@ -6542,6 +6542,7 @@ end; { TOmniTimedTask.WaitFor }
 
 initialization
 finalization
+  ModuleFinalization;
   GParallelPool := nil;
 end.
 

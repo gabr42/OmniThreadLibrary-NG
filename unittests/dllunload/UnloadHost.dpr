@@ -42,6 +42,7 @@ var
 
 begin
   before := NumThreads;
+  SetEnvironmentVariable('OTL_UNLOAD_MODE', PChar(ParamStr(1)));
   for i := 1 to StrToIntDef(ParamStr(3), 1) do begin
     lib := LoadLibrary('OtlUnloadDll.dll');
     if lib = 0 then

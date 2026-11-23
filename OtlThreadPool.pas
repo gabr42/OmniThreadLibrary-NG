@@ -2121,6 +2121,7 @@ initialization
   GThreadPoolsLock := TCriticalSection.Create;
   GThreadPools := TList.Create;
 finalization
+  ModuleFinalization;
   StopAllThreadPools;
   GOmniThreadPool := nil;
   FreeAndNil(GThreadPools);
