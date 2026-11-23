@@ -43,6 +43,14 @@
   - Thread pool: CancelAll waited for a task that ignores
     cancellation until that task finished. Its worker thread is now detached
     after WaitOnTerminate_sec, same as in Cancel.
+  - Thread pool: Cancel(taskID) also cancels a task that is waiting in the queue
+    and a task that was already sent to a worker thread but not yet picked up by
+    it. Previously, it returned True and the task was executed anyway.
+  - Thread pool: Cancel(taskID) left CountExecuting too high; IsIdle then never
+    returned True. CancelAll could make CountQueued negative.
+  - Thread pool: Fixed access violation in the thread pool manager (which then
+    stopped working) if Cancel or CancelAll was called at the moment when the
+    task was completing.
 
 3.07.11: 2025-10-22
 

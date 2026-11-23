@@ -26,6 +26,7 @@ type
     [Test] procedure TestCancelAllAfterSchedule;
     [Test] procedure TestCancelAllStuckTask;
     [Test] procedure TestCancelSingleTask;
+    [Test] procedure TestCancelNotStartedTask;
     [Test] procedure TestWorkerRecycling;
     [Test] procedure TestIdleWorkerThreadTimeout;
     [Test] procedure TestForceKillStuckTask;
@@ -556,6 +557,63 @@ begin
   finally
     release.SetEvent; // don't leave a running thread behind
     finished.WaitFor(CTimeout_ms);
+    pool := nil;
+  end;
+end;
+
+procedure TestIOmniThreadPool.TestCancelNotStartedTask;
+// Cancel(taskID) must cancel a task that was sent to a worker thread but not yet picked up
+// by it and a task that is waiting in the queue. Such task must never start executing, or
+// at least it must see the cancellation.
+const
+  CGiveUp_ms = 1000;
+  CRounds    = 50;
+var
+  blocked: IOmniEvent;
+  missed : integer;
+  pool   : IOmniThreadPool;
+  release: IOmniEvent;
+  victim : IOmniTaskControl;
+begin
+  missed := 0;
+  for var iRound := 1 to CRounds do begin
+    blocked := CreateOmniEvent(true, false);
+    release := CreateOmniEvent(true, false);
+    pool := CreateThreadPool('TestCancelNotStartedTask');
+    pool.MaxExecuting := 1;
+    if Odd(iRound) then begin // victim will be queued
+      CreateTask(
+        procedure (const task: IOmniTask)
+        begin
+          blocked.SetEvent;
+          release.WaitFor(CTimeout_ms);
+        end)
+      .Unobserved
+      .Schedule(pool);
+      Assert.AreEqual(wrSignaled, blocked.WaitFor(CTimeout_ms), 'Blocker did not start');
+    end;
+    victim := CreateTask(
+      procedure (const task: IOmniTask)
+      var
+        sw: TStopwatch;
+      begin
+        sw := TStopwatch.StartNew;
+        while not task.CancellationToken.IsSignalled do begin
+          if sw.ElapsedMilliseconds > CGiveUp_ms then begin // don't hang the test
+            TInterlocked.Increment(missed);
+            break; //while
+          end;
+          Sleep(1);
+        end;
+      end)
+    .Schedule(pool);
+    Assert.IsTrue(pool.Cancel(victim.UniqueID, true, CTimeout_ms), 'Cancel');
+    release.SetEvent;
+    Assert.IsTrue(victim.WaitFor(CTimeout_ms), 'Cancelled task is not terminated');
+    Assert.AreEqual<integer>(0, missed, Format('Task not cancelled in round %d', [iRound]));
+    Assert.IsTrue(WaitUntil(function: boolean begin Result := pool.IsIdle; end, CTimeout_ms),
+      Format('Pool is not idle; executing: %d, queued: %d', [pool.CountExecuting, pool.CountQueued]));
+    victim := nil;
     pool := nil;
   end;
 end;
