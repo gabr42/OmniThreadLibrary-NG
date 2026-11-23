@@ -9,6 +9,8 @@
     (Previously, CancelAll waited until the task finished.) The thread is not
     killed because TerminateThread can leave the memory manager or the RTL
     locked and block the whole program.
+  - After Parallel.Join.Terminate has timed out, a detached worker does not start
+    other Join tasks.
 
 - New features:
   - Implemented TLightweightMREWEx extension to TLightweightMREW (Delphi 11+ only).
@@ -46,6 +48,11 @@
     were not released from then on).
   - An exception in the unobserved task cleanup thread no longer stops that
     thread. Exceptions are counted in OtlTaskControl.GUnobservedCleanupErrors.
+  - A detached task (a task that did not stop when Terminate, Cancel or CancelAll
+    timed out) used destroyed objects if its task controller or Parallel.Join was
+    released before the task exited. They now stay alive until the task exits.
+  - TOmniEventMonitor.Detach(pool) waits until the thread pool manager releases the
+    monitor. Previously, the manager could access a destroyed monitor and crash.
   - Thread pool: CancelAll did not cancel a task that was
     already sent to a worker thread but not yet picked up by it. Such task
     started executing after the cancellation and CancelAll could wait for it

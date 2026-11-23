@@ -57,6 +57,7 @@ uses
   , TestHooks1 in 'TestHooks1.pas'
   , TestTask in 'TestTask.pas'
   , TestOtlParallel in 'TestOtlParallel.pas'
+  , TestDetach1 in 'TestDetach1.pas'
   , TestUnobserved in 'TestUnobserved.pas'
   , TestOtlThreadPool1 in 'TestOtlThreadPool1.pas'
   , TestOtlEventMonitor1 in 'TestOtlEventMonitor1.pas'

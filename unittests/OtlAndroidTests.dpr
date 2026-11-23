@@ -36,6 +36,7 @@ uses
   , TestTask in 'TestTask.pas'
   , TestUnobserved in 'TestUnobserved.pas'
   , TestOtlParallel in 'TestOtlParallel.pas'
+  , TestDetach1 in 'TestDetach1.pas'
   , TestRegressions in 'TestRegressions.pas'
   , TestBackgroundObserver1 in 'TestBackgroundObserver1.pas'
   , TestChannel1 in 'TestChannel1.pas'

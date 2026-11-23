@@ -62,6 +62,12 @@ type
     procedure TestBasicTee;
   end;
 
+  [TestFixture]
+  TestWorkerMessageLoop = class(TOtlTestBase)
+  public
+    [Test] procedure TestRebuildInNestedProcessMessages;
+  end;
+
 implementation
 
 uses
@@ -71,7 +77,7 @@ uses
   System.SysUtils, System.Types, System.Classes, System.Threading,
   System.SyncObjs,
   OtlSync, OtlSync.Utils,
-  OtlCommon, OtlComm, OtlBackgroundObserver;
+  OtlCommon, OtlComm, OtlBackgroundObserver, OtlTask, OtlTaskControl;
 
 type
   TLeakCheckObj = class
@@ -559,4 +565,104 @@ begin
   end;
 end;
 
+{ TestWorkerMessageLoop }
+
+const
+  MSG_OUTER      = 1;
+  MSG_UNREGISTER = 2;
+  MSG_INNER      = 3;
+
+type
+  TNestedLoopWorker = class(TOmniWorker)
+  strict private
+    FComm    : IOmniTwoWayChannel;
+    FGo      : IOmniEvent;
+    FInInner : boolean;
+    FNumWaits: integer;
+  protected
+    procedure BeforeWait(var timeout_ms: cardinal); override;
+    procedure Cleanup; override;
+    function  Initialize: boolean; override;
+  public
+    constructor Create(const go: IOmniEvent);
+    procedure MsgInner(var msg: TOmniMessage); message MSG_INNER;
+    procedure MsgOuter(var msg: TOmniMessage); message MSG_OUTER;
+    procedure MsgUnregister(var msg: TOmniMessage); message MSG_UNREGISTER;
+  end;
+
+constructor TNestedLoopWorker.Create(const go: IOmniEvent);
+begin
+  inherited Create;
+  FGo := go;
+end;
+
+procedure TNestedLoopWorker.BeforeWait(var timeout_ms: cardinal);
+begin
+  if FInInner then begin
+    Inc(FNumWaits);
+    if FNumWaits > 1000 then // don't hang the test
+      raise Exception.Create('TNestedLoopWorker: ProcessMessages is looping');
+  end;
+end;
+
+procedure TNestedLoopWorker.Cleanup;
+begin
+  FComm := nil;
+  inherited;
+end;
+
+function TNestedLoopWorker.Initialize: boolean;
+begin
+  Result := inherited Initialize;
+  if Result then begin
+    FComm := CreateTwoWayChannel;
+    Task.RegisterComm(FComm.Endpoint1);
+  end;
+end;
+
+procedure TNestedLoopWorker.MsgInner(var msg: TOmniMessage);
+begin
+  FInInner := true;
+  ProcessMessages;
+  FInInner := false;
+  Task.Comm.Send(MSG_INNER);
+end;
+
+procedure TNestedLoopWorker.MsgOuter(var msg: TOmniMessage);
+begin
+  FGo.WaitFor(5000); // wait until all messages are in the queue
+  ProcessMessages;
+end;
+
+procedure TNestedLoopWorker.MsgUnregister(var msg: TOmniMessage);
+begin
+  Task.UnregisterComm(FComm.Endpoint1);
+  FComm := nil; // releases the endpoint
+end;
+
+procedure TestWorkerMessageLoop.TestRebuildInNestedProcessMessages;
+// MsgOuter -> ProcessMessages -> MsgUnregister, which triggers a rebuild of wait handles.
+// Rebuild code then dispatches MsgInner, which calls ProcessMessages. That call must not use
+// wait handles from before the rebuild.
+var
+  go  : IOmniEvent;
+  msg : TOmniMessage;
+  task: IOmniTaskControl;
+begin
+  go := CreateOmniEvent(true, false);
+    task := CreateTask(TNestedLoopWorker.Create(go) as IOmniWorker, 'nested loop').Run;
+    task.WaitForInit;
+    Sleep(100); // let the worker enter the message loop
+    task.Comm.Send(MSG_OUTER);
+    task.Comm.Send(MSG_UNREGISTER);
+    task.Comm.Send(MSG_INNER);
+    go.SetEvent;
+    Assert.IsTrue(task.Comm.ReceiveWait(msg, 5000), 'Nested ProcessMessages did not exit');
+    Assert.AreEqual<integer>(MSG_INNER, msg.MsgID);
+    Assert.IsTrue(task.Terminate(5000), 'Terminate');
+    task := nil;
+end;
+
+initialization
+  TDUnitX.RegisterTestFixture(TestWorkerMessageLoop);
 end.

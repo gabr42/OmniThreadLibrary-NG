@@ -45,6 +45,7 @@ type
     [Test] procedure TestAllMessagesDeliveredAroundTermination;
     [Test] procedure TestMonitorDestroyWhileTaskRunning;
     [Test] procedure TestMonitorPoolWorkItemCompleted;
+    [Test] procedure TestDetachFromPool;
   end;
 
 implementation
@@ -435,6 +436,42 @@ begin
       pool := nil;
     end;
   finally FreeAndNil(monitor); end;
+end;
+
+procedure TestOmniEventMonitor.TestDetachFromPool;
+// Detach must wait for the thread pool manager to release the monitor. If it does not, the
+// manager accesses the destroyed monitor and stops working.
+const
+  CRounds = 300;
+var
+  done   : IOmniEvent;
+  monitor: TOmniEventMonitor;
+  pool   : IOmniThreadPool;
+begin
+  SkipIfNotMainThread;
+  done := CreateOmniEvent(false, false);
+  pool := CreateThreadPool('TestDetachFromPool');
+  for var iRound := 1 to CRounds do begin
+    monitor := TOmniEventMonitor.Create(nil);
+    try
+      pool.MonitorWith(monitor);
+      for var iTask := 1 to 3 do
+        CreateTask(
+          procedure (const task: IOmniTask)
+          begin
+          end, 'detach')
+        .Unobserved.Schedule(pool);
+      monitor.Detach(pool);
+    finally FreeAndNil(monitor); end;
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        done.SetEvent;
+      end, 'detach done')
+    .Unobserved.Schedule(pool);
+    Assert.AreEqual(wrSignaled, done.WaitFor(CTimeout_ms),
+      Format('Thread pool manager is not working in round %d', [iRound]));
+  end;
 end;
 
 initialization

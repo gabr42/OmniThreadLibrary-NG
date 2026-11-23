@@ -35,9 +35,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
 ///   Last modification : 2026-11-23
-///   Version           : 3.14
+///   Version           : 3.15
 ///</para><para>
 ///   History:
+///     3.15: 2026-11-23
+///       - Fixed: A task that was detached because it did not stop in time (Terminate with a
+///         timeout, thread pool Cancel and CancelAll) used destroyed objects if its task
+///         controller was released before the task exited. A detached task now keeps its
+///         task controller alive (IOmniTaskExecutor.PinTaskControl).
 ///     3.14: 2026-11-23
 ///       - Added IOmniTaskExecutor.SignalCancellationToken, which can be safely called from
 ///         another thread while the task is completing. Accessing IOmniTask.CancellationToken
@@ -891,6 +896,7 @@ type
     otExecutor_ref            : TOmniTaskExecutor;
     otParameters_ref          : TOmniValueContainer;
     otSharedInfo_ref          : TOmniSharedTaskInfo;
+    otPinnedControl           : IOmniTaskControl; // set when the task is detached
     otTerminateWillCallExecute: boolean;
     otThreadData              : IInterface;
     otThreadID                : TThreadID;
@@ -907,6 +913,7 @@ type
     function  GetUniqueID: int64; inline;
     procedure InternalExecute(calledFromTerminate: boolean);
     procedure SetThreadData(const value: IInterface); inline;
+    procedure PinTaskControl;
     procedure SignalCancellationToken;
     procedure Terminate;
   public
@@ -1577,16 +1584,37 @@ end; { TOmniTask.ClearTimer }
 
 procedure TOmniTask.Enforced(forceExecution: boolean = true);
 begin
-  if forceExecution then
-    otExecutor_ref.Options := otExecutor_ref.Options + [tcoForceExecution]
-  else
-    otExecutor_ref.Options := otExecutor_ref.Options - [tcoForceExecution];
+  otCleanupLock.EnterReadLock; // may be called from the thread pool while the task is completing
+  try
+    if not assigned(otExecutor_ref) then
+      Exit;
+    if forceExecution then
+      otExecutor_ref.Options := otExecutor_ref.Options + [tcoForceExecution]
+    else
+      otExecutor_ref.Options := otExecutor_ref.Options - [tcoForceExecution];
+  finally otCleanupLock.ExitReadLock; end;
 end; { TOmniTask.Enforced }
 
 procedure TOmniTask.Execute;
 begin
   InternalExecute(false);
 end; { TOmniTask.Execute }
+
+/// <summary>Keeps the task controller (and with it everything that is accessible through
+///   IOmniTask) alive until the task exits. Called when the task did not stop in time and is
+///   being detached. Does nothing if the task has already completed.</summary>
+/// <since>2026-11-23</since>
+procedure TOmniTask.PinTaskControl;
+begin
+  otCleanupLock.EnterWriteLock; // InternalExecute releases the pin inside this lock
+  try
+    if assigned(otSharedInfo_ref) and (not assigned(otPinnedControl)) then
+      if otExecutor_ref.Owner_ref.TryAddRef then begin
+        otPinnedControl := otExecutor_ref.Owner_ref;
+        otExecutor_ref.Owner_ref._Release; // balances TryAddRef; otPinnedControl holds its own reference
+      end;
+  finally otCleanupLock.ExitWriteLock; end;
+end; { TOmniTask.PinTaskControl }
 
 /// <summary>Signals the cancellation token. Does nothing if the task has already completed.</summary>
 /// <since>2026-11-23</since>
@@ -1658,6 +1686,7 @@ var
   eventTerminate: IOmniEvent;
   hasBgObserver : boolean;
   internals     : IOmniTaskControlInternals;
+  pinnedControl : IOmniTaskControl;
   sync          : TSynchroObject;
   taskException : Exception;
   unobservedRef : IOmniTaskControl;
@@ -1716,6 +1745,8 @@ begin
         {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.monLock.after', uid);{$ENDIF}
         try
           sync := otSharedInfo_ref.MonitorLock.SyncObj;
+          pinnedControl := otPinnedControl;
+          otPinnedControl := nil;
           if assigned(otSharedInfo_ref.Monitor) then
             otSharedInfo_ref.Monitor.MonitorNotify.NotifyTerminated(UniqueID);
           // Background observer is used for non-main-thread owners. Notify it
@@ -1753,6 +1784,14 @@ begin
   finally
     otCleanupLock.ExitWriteLock;
     {$IFDEF OTL_TRACE_PROBE}TraceMark('exec.cleanupLock.released', uid);{$ENDIF}
+  end;
+  // The controller of a detached task must not be destroyed in this thread, see below.
+  if assigned(pinnedControl) then begin
+    var pinCleanup := GUnobservedCleanup;
+    if assigned(pinCleanup) then
+      pinCleanup.ScheduleRelease(pinnedControl)
+    else
+      pinnedControl := nil;
   end;
   // Queue unobserved ref for deferred release AFTER all events are signaled
   // and locks released, so the cleanup thread's destructor call doesn't need
@@ -1873,7 +1912,11 @@ end; { TOmniTask.SetException }
 
 procedure TOmniTask.SetExitStatus(exitCode: integer; const exitMessage: string);
 begin
-  otExecutor_ref.Asy_SetExitStatus(exitCode, exitMessage);
+  otCleanupLock.EnterReadLock; // may be called from the thread pool while the task is completing
+  try
+    if assigned(otExecutor_ref) then
+      otExecutor_ref.Asy_SetExitStatus(exitCode, exitMessage);
+  finally otCleanupLock.ExitReadLock; end;
 end; { TOmniTask.SetExitStatus }
 
 procedure TOmniTask.SetThreadData(const value: IInterface);
@@ -4523,6 +4566,7 @@ begin
       // See OtlThreadPool.TOTPWorker.Cancel for why; killing leaks
       // heap/RTL locks and deadlocks the entire process on the next
       // allocation. Leaking one OS thread is the lesser evil.
+      (otcThread.Task as IOmniTaskExecutor).PinTaskControl;
       otcThread.FreeOnTerminate := true;
       otcThread := nil;
       TInterlocked.Increment(GTaskControlLeakedThreads);

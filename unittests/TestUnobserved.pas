@@ -42,6 +42,7 @@ type
     [Test] procedure TestScheduleWithException;
     [Test] procedure TestRunWithException;
     [Test] procedure TestUnobservedCalledMultipleTimes;
+    [Test] procedure TestCleanupThreadSurvivesException;
   end;
 
 implementation
@@ -623,6 +624,68 @@ begin
   .Schedule;
   Assert.IsTrue(event.WaitFor(CTimeout_ms) = wrSignaled,
     'Task did not run within timeout');
+end;
+
+type
+  TFailingSentinel = class(TInterfacedObject)
+  public
+    destructor Destroy; override;
+  end;
+
+destructor TFailingSentinel.Destroy;
+begin
+  inherited;
+  raise Exception.Create('intentional exception in destructor');
+end;
+
+procedure TestUnobservedTask.TestCleanupThreadSurvivesException;
+// An exception, raised while the task control is destroyed, must be recorded and must not
+// terminate the cleanup thread.
+
+  procedure RunFailingTask;
+  begin
+    var sentinel: IInterface := TFailingSentinel.Create;
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+      end, 'failing cleanup')
+    .Unobserved
+    .SetParameter('sentinel', sentinel)
+    .Schedule;
+  end;
+
+var
+  errors       : integer;
+  firstError   : string;
+  ranEvent     : IOmniEvent;
+  releasedEvent: IOmniEvent;
+  sentinel     : IInterface;
+  sentinelCount: integer;
+begin
+  errors := GUnobservedCleanupErrors;
+  firstError := GUnobservedCleanupFirstError;
+  try
+    RunFailingTask;
+    var sw := TStopwatch.StartNew;
+    while (GUnobservedCleanupErrors = errors) and (sw.ElapsedMilliseconds < CTimeout_ms) do
+      Sleep(1);
+    Assert.AreEqual<integer>(errors + 1, GUnobservedCleanupErrors, 'Exception was not recorded');
+    if errors = 0 then begin
+      Assert.Contains(GUnobservedCleanupFirstError, 'failing cleanup');
+      Assert.Contains(GUnobservedCleanupFirstError, 'intentional exception');
+    end;
+    // cleanup thread must be still working
+    sentinelCount := 0;
+    ranEvent := CreateOmniEvent(false, false);
+    releasedEvent := CreateOmniEvent(false, false);
+    sentinel := TSentinel.Create(@sentinelCount, releasedEvent);
+    ScheduleUnobservedWithSentinel(sentinel, ranEvent);
+    sentinel := nil;
+    Assert.IsTrue(releasedEvent.WaitFor(CTimeout_ms) = wrSignaled, 'Cleanup thread is not working');
+  finally // this error was intentional, don't fail the test run
+    GUnobservedCleanupErrors := errors;
+    GUnobservedCleanupFirstError := firstError;
+  end;
 end;
 
 {$IFDEF OTL_TRACE_PROBE}

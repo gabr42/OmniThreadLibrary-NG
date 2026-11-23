@@ -36,9 +36,14 @@
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin
 ///   Creation date     : 2008-06-12
 ///   Last modification : 2026-11-23
-///   Version           : 3.07
+///   Version           : 3.08
 /// </para><para>
 ///   History:
+///     3.08: 2026-11-23
+///       - RemoveMonitor is synchronous. Thread pool manager accessed the monitor that was
+///         destroyed immediately after it was detached from the pool.
+///       - A detached task keeps its task controller alive.
+///       - Worker, detached in the maintenance timer, does not access the pool anymore.
 ///     3.07: 2026-11-23
 ///       - Cancel(taskID) also cancels a task that is waiting in the thread pool queue and
 ///         a task that was already sent to a worker thread but not yet picked up by it.
@@ -409,6 +414,7 @@ type
     function  GetWorkItemInfo(var scheduledAt, startedAt: TDateTime;
       var description: string): boolean;
     procedure AssignWorkItem(workItem: TOTPWorkItem);
+    function  HasStoppedWorkItem: boolean;
     function  HasWorkItem: boolean;
     function  IsExecuting(taskID: int64): boolean;
     procedure Start;
@@ -492,7 +498,7 @@ type
     procedure MsgThreadCreated(var msg: TOmniMessage); message MSG_THREAD_CREATED;
     procedure MsgThreadDestroying(var msg: TOmniMessage); message MSG_THREAD_DESTROYING;
     procedure PruneWorkingQueue;
-    procedure RemoveMonitor;
+    procedure RemoveMonitor(const params: TOmniValue);
     procedure Schedule(var workItem: TOTPWorkItem);
     procedure SetAffinity(const value: TOmniValue);
     procedure SetMonitor(const params: TOmniValue);
@@ -699,6 +705,9 @@ begin
         if assigned(task) then begin
           if signalCancellationToken then
             (task as IOmniTaskExecutor).SignalCancellationToken;
+          // If the task was not started yet, Terminate would execute it here, in the thread
+          // pool manager (tcoForceExecution is enabled by default).
+          task.Enforced(false);
           task.Terminate;
         end;
       end;
@@ -722,6 +731,7 @@ begin
       if assigned(workItem) and assigned(workItem.task) and
         (not workItem.task.Stopped) then
       begin
+        (workItem.task as IOmniTaskExecutor).PinTaskControl; // task will be detached
         workItem.TerminateTask(EXIT_THREADPOOL_CANCELLED, 'Cancelled');
         Result := true;
       end
@@ -911,6 +921,17 @@ begin
   finally owtWorkItemLock.Release; end;
 end; { TOTPWorkerThread.AssignWorkItem }
 
+/// <summary>True if the task is stopped but the worker did not report that yet.</summary>
+/// <since>2026-11-23</since>
+function TOTPWorkerThread.HasStoppedWorkItem: boolean;
+begin
+  owtWorkItemLock.Acquire;
+  try
+    Result := assigned(WorkItem_ref) and
+      ((not assigned(WorkItem_ref.task)) or WorkItem_ref.task.Stopped);
+  finally owtWorkItemLock.Release; end;
+end; { TOTPWorkerThread.HasStoppedWorkItem }
+
 function TOTPWorkerThread.HasWorkItem: boolean;
 begin
   owtWorkItemLock.Acquire;
@@ -1031,7 +1052,13 @@ begin
           Sleep(10);
         end;
         workItem := nil;
-        if worker.Asy_TerminateWorkItem(workItem) then begin
+        if worker.HasStoppedWorkItem then begin
+          // Worker will send MSG_COMPLETED. It must not receive another work item before that;
+          // it may still have MSG_RUN for this work item in its message queue.
+          owRunningWorkers.Add(worker);
+          CountRunning.Increment;
+        end
+        else if worker.Asy_TerminateWorkItem(workItem) then begin
           {$IFDEF LogThreadPool}Log(
             'Detaching unstoppable thread %s, num idle = %d, num running = %d[%d]',
             [worker.Description, owIdleWorkers.Count, owRunningWorkers.Count,
@@ -1244,6 +1271,7 @@ procedure TOTPWorker.MaintainanceTimer;
 var
   iWorker: integer;
   worker : TOTPWorkerThread;
+  workItem: TOTPWorkItem;
 begin
   PruneWorkingQueue;
   if IdleWorkerThreadTimeout_sec > 0 then begin
@@ -1275,11 +1303,15 @@ begin
         // Detach the OS thread instead of TerminateThread/pthread_cancel.
         // See the comment at the corresponding site in TOTPWorker.Cancel
         // for why; killing leaks heap/RTL locks and deadlocks the process.
-        worker.FreeOnTerminate := true;
-        ForwardThreadDestroying(worker.threadID, tpoKillThread, worker);
         owStoppingWorkers.Delete(iWorker);
+        workItem := nil;
+        worker.Asy_TerminateWorkItem(workItem);
+        if assigned(workItem) then
+          workItem.Thread := nil;
+        DetachWorker(worker);
         worker := nil; // skip FreeAndNil — thread may still be running
-        TInterlocked.Increment(GLeakedWorkerThreads);
+        if assigned(workItem) then
+          ProcessCompletedWorkItem(workItem);
       end
       else begin
         {$IFDEF LogThreadPool}Log('Removing stopped thread %s', [worker.Description]);{$ENDIF LogThreadPool}
@@ -1466,9 +1498,13 @@ begin
   end;
 end; { TOTPWorker.PruneWorkingQueue }
 
-procedure TOTPWorker.RemoveMonitor;
+procedure TOTPWorker.RemoveMonitor(const params: TOmniValue);
+var
+  waitParam: TOmniValue;
 begin
   owMonitorObserver := nil;
+  waitParam := params[0];
+  (waitParam.AsObject as TOmniWaitableValue).Signal;
 end; { TOTPWorker.RemoveMonitor }
 
 procedure TOTPWorker.RequestCompleted(workItem: TOTPWorkItem;
@@ -1796,8 +1832,15 @@ begin
 end; { TOmniThreadPool.NotifyAffinityChanged }
 
 function TOmniThreadPool.RemoveMonitor: IOmniThreadPool;
+var
+  res: TOmniWaitableValue;
 begin
-  otpWorkerTask.Invoke(@TOTPWorker.RemoveMonitor);
+  // Must be synchronous; the caller may destroy the monitor immediately after that.
+  res := TOmniWaitableValue.Create;
+  try
+    otpWorkerTask.Invoke(@TOTPWorker.RemoveMonitor, [res]);
+    res.WaitFor(INFINITE);
+  finally FreeAndNil(res); end;
   Result := Self;
 end; { TOmniThreadPool.RemoveMonitor }
 
