@@ -35,9 +35,13 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
 ///   Last modification : 2026-11-23
-///   Version           : 3.16
+///   Version           : 3.17
 ///</para><para>
 ///   History:
+///     3.17: 2026-11-23
+///       - Added function StopAllOmniThreads. A DLL should call it before it is unloaded.
+///       - Fixed: A DLL could hang in FreeLibrary and at process exit because it waited for
+///         threads that could not exit (or were already dead).
 ///     3.16: 2026-11-23
 ///       - All thread pools are stopped before the unit is finalized.
 ///     3.15: 2026-11-23
@@ -276,6 +280,7 @@ interface
 
 uses
   OtlCommon,
+  OtlCommon.Utils,
   {$IFDEF MSWINDOWS}
   Winapi.Windows,
   Winapi.Messages,
@@ -965,6 +970,7 @@ type
   strict private
     otTask: IOmniTask;
     otThreadTerminationEvent: IOmniEvent;
+    otTracked: POmniTrackedThread;
   protected
     procedure Execute; override;
     procedure DoTerminate; override;
@@ -1280,6 +1286,14 @@ var
 var
   GTaskControlLeakedThreads: integer;
 
+/// <summary>Stops all thread pools and waits until all OTL threads have exited. Must be called
+///   in a DLL before FreeLibrary (but not from DllMain or from a unit finalization); tasks
+///   that don't run in a thread pool must be stopped by the owner.</summary>
+/// <returns>False if some threads are still running. The DLL must not be unloaded in that
+///   case; function can be called again. OTL must not be used after it returns True.</returns>
+/// <since>2026-11-23</since>
+function StopAllOmniThreads(timeout_ms: cardinal = 30000): boolean;
+
 // Diagnostic counter — incremented when FinalizeUnobservedCommDispatcher's
 // drain path runs from a non-main thread. That path calls TThread.Synchronize
 // to drain pending owner-thread callbacks; if the main thread is blocked in
@@ -1301,7 +1315,6 @@ uses
   OtlHooks,
   System.Diagnostics,
   OtlPlatform,
-  OtlCommon.Utils,
   OtlEventMonitor,
   OtlTraceProbe;
 
@@ -1343,12 +1356,15 @@ type
   strict private
     FQueue   : TThreadList<Pointer>;
     FHasWork : TEvent;
+    FTracked : POmniTrackedThread;
   protected
+    procedure DoTerminate; override;
     procedure Execute; override;
     procedure ReleaseTaskControl(ref: Pointer);
   public
     constructor Create;
     destructor  Destroy; override;
+    procedure SignalStop;
     procedure ScheduleRelease(var ref: IOmniTaskControl);
   end; { TOmniUnobservedCleanupThread }
 
@@ -3532,7 +3548,8 @@ begin
     if assigned(otcThread) then
       if otcThread.ThreadID <> TThread.CurrentThread.ThreadID then begin
         {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.before', uid);{$ENDIF}
-        FreeAndNil(otcThread);
+        FreeThread(otcThread);
+        otcThread := nil;
         {$IFDEF OTL_TRACE_PROBE}TraceMark('dtor.threadFree.after', uid);{$ENDIF}
       end
       else begin
@@ -4513,6 +4530,8 @@ begin
 
   otcExecutor.Terminating := true;
   Stop;
+  if ProcessIsExiting then
+    Exit(true); // in a DLL; thread is already dead
   Result := WaitFor(maxWait_ms);
   while (Comm as IOmniCommunicationEndpointInternal).ReceiveAny(msg) do
     ForwardTaskMessage(msg);
@@ -4574,7 +4593,8 @@ begin
       TInterlocked.Increment(GTaskControlLeakedThreads);
     end
     else if assigned(otcOwningPool) then begin
-      otcOwningPool.Cancel(UniqueID, 0);
+      if not ModuleIsUnloading then // would wait for the pool manager
+        otcOwningPool.Cancel(UniqueID, 0);
       otcOwningPool := nil;
     end;
   end;
@@ -4616,6 +4636,10 @@ function TOmniTaskControl.WaitFor(maxWait_ms: cardinal): boolean;
 var
   DualWaiter: TWaitFor;
 begin
+  if ProcessIsExiting then
+    Exit(true); // in a DLL; thread is already dead and will not signal anything
+  if ModuleIsUnloading and (maxWait_ms > UnloadTimeLeft_ms) then
+    maxWait_ms := UnloadTimeLeft_ms;
   if assigned(otcThread) then begin
     DualWaiter := TWaitFor.Create([otcSharedInfo.TerminatedEvent, otcThread.ThreadTerminationEvent], otcMultiWaitLock);
     try
@@ -4679,6 +4703,7 @@ begin
   inherited Create(true);
   otTask := task;
   otThreadTerminationEvent := CreateOmniEvent(true, false, nil);
+  otTracked := TrackThread(Self);
 end; { TOmniThread.Create }
 
 procedure TOmniThread.Execute;
@@ -4697,6 +4722,7 @@ procedure TOmniThread.DoTerminate;
 begin
   inherited;
   otThreadTerminationEvent.SetEvent;
+  TrackedThreadDone(otTracked); // must be last
 end; { TOmniThread.DoTerminate }
 
 { TOmniTaskControlListEnumerator }
@@ -5063,6 +5089,7 @@ begin
   FQueue := TThreadList<Pointer>.Create;
   FHasWork := TEvent.Create(nil, false, false, '');
   inherited Create(false);
+  FTracked := TrackThread(Self, true); // thread is started in AfterConstruction
 end; { TOmniUnobservedCleanupThread.Create }
 
 destructor TOmniUnobservedCleanupThread.Destroy;
@@ -5082,6 +5109,12 @@ begin
   FreeAndNil(FQueue);
   FreeAndNil(FHasWork);
 end; { TOmniUnobservedCleanupThread.Destroy }
+
+procedure TOmniUnobservedCleanupThread.DoTerminate;
+begin
+  inherited;
+  TrackedThreadDone(FTracked); // must be last
+end; { TOmniUnobservedCleanupThread.DoTerminate }
 
 procedure TOmniUnobservedCleanupThread.Execute;
 var
@@ -5150,6 +5183,61 @@ begin
   finally FQueue.UnlockList; end;
   FHasWork.SetEvent;
 end; { TOmniUnobservedCleanupThread.ScheduleRelease }
+
+procedure TOmniUnobservedCleanupThread.SignalStop;
+begin
+  Terminate;
+  FHasWork.SetEvent;
+end; { TOmniUnobservedCleanupThread.SignalStop }
+
+procedure StopUnobservedCleanup;
+var
+  cleanup: TOmniUnobservedCleanupThread;
+begin
+  cleanup := GUnobservedCleanup;
+  if not assigned(cleanup) then
+    Exit;
+  if ProcessIsExiting then // in a DLL; thread is already dead
+    GUnobservedCleanup := nil
+  else if ModuleIsUnloading then begin
+    GUnobservedCleanup := nil;
+    cleanup.SignalStop; // object is not destroyed; thread can't exit while the loader lock is owned
+    while (NumTrackedThreads(false, true) > 0) and (UnloadTimeLeft_ms > 0) do
+      Sleep(1);
+  end
+  else
+    FreeAndNil(GUnobservedCleanup);
+end; { StopUnobservedCleanup }
+
+function StopAllOmniThreads(timeout_ms: cardinal): boolean;
+const
+  CPoll_ms = 5;
+var
+  start_ms: int64;
+
+  function WaitForThreads(includeService: boolean): boolean;
+  begin
+    Result := true;
+    while NumTrackedThreads(true, includeService) > 0 do begin
+      if (timeout_ms <> INFINITE) and (Time.Timestamp_ms - start_ms >= timeout_ms) then
+        Exit(false);
+      if TThread.CurrentThread.ThreadID = MainThreadID then
+        CheckSynchronize(CPoll_ms) // a task may be waiting for the main thread
+      else
+        Sleep(CPoll_ms);
+    end;
+  end; { WaitForThreads }
+
+begin
+  if ProcessIsExiting or ModuleIsUnloading then
+    Exit(false); // too late
+  start_ms := Time.Timestamp_ms;
+  SignalStopAllThreadPools;
+  if not WaitForThreads(false) then
+    Exit(false);
+  StopUnobservedCleanup;
+  Result := WaitForThreads(true);
+end; { StopAllOmniThreads }
 
 { TOmniSharedTaskInfo }
 
@@ -5305,7 +5393,7 @@ initialization
   GUnobservedCleanup := TOmniUnobservedCleanupThread.Create;
 finalization
   StopAllThreadPools; // tasks must not be running when their controllers are released
-  FreeAndNil(GUnobservedCleanup);
+  StopUnobservedCleanup;
   FreeAndNil(GTaskControlEventMonitorPool);
 end.
 

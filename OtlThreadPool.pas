@@ -36,9 +36,14 @@
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin
 ///   Creation date     : 2008-06-12
 ///   Last modification : 2026-11-23
-///   Version           : 3.09
+///   Version           : 3.10
 /// </para><para>
 ///   History:
+///     3.10: 2026-11-23
+///       - Fixed: A DLL could hang in FreeLibrary and at process exit. Threads can't exit while
+///         the loader lock is owned and are already dead in ExitProcess, so they are not
+///         waited for anymore. FreeLibrary waits (at most COmniUnloadTimeout_ms altogether)
+///         until threads have finished their work. Call StopAllOmniThreads before FreeLibrary.
 ///     3.09: 2026-11-23
 ///       - Thread pools that are still alive when OTL units are finalized are stopped. A pool is
 ///         referenced from its tasks, so it was not destroyed if the program exited while
@@ -336,6 +341,9 @@ var
 ///   for internal use.</summary>
 procedure StopAllThreadPools;
 
+/// <summary>Tells all thread pools to stop but does not wait for that. For internal use.</summary>
+procedure SignalStopAllThreadPools;
+
 implementation
 
 uses
@@ -407,10 +415,12 @@ type
     owtTerminateEvent          : IOmniEvent;
     owtThreadData              : IInterface;
     owtThreadDataFactory       : TOTPThreadDataFactory;
+    owtTracked                 : POmniTrackedThread;
     owtWorkItemLock            : IOmniCriticalSection;
     owtWorkItem_ref            : TOTPWorkItem;
   strict protected
     function  Comm: IOmniCommunicationEndpoint;
+    procedure DoTerminate; override;
     procedure ExecuteWorkItem(workItem: TOTPWorkItem);
     function  GetMsg(var msg: TOmniMessage): boolean;
     function  GetOwnerCommEndpoint: IOmniCommunicationEndpoint;
@@ -572,6 +582,7 @@ type
   public
     constructor Create(const name: string);
     destructor  Destroy; override;
+    procedure SignalStop;
     procedure Stop;
     function  Cancel(taskID: int64; timeout_ms: int64 = -1 {use WaitOnTerminate_sec}): boolean; overload;
     function  Cancel(taskID: int64; signalCancellationToken: boolean; timeout_ms: int64 = -1 {use WaitOnTerminate_sec}): boolean; overload;
@@ -625,6 +636,20 @@ begin
     end);
 end; { GlobalOmniThreadPool }
 
+procedure SignalStopAllThreadPools;
+var
+  iPool: integer;
+begin
+  if not assigned(GThreadPools) then
+    Exit; // already finalized
+  GThreadPoolsStopping := true;
+  GThreadPoolsLock.Acquire; // TOmniThreadPool.Destroy removes itself from the list
+  try
+    for iPool := 0 to GThreadPools.Count - 1 do
+      TOmniThreadPool(GThreadPools[iPool]).SignalStop;
+  finally GThreadPoolsLock.Release; end;
+end; { SignalStopAllThreadPools }
+
 procedure StopAllThreadPools;
 // A pool is referenced from the tasks that are running in it, so it may be still alive when
 // nobody else uses it. If it is not stopped, its threads would use finalized units.
@@ -635,8 +660,14 @@ var
 begin
   if not assigned(GThreadPools) then
     Exit; // already finalized
-  if IsLibrary then // Finalization is called from DllMain. Threads can't exit while the loader
-    Exit;           // lock is owned (or are already dead), so waiting for them could hang forever.
+  if ProcessIsExiting then // in a DLL; threads are already dead
+    Exit;
+  if ModuleIsUnloading then begin // threads can finish their work, but they can't exit
+    SignalStopAllThreadPools;
+    while (NumTrackedThreads(false, false) > 0) and (UnloadTimeLeft_ms > 0) do
+      Sleep(1);
+    Exit;
+  end;
   GThreadPoolsStopping := true;
   repeat
     pool := nil;
@@ -731,6 +762,7 @@ begin
 //  owtNewWorkEvent := CreateOmniEvent(false, false);
   owtWorkItemLock := CreateOmniCriticalSection;
   owtCommChannel := CreateTwoWayChannel(100, owtTerminateEvent);
+  owtTracked := TrackThread(Self);
 end; { TOTPWorkerThread.Create }
 
 destructor TOTPWorkerThread.Destroy;
@@ -804,6 +836,12 @@ begin
   else
     Result := Format('%p:%d', [pointer(Self), ThreadID]);
 end; { TOTPWorkerThread.Description }
+
+procedure TOTPWorkerThread.DoTerminate;
+begin
+  inherited;
+  TrackedThreadDone(owtTracked); // must be last
+end; { TOTPWorkerThread.DoTerminate }
 
 procedure TOTPWorkerThread.Execute;
 var
@@ -1282,7 +1320,7 @@ begin
     else begin
       if not worker.Stopped then
         ForwardThreadDestroying(worker.threadID, tpoDestroyThread, worker);
-      FreeAndNil(worker);
+      FreeThread(worker);
       FreeAndNil(workItem);
     end;
   end;
@@ -1367,7 +1405,7 @@ begin
       else begin
         {$IFDEF LogThreadPool}Log('Removing stopped thread %s', [worker.Description]);{$ENDIF LogThreadPool}
         owStoppingWorkers.Delete(iWorker);
-        FreeAndNil(worker);
+        FreeThread(worker);
       end;
     end
     else
@@ -1734,8 +1772,14 @@ end; { TOmniThreadPool.Create }
 destructor TOmniThreadPool.Destroy;
 begin
   {$IFDEF LogThreadPool}Log('Destroying thread pool %p', [pointer(Self), otpPoolName]);{$ENDIF LogThreadPool}
-  SendPoolNotifications(pntDestroy, Self);
+  if not ProcessIsExiting then
+    SendPoolNotifications(pntDestroy, Self);
   Stop;
+  if ProcessIsExiting or (ModuleIsUnloading and (NumTrackedThreads(true, false) > 0)) then begin
+    // Manager thread may still be using that; leak it.
+    pointer(otpWorkerTask) := nil;
+    pointer(otpWorker) := nil;
+  end;
   if assigned(GThreadPools) then begin
     GThreadPoolsLock.Acquire;
     try
@@ -2009,15 +2053,35 @@ begin
   WorkerObj.WaitOnTerminate_sec.Value := value;
 end; { TOmniThreadPool.SetWaitOnTerminate_sec }
 
+/// <summary>Tells the thread pool manager to stop but does not wait for that.</summary>
+/// <since>2026-11-23</since>
+procedure TOmniThreadPool.SignalStop;
+begin
+  if Stopped then
+    Exit;
+  otpStopped := true;
+  if assigned(otpWorkerTask) then
+    otpWorkerTask.Stop;
+end; { TOmniThreadPool.SignalStop }
+
 /// <summary>Stops the thread pool manager and all worker threads.</summary>
 /// <since>2026-11-23</since>
 procedure TOmniThreadPool.Stop;
 begin
   if Stopped then
     Exit;
-  otpStopped := true;
-  if assigned(otpWorkerTask) then
-    otpWorkerTask.Terminate;
+  if ProcessIsExiting then
+    otpStopped := true // manager thread is already dead
+  else if ModuleIsUnloading then begin
+    SignalStop;
+    if assigned(otpWorkerTask) then
+      otpWorkerTask.WaitFor(UnloadTimeLeft_ms);
+  end
+  else begin
+    otpStopped := true;
+    if assigned(otpWorkerTask) then
+      otpWorkerTask.Terminate;
+  end;
 end; { TOmniThreadPool.Stop }
 
 /// <summary>Adds a reference unless the pool is already being destroyed.</summary>

@@ -36,7 +36,9 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Sean B. Durkin, HHasenack, SMelnyk64, Claude AI
 ///   Last modification : 2026-11-23
-///   Version           : 3.09
+///   Version           : 3.10
+///     3.10: 2026-11-23
+///       - Parallel.Merge thread is tracked; see StopAllOmniThreads in OtlTaskControl.
 ///     3.09: 2026-11-23
 ///       - Fixed: A Join worker that was still running after Terminate timed out used the
 ///         destroyed Join object. The object now stays alive until all workers exit.
@@ -1622,6 +1624,7 @@ uses
   System.Classes,
   System.Math,
   System.StrUtils,
+  OtlCommon.Utils,
   OtlBackgroundObserver,
   OtlComm,
   OtlContainerObserver;
@@ -3223,16 +3226,21 @@ begin
   for var i := 0 to High(receivers) do
     cases[i] := SelectCase.Receive<T>(receivers[i],
       procedure(v: T) begin output.Sender.Send(v) end);
+  var tracked: POmniTrackedThread := nil;
   var thread := TThread.CreateAnonymousThread(
     procedure
     var sel: IOmniSelect;
     begin
-      sel := Parallel.Select(cases);
-      while sel.Wait = srHandled do
-        ;
-      output.Close;
+      try
+        sel := Parallel.Select(cases);
+        while sel.Wait = srHandled do
+          ;
+        output.Close;
+        sel := nil;
+      finally TrackedThreadDone(tracked); end;
     end);
   thread.FreeOnTerminate := true;
+  tracked := TrackThread(thread);
   thread.Start;
   Result := output.Receiver;
 end; { Parallel.Merge<T> }

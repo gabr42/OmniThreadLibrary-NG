@@ -27,6 +27,10 @@
     SRW lock (when available) in 'write' access mode. This is functionally
     identical to the old implementation (critical section).
   - Implemented Locked<T>.IsInitialized.
+  - Added function StopAllOmniThreads (OtlTaskControl). It stops all thread pools and
+    waits until all OTL threads have exited. A DLL should call it before FreeLibrary
+    (from an exported function, not from DllMain or finalization). If it returns
+    False, some tasks are still running and the DLL must not be unloaded.
   - On Windows, SetThreadName from OtlCommon.Utils also calls 
     SetThreadDescription Windows API.
 
@@ -60,7 +64,12 @@
     pool was referenced from the task and was not stopped when OTL units were
     finalized.) All thread pools are now stopped first; exit can take up to
     WaitOnTerminate_sec if a task ignores cancellation.
-    DLLs are not changed as waiting for threads in DllMain could hang.
+  - DLL that uses OTL could hang in FreeLibrary and at process exit. FreeLibrary now
+    waits until OTL threads have finished their work, but at most 2 seconds. Use
+    StopAllOmniThreads to unload a DLL safely: if a task is still running after that
+    time, the program will probably crash. At process exit threads are not waited for.
+    (If they are killed while allocating memory, the RTL can still hang. This also
+    happens without OTL. Call StopAllOmniThreads before the program exits.)
   - Thread pool: Task, scheduled while the pool is being stopped, is cancelled.
     Cancel, CancelAll etc don't wait forever if the pool manager is not running.
   - Thread pool: CancelAll did not cancel a task that was

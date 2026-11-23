@@ -36,10 +36,13 @@
 ///   Contributors      : GJ, Lee_Nover, scarre, Sean B. Durkin
 ///
 ///   Creation date     : 2011-08-31
-///   Last modification : 2026-04-14
-///   Version           : 2.03
+///   Last modification : 2026-11-23
+///   Version           : 2.04
 ///</para><para>
 ///   History:
+///     2.04: 2026-11-23
+///       - Added tracking of threads that were created by OTL and detection of
+///         DLL unload and process exit.
 ///     2.03: 2026-04-14
 ///       - Removed OTL_HasTThreadCurrentThread guards (always true in
 ///         Delphi 11+), re-enabling SetThreadDescription API support.
@@ -67,7 +70,49 @@ unit OtlCommon.Utils;
 
 interface
 
+uses
+  System.Classes;
+
+const
+  /// <summary>When a DLL is being unloaded, all waits in OTL together take at most that long.</summary>
+  COmniUnloadTimeout_ms = 2000;
+
+type
+  POmniTrackedThread = ^TOmniTrackedThread;
+  TOmniTrackedThread = record
+    Next     : POmniTrackedThread;
+    Handle   : THandle; // Windows only; own handle, valid after the TThread is destroyed
+    IsDone   : boolean;
+    IsService: boolean;
+  end; { TOmniTrackedThread }
+
 procedure SetThreadName(const name: string);
+
+// Tracking of threads, created by OTL. For internal use.
+
+/// <summary>Must be called before the thread is started.</summary>
+function  TrackThread(thread: TThread; isService: boolean = false): POmniTrackedThread;
+
+/// <summary>Must be the last thing that the thread does.</summary>
+procedure TrackedThreadDone(tracked: POmniTrackedThread);
+
+/// <summary>Number of threads that are still alive. A thread that is done counts as alive
+///   until it exits only if `untilExit` is set (Windows).</summary>
+function  NumTrackedThreads(untilExit, includeService: boolean): integer;
+
+/// <summary>True in ExitProcess. All other threads were already killed.</summary>
+function  ProcessIsExiting: boolean;
+
+/// <summary>True if the DLL that contains this code is being unloaded with FreeLibrary. Loader
+///   lock is owned so threads cannot exit; waiting for that would block forever.</summary>
+function  ModuleIsUnloading: boolean;
+
+/// <summary>Remaining part of COmniUnloadTimeout_ms.</summary>
+function  UnloadTimeLeft_ms: cardinal;
+
+/// <summary>Destroys the thread object. If the module is being unloaded and the thread did not
+///   exit yet, the object is left alone.</summary>
+procedure FreeThread(thread: TThread);
 
 implementation
 
@@ -75,7 +120,8 @@ uses
   {$IFDEF MSWINDOWS}
   Winapi.Windows,
   {$ENDIF MSWINDOWS}
-  System.Classes;
+  System.SysUtils,
+  System.SyncObjs;
 
 {$IFDEF MSWINDOWS}
 type
@@ -112,6 +158,183 @@ begin
   LastThreadName := ansiName;
 end; { SetThreadName }
 {$ENDIF ~OTL_DontSetThreadName}
+
+var
+  // Linked list, protected by a spinlock. Not an object as it must survive finalization.
+  GTrackedLock   : integer;
+  GTrackedThreads: POmniTrackedThread;
+
+procedure LockTracked;
+begin
+  while TInterlocked.CompareExchange(GTrackedLock, 1, 0) <> 0 do
+    Sleep(0);
+end; { LockTracked }
+
+procedure UnlockTracked;
+begin
+  TInterlocked.Exchange(GTrackedLock, 0);
+end; { UnlockTracked }
+
+/// Removes threads that have exited. Caller must own the lock.
+procedure PruneTracked;
+var
+  link   : ^POmniTrackedThread;
+  tracked: POmniTrackedThread;
+begin
+  link := @GTrackedThreads;
+  while assigned(link^) do begin
+    tracked := link^;
+    if tracked.IsDone
+       {$IFDEF MSWINDOWS}and (WaitForSingleObject(tracked.Handle, 0) = WAIT_OBJECT_0){$ENDIF}
+    then begin
+      link^ := tracked.Next;
+      {$IFDEF MSWINDOWS}CloseHandle(tracked.Handle);{$ENDIF}
+      Dispose(tracked);
+    end
+    else
+      link := @tracked.Next;
+  end;
+end; { PruneTracked }
+
+function TrackThread(thread: TThread; isService: boolean): POmniTrackedThread;
+begin
+  New(Result);
+  Result.Handle := 0;
+  Result.IsDone := false;
+  Result.IsService := isService;
+  {$IFDEF MSWINDOWS}
+  if not DuplicateHandle(GetCurrentProcess, thread.Handle, GetCurrentProcess, @Result.Handle,
+           SYNCHRONIZE, false, 0) then
+  begin
+    Dispose(Result);
+    RaiseLastOSError;
+  end;
+  {$ENDIF MSWINDOWS}
+  LockTracked;
+  try
+    PruneTracked;
+    Result.Next := GTrackedThreads;
+    GTrackedThreads := Result;
+  finally UnlockTracked; end;
+end; { TrackThread }
+
+procedure TrackedThreadDone(tracked: POmniTrackedThread);
+begin
+  if assigned(tracked) then
+    tracked.IsDone := true; // tracked may be already disposed after this
+end; { TrackedThreadDone }
+
+function NumTrackedThreads(untilExit, includeService: boolean): integer;
+var
+  tracked: POmniTrackedThread;
+begin
+  Result := 0;
+  LockTracked;
+  try
+    PruneTracked;
+    tracked := GTrackedThreads;
+    while assigned(tracked) do begin
+      if (untilExit or (not tracked.IsDone)) and (includeService or (not tracked.IsService)) then
+        Inc(Result);
+      tracked := tracked.Next;
+    end;
+  finally UnlockTracked; end;
+end; { NumTrackedThreads }
+
+{$IFDEF MSWINDOWS}
+var
+  GUnloadStart_ms : UInt64;
+  GUnloadThreadID : cardinal; // owns the loader lock
+
+function  RtlDllShutdownInProgress: ByteBool; stdcall; external 'ntdll.dll';
+function  RtlGetCurrentPeb: PByte; stdcall; external 'ntdll.dll';
+
+function LoaderLockOwner: cardinal;
+const
+  CPebLoaderLock = {$IFDEF CPU64BITS}$110{$ELSE}$A0{$ENDIF};
+type
+  PPRTLCriticalSection = ^PRTLCriticalSection;
+begin
+  Result := cardinal(PPRTLCriticalSection(RtlGetCurrentPeb + CPebLoaderLock)^.OwningThread);
+end; { LoaderLockOwner }
+
+function ProcessIsExiting: boolean;
+begin
+  Result := RtlDllShutdownInProgress;
+end; { ProcessIsExiting }
+
+function ModuleIsUnloading: boolean;
+begin
+  if (not IsLibrary) or ProcessIsExiting then
+    Exit(false);
+  // The thread that is unloading the module comes here first. Other threads must know that, too,
+  // but only as long as it owns the lock; DLL initialization also runs under the loader lock.
+  if (LoaderLockOwner = GetCurrentThreadID) and (GUnloadThreadID <> GetCurrentThreadID) then begin
+    GUnloadStart_ms := GetTickCount64;
+    GUnloadThreadID := GetCurrentThreadID;
+  end
+  else if (GUnloadThreadID <> 0) and (LoaderLockOwner <> GUnloadThreadID) then
+    GUnloadThreadID := 0;
+  Result := (GUnloadThreadID <> 0);
+end; { ModuleIsUnloading }
+
+function UnloadTimeLeft_ms: cardinal;
+var
+  elapsed_ms: UInt64;
+begin
+  elapsed_ms := GetTickCount64 - GUnloadStart_ms;
+  if elapsed_ms >= COmniUnloadTimeout_ms then
+    Result := 0
+  else
+    Result := COmniUnloadTimeout_ms - cardinal(elapsed_ms);
+end; { UnloadTimeLeft_ms }
+
+procedure FreeThread(thread: TThread);
+const
+  CPoll_ms = 50;
+var
+  handle: THandle;
+begin
+  if not assigned(thread) then
+    Exit;
+  if IsLibrary and (not ProcessIsExiting) then begin
+    handle := thread.Handle;
+    if ModuleIsUnloading then begin
+      if WaitForSingleObject(handle, 0) <> WAIT_OBJECT_0 then
+        Exit;
+    end
+    else if (GetCurrentThreadID <> MainThreadID) // TThread.WaitFor calls CheckSynchronize in the main thread
+            and (not thread.Suspended) then
+    begin
+      thread.Terminate;
+      while WaitForSingleObject(handle, CPoll_ms) = WAIT_TIMEOUT do
+        if ModuleIsUnloading then // unload has started while we were waiting
+          Exit;
+    end;
+  end;
+  thread.Free;
+end; { FreeThread }
+{$ELSE}
+function ProcessIsExiting: boolean;
+begin
+  Result := false;
+end; { ProcessIsExiting }
+
+function ModuleIsUnloading: boolean;
+begin
+  Result := false;
+end; { ModuleIsUnloading }
+
+function UnloadTimeLeft_ms: cardinal;
+begin
+  Result := COmniUnloadTimeout_ms;
+end; { UnloadTimeLeft_ms }
+
+procedure FreeThread(thread: TThread);
+begin
+  thread.Free;
+end; { FreeThread }
+{$ENDIF ~MSWINDOWS}
 
 {$IFDEF MSWINDOWS}
 var
