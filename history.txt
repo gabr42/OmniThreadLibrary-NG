@@ -31,6 +31,11 @@
     CastTo<TObject> for an object allocated above $FF000000 (large-address-aware
     32-bit process) raised EOmniValueConv "Value ... is too big to fit into ...".
     [SteIngODF, OmniThreadLibrary PR #234]
+  - Fixed race between the owner thread of an Unobserved task and the release of
+    its task control (EInvalidPointer in the cleanup thread; unobserved tasks
+    were not released from then on).
+  - An exception in the unobserved task cleanup thread no longer stops that
+    thread. Exceptions are counted in OtlTaskControl.GUnobservedCleanupErrors.
 
 3.07.11: 2025-10-22
 

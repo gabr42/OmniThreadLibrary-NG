@@ -34,10 +34,24 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
-///   Last modification : 2026-11-04
-///   Version           : 3.12
+///   Last modification : 2026-11-23
+///   Version           : 3.13
 ///</para><para>
 ///   History:
+///     3.13: 2026-11-23
+///       - Fixed race between the owner thread and the final release of a task
+///         control (EInvalidPointer in TOmniUnobservedCleanupThread, potential
+///         use after free). TOmniTaskControlDispatcher.Dispatch and the wait
+///         object registered in the owner task (HandleBackgroundNotification)
+///         took a reference from a raw pointer although the reference count
+///         could already be 0. Both now go through TOmniTaskControlDispatcher,
+///         which only adds a reference when the count is still positive.
+///       - An exception raised while releasing a task control no longer kills
+///         TOmniUnobservedCleanupThread. Previously, the exception was only
+///         stored in the thread's FatalException, nothing reported it, and no
+///         unobserved task was released in that process from then on.
+///         Exceptions are now counted in GUnobservedCleanupErrors; the first
+///         one is described in GUnobservedCleanupFirstError.
 ///     3.12: 2026-11-04
 ///       - Fixed EArgumentOutOfRangeException ("List index out of bounds")
 ///         in TOmniTaskExecutor.DispatchEvent. The wait-object branch indexed
@@ -958,6 +972,7 @@ type
   IOmniTaskControlDispatcher = interface ['{E8A3D2F1-7C4B-4D8E-9F5A-6B2C1A3E0D7F}']
     procedure Clear;
     procedure Dispatch;
+    procedure DispatchNotification;
   end;
 
   IOmniTaskControlInternals = interface ['{CE7B53E0-902E-413F-AB6E-B97E7F4B0AD5}']
@@ -968,6 +983,7 @@ type
     function  FilterMessage(const msg: TOmniMessage): boolean;
     procedure ForwardTaskMessage(const msg: TOmniMessage);
     procedure ForwardTaskTerminated;
+    procedure HandleBackgroundNotification;
     procedure FinalizeUnobservedCommDispatcher(allowSynchronize: boolean);
     property DebugFlags: TOmniTaskControlInternalDebugFlags read GetDebugFlags
       write SetDebugFlags;
@@ -1045,6 +1061,7 @@ type
     constructor Create(worker: TOmniTaskProcedure; const taskName: string); overload;
     constructor Create(worker: TOmniTaskDelegate; const taskName: string); overload;
     destructor  Destroy; override;
+    function  TryAddRef: boolean;
     function  Alertable: IOmniTaskControl; deprecated 'No longer needed - task loop uses CV-based waiting';
     function  CancelWith(const token: IOmniCancellationToken): IOmniTaskControl;
     function  ChainTo(const task: IOmniTaskControl; ignoreErrors: boolean = false): IOmniTaskControl;
@@ -1232,6 +1249,16 @@ var
   GUnobservedSelfDestroyCount: integer;
 // END TEMPORARY-SELFDESTROY-TRIPWIRE
 
+// Diagnostic counter - incremented when releasing a task control in the
+// TOmniUnobservedCleanupThread raises an exception. Such an exception always
+// indicates a bug (and leaks that task control), so the test runners treat a
+// non-zero value as a failure. GUnobservedCleanupFirstError describes the first
+// exception; it is written once, before the counter becomes non-zero, so it is
+// safe to read it from any thread after checking the counter.
+var
+  GUnobservedCleanupErrors    : integer;
+  GUnobservedCleanupFirstError: string;
+
 // Diagnostic counter — incremented when TOmniTaskControl.Terminate detaches
 // a stuck otcThread because cooperative shutdown failed. Detaching leaks the
 // OS thread but keeps RTL/heap locks intact; killing via TerminateThread or
@@ -1304,6 +1331,7 @@ type
     FHasWork : TEvent;
   protected
     procedure Execute; override;
+    procedure ReleaseTaskControl(ref: Pointer);
   public
     constructor Create;
     destructor  Destroy; override;
@@ -1314,11 +1342,13 @@ type
   strict private
     FLock  : TCriticalSection;
     FTarget: Pointer; // raw TOmniTaskControl; nil after Clear
+    function  TryPinTarget(var pin: IOmniTaskControl): boolean;
   public
     constructor Create(target: Pointer);
     destructor  Destroy; override;
     procedure Clear;
     procedure Dispatch; reintroduce;
+    procedure DispatchNotification;
   end; { TOmniTaskControlDispatcher }
 
 var
@@ -3536,6 +3566,20 @@ begin
       CreateTwoWayChannel(otcQueueLength, otcSharedInfo.TerminatedEvent);
 end; { TOmniTaskControl.EnsureCommChannel }
 
+function TOmniTaskControl.TryAddRef: boolean;
+var
+  count: integer;
+begin
+  // Count 0 (or negative, when objDestroyingFlag is set) means that a final _Release
+  // is in progress.
+  repeat
+    count := FRefCount;
+    if count <= 0 then
+      Exit(false);
+  until TInterlocked.CompareExchange(FRefCount, count + 1, count) = count;
+  Result := true;
+end; { TOmniTaskControl.TryAddRef }
+
 procedure TOmniTaskControl.HandleBackgroundNotification;
 var
   selfRef: IOmniTaskControl;
@@ -3654,7 +3698,7 @@ begin
       // wait set, not an interface, so there is no cycle.
       otcOwnerCtrlRef := TOmniTaskExecutor(otcOwnerExecutor_ref).Owner_ref as IOmniTaskControl;
       TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_RegisterWaitObject(
-        otcBgNotifyEvent, HandleBackgroundNotification);
+        otcBgNotifyEvent, procedure begin dispatcher.DispatchNotification end);
     end
     {$IFNDEF OTL_HasAPC}
     else
@@ -3711,7 +3755,7 @@ begin
       otcOwnerExecutor_ref := _CurrentOmniTaskExecutor;
       otcOwnerCtrlRef := TOmniTaskExecutor(otcOwnerExecutor_ref).Owner_ref as IOmniTaskControl;
       TOmniTaskExecutor(otcOwnerExecutor_ref).Asy_RegisterWaitObject(
-        otcBgNotifyEvent, HandleBackgroundNotification);
+        otcBgNotifyEvent, procedure begin dispatcher.DispatchNotification end);
     end
     {$IFNDEF OTL_HasAPC}
     else
@@ -4918,13 +4962,37 @@ begin
 end; { TOmniTaskControlDispatcher.Clear }
 
 procedure TOmniTaskControlDispatcher.Dispatch;
+var
+  pin: IOmniTaskControl;
+begin
+  if TryPinTarget(pin) then
+    pin.ProcessMessages;
+end; { TOmniTaskControlDispatcher.Dispatch }
+
+procedure TOmniTaskControlDispatcher.DispatchNotification;
+var
+  pin: IOmniTaskControl;
+begin
+  if TryPinTarget(pin) then
+    (pin as IOmniTaskControlInternals).HandleBackgroundNotification;
+end; { TOmniTaskControlDispatcher.DispatchNotification }
+
+{:Converts the raw target into a strong reference, unless its destruction has already
+  started. The lock keeps the target memory valid (TOmniTaskControl.Destroy calls Clear);
+  TryAddRef makes sure that a reference count that has already dropped to 0 is never
+  incremented again.
+}
+function TOmniTaskControlDispatcher.TryPinTarget(var pin: IOmniTaskControl): boolean;
 begin
   FLock.Enter;
   try
-    if FTarget <> nil then
-      TOmniTaskControl(FTarget).ProcessMessages;
+    Result := (FTarget <> nil) and TOmniTaskControl(FTarget).TryAddRef;
+    if Result then begin
+      pin := TOmniTaskControl(FTarget);
+      TOmniTaskControl(FTarget)._Release; // balances TryAddRef; pin holds its own reference
+    end;
   finally FLock.Leave; end;
-end; { TOmniTaskControlDispatcher.Dispatch }
+end; { TOmniTaskControlDispatcher.TryPinTarget }
 
 { TOmniUnobservedCleanupThread }
 
@@ -4946,7 +5014,7 @@ begin
   lockedList := FQueue.LockList;
   try
     for var i := 0 to lockedList.Count - 1 do
-      IOmniTaskControl(lockedList[i])._Release;
+      ReleaseTaskControl(lockedList[i]);
     lockedList.Clear;
   finally FQueue.UnlockList; end;
   FreeAndNil(FQueue);
@@ -4980,13 +5048,34 @@ begin
       // Release refs outside the lock — destructor runs here on this thread
       for var i := 0 to batch.Count - 1 do begin
         {$IFDEF OTL_TRACE_PROBE}TraceMark('cleanup.release.before', IOmniTaskControl(batch[i]).UniqueID);{$ENDIF}
-        IOmniTaskControl(batch[i])._Release;
+        ReleaseTaskControl(batch[i]);
         {$IFDEF OTL_TRACE_PROBE}TraceMark('cleanup.release.after', 0);{$ENDIF}
       end;
       batch.Clear;
     end;
   finally FreeAndNil(batch); end;
 end; { TOmniUnobservedCleanupThread.Execute }
+
+{:Releases one reference. An exception must not escape: it would terminate the thread
+  and no unobserved task would be released from then on. It is recorded instead.
+  @since   2026-11-23
+}
+procedure TOmniUnobservedCleanupThread.ReleaseTaskControl(ref: Pointer);
+var
+  taskName: string;
+begin
+  try
+    taskName := IOmniTaskControl(ref).Name; // not accessible after the release
+    IOmniTaskControl(ref)._Release;
+  except
+    on E: Exception do begin
+      if GUnobservedCleanupErrors = 0 then
+        GUnobservedCleanupFirstError := Format('task "%s": %s: %s',
+          [taskName, E.ClassName, E.Message]);
+      TInterlocked.Increment(GUnobservedCleanupErrors);
+    end;
+  end;
+end; { TOmniUnobservedCleanupThread.ReleaseTaskControl }
 
 procedure TOmniUnobservedCleanupThread.ScheduleRelease(var ref: IOmniTaskControl);
 var

@@ -112,7 +112,8 @@ implementation
 {$R *.fmx}
 
 uses
-  DUnitX.Loggers.XML.NUnit, DUnitX.ResStrs;
+  DUnitX.Loggers.XML.NUnit, DUnitX.ResStrs,
+  OtlTaskControl;
 
 { TMobileGUITestRunner }
 
@@ -251,6 +252,10 @@ begin
              ' Errors='  + IntToStr(results.ErrorCount) +
              ' Leaks='   + IntToStr(results.MemoryLeakCount) +
              ' Ignored=' + IntToStr(results.IgnoredCount));
+        DLog('AutoRun: CleanupErrors=' + IntToStr(GUnobservedCleanupErrors));
+        if GUnobservedCleanupErrors > 0 then
+          DLog('AutoRun: FAILED: exception in the unobserved task cleanup thread; first: ' +
+               GUnobservedCleanupFirstError);
       except
         on E: Exception do begin
           DLog('AutoRun worker RAISED ' + E.ClassName + ': ' + E.Message);

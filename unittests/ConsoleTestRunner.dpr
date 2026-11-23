@@ -647,6 +647,15 @@ begin
       [OtlTaskControl.GUnobservedSelfDestroyCount]));
     Writeln(Format('  GUnobservedDispatcherSyncFromNonMain = %d',
       [OtlTaskControl.GUnobservedDispatcherSyncFromNonMain]));
+    Writeln(Format('  GUnobservedCleanupErrors             = %d',
+      [OtlTaskControl.GUnobservedCleanupErrors]));
+    // An exception in the cleanup thread always indicates a bug, and it can
+    // happen in any test without that test noticing. Fail the whole run.
+    if OtlTaskControl.GUnobservedCleanupErrors > 0 then begin
+      Writeln('*** FAILED: exception in the unobserved task cleanup thread; first: ',
+        OtlTaskControl.GUnobservedCleanupFirstError);
+      System.ExitCode := EXIT_ERRORS;
+    end;
     {$WARN SYMBOL_PLATFORM OFF}
     if DebugHook <> 0 then begin
       Write('> ');

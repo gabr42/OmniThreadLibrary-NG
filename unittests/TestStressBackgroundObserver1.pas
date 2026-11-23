@@ -9,8 +9,8 @@ unit TestStressBackgroundObserver1;
 ///<author>Primoz Gabrijelcic, Claude</author>
 ///<remarks><para>
 ///   Creation date     : 2026-04-20
-///   Last modification : 2026-04-20
-///   Version           : 1.00
+///   Last modification : 2026-11-23
+///   Version           : 1.01
 ///</para></remarks>
 
 interface
@@ -33,6 +33,9 @@ type
     [Test]
     [Category('Stress')]
     procedure StressTestCrossThreadLifecycle;
+    [Test]
+    [Category('Stress')]
+    procedure StressTestUnobservedCleanupRace;
   end;
 
 implementation
@@ -43,6 +46,8 @@ uses
   System.SyncObjs,
   System.Diagnostics,
   OtlSync,
+  OtlTaskControl,
+  OtlTask,
   OtlPlatform,
   OtlBackgroundObserver;
 
@@ -281,6 +286,127 @@ begin
     finally observer := nil; end; // release on the main thread, target is gone
   finally owner.Free; end;
 end; { TStressBackgroundObserver.StressTestCrossThreadLifecycle }
+
+type
+  TCountedSentinel = class(TInterfacedObject)
+  strict private
+    FCount: PInteger;
+  public
+    constructor Create(count: PInteger);
+    destructor  Destroy; override;
+  end;
+
+constructor TCountedSentinel.Create(count: PInteger);
+begin
+  inherited Create;
+  FCount := count;
+  TInterlocked.Increment(FCount^);
+end; { TCountedSentinel.Create }
+
+destructor TCountedSentinel.Destroy;
+begin
+  TInterlocked.Decrement(FCount^);
+  inherited;
+end; { TCountedSentinel.Destroy }
+
+type
+  TCleanupRaceCounters = record
+    Alive  : integer;
+    Fired  : integer;
+    Spawned: integer;
+  end;
+  PCleanupRaceCounters = ^TCleanupRaceCounters;
+
+  TCleanupRaceWorker = class(TOmniWorker)
+  strict private
+    FCounters: PCleanupRaceCounters;
+  public
+    constructor Create(counters: PCleanupRaceCounters);
+    procedure Spawn;
+  end;
+
+constructor TCleanupRaceWorker.Create(counters: PCleanupRaceCounters);
+begin
+  inherited Create;
+  FCounters := counters;
+end; { TCleanupRaceWorker.Create }
+
+procedure TCleanupRaceWorker.Spawn;
+// Runs on the worker thread. Every child registers its notification event in the wait set
+// of this worker. The event wakes the worker at about the same time as the child's task
+// control is released in the unobserved cleanup thread.
+begin
+  var counters := FCounters;
+  for var iTask := 1 to 6 do begin
+    Inc(counters.Spawned);
+    var sentinel: IInterface := TCountedSentinel.Create(@counters.Alive);
+    CreateTask(
+      procedure (const task: IOmniTask)
+      begin
+        task.Comm.Send(1);
+      end, 'cleanup race child')
+    .Unobserved
+    .SetParameter('sentinel', sentinel)
+    .OnTerminated(
+      procedure (const task: IOmniTaskControl)
+      begin
+        TInterlocked.Increment(counters.Fired);
+      end)
+    .Run;
+  end;
+end; { TCleanupRaceWorker.Spawn }
+
+procedure TStressBackgroundObserver.StressTestUnobservedCleanupRace;
+// Dispatching a notification in the owner thread must never acquire a reference to a task
+// control whose final release (in the unobserved cleanup thread) is already in progress.
+// If it does, TInterfacedObject.BeforeDestruction raises EInvalidPointer in the cleanup
+// thread and the task control is leaked.
+const
+  COwners      = 8;
+  CDuration_ms = 20000;
+  CRelease_ms  = 10000;
+var
+  counters: array [0..COwners-1] of TCleanupRaceCounters;
+  errors  : integer;
+  owners  : array [0..COwners-1] of IOmniTaskControl;
+begin
+  errors := GUnobservedCleanupErrors;
+  FillChar(counters, SizeOf(counters), 0);
+  for var i := 0 to COwners-1 do
+    owners[i] := CreateTask(TCleanupRaceWorker.Create(@counters[i]) as IOmniWorker,
+      'cleanup race owner').Run;
+  try
+    var duration := TStopwatch.StartNew;
+    while (duration.ElapsedMilliseconds < CDuration_ms) and (GUnobservedCleanupErrors = errors) do begin
+      for var i := 0 to COwners-1 do
+        owners[i].Invoke(@TCleanupRaceWorker.Spawn);
+      var release := TStopwatch.StartNew;
+      Sleep(1);
+      for var i := 0 to COwners-1 do
+        while (TInterlocked.CompareExchange(counters[i].Alive, 0, 0) > 0)
+              and (release.ElapsedMilliseconds < CRelease_ms)
+              and (GUnobservedCleanupErrors = errors)
+        do
+          Sleep(1);
+      if release.ElapsedMilliseconds >= CRelease_ms then
+        break; // reported below
+    end;
+  finally
+    for var i := 0 to COwners-1 do
+      owners[i].Terminate(5000);
+  end;
+  var waitRelease := TStopwatch.StartNew;
+  for var i := 0 to COwners-1 do
+    while (TInterlocked.CompareExchange(counters[i].Alive, 0, 0) > 0) and (waitRelease.ElapsedMilliseconds < CRelease_ms)
+          and (GUnobservedCleanupErrors = errors) do
+      Sleep(10);
+  Assert.AreEqual<integer>(errors, GUnobservedCleanupErrors, GUnobservedCleanupFirstError);
+  for var i := 0 to COwners-1 do begin
+    Assert.IsTrue(counters[i].Spawned > 0, 'No tasks were created');
+    Assert.AreEqual<integer>(0, counters[i].Alive, 'Tasks not released');
+    Assert.AreEqual<integer>(counters[i].Spawned, counters[i].Fired, 'OnTerminated fire count');
+  end;
+end; { TStressBackgroundObserver.StressTestUnobservedCleanupRace }
 
 initialization
   TDUnitX.RegisterTestFixture(TStressBackgroundObserver);

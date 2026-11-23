@@ -90,6 +90,9 @@ cd unittests
 ```
 
 Watch for `OTL_DIAG: AutoRun: TestCount=N Passed=P Failed=F Errors=E Leaks=L Ignored=I`.
+`OTL_DIAG: AutoRun: CleanupErrors=N` follows; N must be 0 (exceptions in the
+unobserved task cleanup thread, see `GUnobservedCleanupErrors`). The console
+runner reports the same counter and fails the run when it is not 0.
 
 ### ARM64EC (Delphi 13.1 only; compile-only smoke)
 
