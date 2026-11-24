@@ -35,6 +35,11 @@
     SetThreadDescription Windows API.
 
 - Bug fixes:
+  - TOmniMessageQueue.OnMessage was never called on POSIX platforms.
+  - TOmniMessageQueue: If OnMessage handler set OnMessage to nil, all messages that
+    were still in the queue were lost.
+  - POSIX: Task controllers owned by a thread that is not an OTL task were kept in
+    the thread's observer registry if they were destroyed without calling Terminate.
   - CreateOmniValueQueue(UseBusLocking = true) raised ELockException or hung on
     64-bit POSIX platforms (Linux, Android).
   - Fixed bad 64-bit pointer casts in OtlTaskControl. Now works with Delph 13.1.

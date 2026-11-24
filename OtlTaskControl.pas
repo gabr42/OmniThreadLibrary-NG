@@ -34,10 +34,13 @@
 ///     E-Mail          : primoz@gabrijelcic.org
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, Sean B. Durkin, HHasenack, Claude AI
-///   Last modification : 2026-11-23
-///   Version           : 3.17
+///   Last modification : 2026-11-24
+///   Version           : 3.18
 ///</para><para>
 ///   History:
+///     3.18: 2026-11-24
+///       - POSIX: Task controller removes its observer from the owner's registry when it
+///         is destroyed.
 ///     3.17: 2026-11-23
 ///       - Added function StopAllOmniThreads. A DLL should call it before it is unloaded.
 ///       - Fixed: A DLL could hang in FreeLibrary and at process exit because it waited for
@@ -3566,8 +3569,8 @@ begin
   // synchronously from the task worker thread (see TOmniTask.InternalExecute
   // hasBgObserver branch), so Clear cannot drop a pending delivery. The
   // dispatcher itself lingers in the observer's closure until the observer
-  // is released from the owner thread's threadvar registry — acceptable
-  // bounded memory cost.
+  // is released from the owner thread's threadvar registry (below; if Destroy
+  // runs in another thread, when the owner drains the registry).
   if assigned(otcDispatcher) then begin
     otcDispatcher.Clear;
     otcDispatcher := nil;
@@ -3593,6 +3596,14 @@ begin
       mtObs.Shutdown;
       mtObs := nil;
     end;
+    {$IFNDEF OTL_HasAPC}
+    // Owner's registry must not hold the observer forever. Can be called from any thread.
+    var bgObs: IOmniContainerBackgroundObserver;
+    if Supports(otcBackgroundObserver, IOmniContainerBackgroundObserver, bgObs) then begin
+      UnregisterBackgroundObserver(bgObs);
+      bgObs := nil;
+    end;
+    {$ENDIF}
     otcBgNotifyEvent := nil;
     otcOwnerExecutor_ref := nil;
     otcOwnerCtrlRef := nil;

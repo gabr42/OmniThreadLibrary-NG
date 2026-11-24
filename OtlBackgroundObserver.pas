@@ -36,10 +36,16 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : Claude AI
 ///   Creation date     : 2026-04-12
-///   Last modification : 2026-10-22
-///   Version           : 1.05
+///   Last modification : 2026-11-24
+///   Version           : 1.06
 ///</para><para>
 ///   History:
+///     1.06: 2026-11-24
+///       - POSIX: UnregisterBackgroundObserver can be called from any thread. The observer
+///         is not called anymore; if called from another thread, it is removed from the
+///         owner's registry when the owner drains it.
+///       - POSIX: Observers can be registered and unregistered from the callback.
+///       - POSIX: Registry is released when the last observer is removed.
 ///     1.05: 2026-10-22
 ///       - Documented the final drain done by TOmniTaskExecutor.Asy_Execute
 ///         (OtlTaskControl 3.11) for APCs queued after the owner's last wait.
@@ -134,8 +140,9 @@ procedure DrainBackgroundObservers;
 }
 procedure RegisterBackgroundObserver(const aObserver: IOmniContainerBackgroundObserver);
 
-{:Unregisters a background observer from the current thread's registry.
-  Called from Terminate cleanup on the owner thread.
+{:Deactivates a background observer so that it will not be called anymore and removes it
+  from the current thread's registry. If it is called from another thread, the observer
+  is removed from the owner's registry when the owner drains it.
   @since   2026-04-12
 }
 procedure UnregisterBackgroundObserver(const aObserver: IOmniContainerBackgroundObserver);
@@ -307,7 +314,9 @@ end; { TOmniContainerAPCObserverImpl.Notify }
 type
   IOmniContainerCVObserver = interface
     ['{B15F0E97-8E5F-4EB6-B3F4-7A3D2A8D7F12}']
+    procedure Deactivate;
     procedure DrainPending;
+    function  IsActive: boolean;
   end;
 
   TOmniContainerCVObserverImpl = class(TOmniContainerBackgroundObserver, IOmniContainerCVObserver)
@@ -321,7 +330,9 @@ type
     destructor  Destroy; override;
     function  GetNotifyEvent: IOmniEvent; override;
     procedure Notify; override;
+    procedure Deactivate;
     procedure DrainPending;
+    function  IsActive: boolean;
   end;
 
 { TOmniContainerCVObserverImpl }
@@ -356,26 +367,38 @@ begin
   TInterlocked.CompareExchange(FCVPending, 1, 0);
 end; { TOmniContainerCVObserverImpl.Notify }
 
+procedure TOmniContainerCVObserverImpl.Deactivate;
+begin
+  TInterlocked.Exchange(FIsActive, 0);
+end; { TOmniContainerCVObserverImpl.Deactivate }
+
 procedure TOmniContainerCVObserverImpl.DrainPending;
 begin
-  if TInterlocked.CompareExchange(FIsActive, 1, 1) <> 1 then
+  if not IsActive then
     Exit;
   if TInterlocked.Exchange(FCVPending, 0) = 1 then
     FOnNotify();
 end; { TOmniContainerCVObserverImpl.DrainPending }
+
+function TOmniContainerCVObserverImpl.IsActive: boolean;
+begin
+  Result := TInterlocked.CompareExchange(FIsActive, 1, 1) = 1;
+end; { TOmniContainerCVObserverImpl.IsActive }
 
 { Thread-local background observer registry }
 
 type
   TOmniBackgroundObserverRegistry = class
   strict private
-    FList: TList<IOmniContainerBackgroundObserver>;
+    FDrainDepth: integer; // DrainAll can be called recursively from an observer's callback
+    FList      : TList<IOmniContainerBackgroundObserver>;
   public
     constructor Create;
     destructor  Destroy; override;
     procedure Add(const aObserver: IOmniContainerBackgroundObserver);
     procedure Remove(const aObserver: IOmniContainerBackgroundObserver);
     procedure DrainAll;
+    function  IsUnused: boolean;
   end;
 
 threadvar
@@ -406,11 +429,29 @@ end; { TOmniBackgroundObserverRegistry.Remove }
 
 procedure TOmniBackgroundObserverRegistry.DrainAll;
 var
-  i: integer;
+  i       : integer;
+  observer: IOmniContainerBackgroundObserver;
 begin
-  for i := 0 to FList.Count - 1 do
-    (FList[i] as IOmniContainerCVObserver).DrainPending;
+  Inc(FDrainDepth);
+  try
+    for observer in FList.ToArray do // callbacks can change the list
+      (observer as IOmniContainerCVObserver).DrainPending;
+  finally Dec(FDrainDepth); end;
+  for i := FList.Count - 1 downto 0 do // unregistered from another thread
+    if not (FList[i] as IOmniContainerCVObserver).IsActive then
+      FList.Delete(i);
 end; { TOmniBackgroundObserverRegistry.DrainAll }
+
+function TOmniBackgroundObserverRegistry.IsUnused: boolean;
+begin
+  Result := (FDrainDepth = 0) and (FList.Count = 0);
+end; { TOmniBackgroundObserverRegistry.IsUnused }
+
+procedure ReleaseUnusedRegistry;
+begin
+  if assigned(_BackgroundObserverRegistry) and _BackgroundObserverRegistry.IsUnused then
+    FreeAndNil(_BackgroundObserverRegistry);
+end; { ReleaseUnusedRegistry }
 
 procedure RegisterBackgroundObserver(const aObserver: IOmniContainerBackgroundObserver);
 begin
@@ -421,8 +462,11 @@ end; { RegisterBackgroundObserver }
 
 procedure UnregisterBackgroundObserver(const aObserver: IOmniContainerBackgroundObserver);
 begin
-  if assigned(_BackgroundObserverRegistry) then
+  (aObserver as IOmniContainerCVObserver).Deactivate;
+  if assigned(_BackgroundObserverRegistry) then begin
     _BackgroundObserverRegistry.Remove(aObserver);
+    ReleaseUnusedRegistry;
+  end;
 end; { UnregisterBackgroundObserver }
 
 procedure CleanupBackgroundObserverRegistry;
@@ -446,8 +490,10 @@ begin
   // is declared `var` but not read when nCount=0, so a stack dummy suffices.
   MsgWaitForMultipleObjectsEx(0, dummyHandle, 0, 0, MWMO_ALERTABLE);
   {$ELSE}
-  if assigned(_BackgroundObserverRegistry) then
+  if assigned(_BackgroundObserverRegistry) then begin
     _BackgroundObserverRegistry.DrainAll;
+    ReleaseUnusedRegistry;
+  end;
   {$ENDIF}
 end; { DrainBackgroundObservers }
 

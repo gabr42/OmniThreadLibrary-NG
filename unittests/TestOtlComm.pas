@@ -40,6 +40,10 @@ type
     procedure TestNilDetaches;
     [Test]
     procedure TestDestroyWithActiveHandlerDoesNotRaise;
+    [Test]
+    procedure TestDetachFromHandler;
+    [Test]
+    procedure TestDestroyInAnotherThread;
   end;
 
   [TestFixture]
@@ -372,6 +376,7 @@ type
     FSender: TObject;
   public
     procedure HandleMessage(Sender: TObject; const msg: TOmniMessage);
+    procedure HandleMessageAndDetach(Sender: TObject; const msg: TOmniMessage);
     property MsgIDs: TArray<integer> read FMsgIDs;
     property Sender: TObject read FSender;
     function Count: integer;
@@ -387,6 +392,12 @@ end;
 function TMessageCollector.Count: integer;
 begin
   Result := Length(FMsgIDs);
+end;
+
+procedure TMessageCollector.HandleMessageAndDetach(Sender: TObject; const msg: TOmniMessage);
+begin
+  HandleMessage(Sender, msg);
+  (Sender as TOmniMessageQueue).OnMessage := nil;
 end;
 
 { TestOmniMessageQueueOnMessage }
@@ -479,6 +490,55 @@ begin
     mq.OnMessage := collector.HandleMessage;
     Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
     FreeAndNil(mq); // must not raise
+  finally FreeAndNil(collector); end;
+end;
+
+// A handler that detaches itself changes the list of observers while it is being drained.
+procedure TestOmniMessageQueueOnMessage.TestDetachFromHandler;
+begin
+  var collector := TMessageCollector.Create;
+  try
+    var mq1 := TOmniMessageQueue.Create(5);
+    try
+      var mq2 := TOmniMessageQueue.Create(5);
+      try
+        mq1.OnMessage := collector.HandleMessageAndDetach;
+        mq2.OnMessage := collector.HandleMessage;
+        Assert.IsTrue(mq1.Enqueue(TOmniMessage.Create(1, '1')));
+        Assert.IsTrue(mq1.Enqueue(TOmniMessage.Create(2, '2')));
+        Assert.IsTrue(mq2.Enqueue(TOmniMessage.Create(3, '3')));
+        DrainBackgroundObservers;
+        Assert.AreEqual<integer>(2, collector.Count, 'one message from each queue');
+        Assert.AreEqual<integer>(1, collector.MsgIDs[0]);
+        Assert.AreEqual<integer>(3, collector.MsgIDs[1]);
+        var msg: TOmniMessage;
+        Assert.IsTrue(mq1.TryDequeue(msg), 'second message should still be queued');
+        Assert.AreEqual<integer>(2, msg.MsgID);
+      finally FreeAndNil(mq2); end;
+    finally FreeAndNil(mq1); end;
+  finally FreeAndNil(collector); end;
+end;
+
+// Handler must not be called for a queue that was destroyed in another thread.
+procedure TestOmniMessageQueueOnMessage.TestDestroyInAnotherThread;
+begin
+  var collector := TMessageCollector.Create;
+  try
+    var mq := TOmniMessageQueue.Create(3);
+    mq.OnMessage := collector.HandleMessage;
+    Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
+    var thread := TThread.CreateAnonymousThread(
+      procedure
+      begin
+        FreeAndNil(mq);
+      end);
+    thread.FreeOnTerminate := false;
+    try
+      thread.Start;
+      thread.WaitFor;
+    finally FreeAndNil(thread); end;
+    DrainBackgroundObservers;
+    Assert.AreEqual<integer>(0, collector.Count, 'handler must not fire');
   finally FreeAndNil(collector); end;
 end;
 

@@ -35,10 +35,13 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-10-08
-///   Version           : 3.03
+///   Last modification : 2026-11-24
+///   Version           : 3.04
 ///</para><para>
 ///   History:
+///     3.04: 2026-11-24
+///       - Fixed: TOmniMessageQueue.OnMessage was never called on POSIX platforms.
+///       - Fixed: If OnMessage handler detached itself, the remaining messages were lost.
 ///     3.03: 2026-10-08
 ///       - Receive and ReceiveWait no longer return OTL's internal messages (the calls of
 ///         the methods passed to IOmniTaskControl.Run/Invoke etc.) to the user code, where
@@ -380,14 +383,19 @@ begin
       var
         msg: TOmniMessage;
       begin
-        while TryDequeue(msg) do
-          if assigned(mqOnMessage) then
-            mqOnMessage(Self, msg);
+        while assigned(mqOnMessage) and TryDequeue(msg) do
+          mqOnMessage(Self, msg);
       end);
     ContainerSubject.Attach(mqMsgObserver, coiNotifyOnAllInserts);
+    {$IFNDEF OTL_HasAPC}
+    RegisterBackgroundObserver(mqMsgObserver as IOmniContainerBackgroundObserver);
+    {$ENDIF}
   end
   else if assigned(mqOnMessage) and (not assigned(value)) then begin // tear down observer
     ContainerSubject.Detach(mqMsgObserver, coiNotifyOnAllInserts);
+    {$IFNDEF OTL_HasAPC}
+    UnregisterBackgroundObserver(mqMsgObserver as IOmniContainerBackgroundObserver);
+    {$ENDIF}
     mqMsgObserver := nil;
   end;
   mqOnMessage := value;
