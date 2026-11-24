@@ -88,6 +88,9 @@
     stopped working) if Cancel or CancelAll was called at the moment when the
     task was completing.
 
+- New demos:
+  - 71_DLL: Demonstrates how to use OmniThreadLibrary in a DLL (Windows only).
+
 3.07.11: 2025-10-22
 
 - New features:
