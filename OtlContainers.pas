@@ -38,10 +38,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Sean B. Durkin, Claude AI
 ///   Creation date     : 2008-07-13
-///   Last modification : 2026-10-08
-///   Version           : 4.04
+///   Last modification : 2026-11-24
+///   Version           : 4.05
 ///</para><para>
 ///   History:
+///     4.05: 2026-11-24
+///       - Fixed: TOmniValueQueue with UseBusLocking raised ELockException or hung on
+///         64-bit POSIX platforms. TSpinLock with enabled thread tracking stores the
+///         64-bit thread ID in a 32-bit field. Tracking is now disabled.
 ///     4.04: 2026-10-08
 ///       - Fixed: TOmniBaseQueue.Initialize relied on the memory manager to return blocks
 ///         aligned to the CAS requirement (16 bytes on x64) for the head/tail pointers;
@@ -1801,7 +1805,7 @@ end; { TOmniValueQueue.TryDequeue }
 constructor TOmniValueQueueSpin.Create(AThresholdForFull: integer);
 begin
   inherited Create(AThresholdForFull);
-  FLock.Create(True);
+  FLock.Create(False); // thread tracking does not work with 64-bit thread IDs (POSIX)
 end; { TOmniValueQueueSpin.Create }
 
 procedure TOmniValueQueueSpin.EnterCriticalSection;
