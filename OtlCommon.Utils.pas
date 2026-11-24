@@ -36,10 +36,13 @@
 ///   Contributors      : GJ, Lee_Nover, scarre, Sean B. Durkin
 ///
 ///   Creation date     : 2011-08-31
-///   Last modification : 2026-11-23
-///   Version           : 2.04
+///   Last modification : 2026-11-24
+///   Version           : 2.04a
 ///</para><para>
 ///   History:
+///     2.04a: 2026-11-24
+///       - Fixed: Records used for thread tracking were reported as a memory leak when
+///         the program exited.
 ///     2.04: 2026-11-23
 ///       - Added tracking of threads that were created by OTL and detection of
 ///         DLL unload and process exit.
@@ -200,6 +203,32 @@ begin
   end;
 end; { PruneTracked }
 
+/// Releases records of threads that are done. Such thread doesn't access its record anymore, even
+/// if it did not exit yet. Records of threads that are still running must be left alone.
+procedure ReleaseTracked;
+var
+  link   : ^POmniTrackedThread;
+  tracked: POmniTrackedThread;
+begin
+  if not ProcessIsExiting then
+    LockTracked
+  else if TInterlocked.CompareExchange(GTrackedLock, 1, 0) <> 0 then
+    Exit; // in a DLL; owner of the lock was killed
+  try
+    link := @GTrackedThreads;
+    while assigned(link^) do begin
+      tracked := link^;
+      if tracked.IsDone then begin
+        link^ := tracked.Next;
+        {$IFDEF MSWINDOWS}CloseHandle(tracked.Handle);{$ENDIF}
+        Dispose(tracked);
+      end
+      else
+        link := @tracked.Next;
+    end;
+  finally UnlockTracked; end;
+end; { ReleaseTracked }
+
 function TrackThread(thread: TThread; isService: boolean): POmniTrackedThread;
 begin
   New(Result);
@@ -353,8 +382,10 @@ end; { FreeThread }
 {$IFDEF MSWINDOWS}
 var
   GKernel32: HMODULE;
+{$ENDIF MSWINDOWS}
 
 initialization
+  {$IFDEF MSWINDOWS}
   if ModuleIsLib and (not ModuleIsPackage) then begin
     GNextDllProcEx := DllProcEx;
     DllProcEx := OtlDllProcEx;
@@ -362,7 +393,10 @@ initialization
   GKernel32 := GetModuleHandle('kernel32.dll');
   if GKernel32 <> 0 then
     GSetThreadDescription := GetProcAddress(GKernel32, 'SetThreadDescription');
+  {$ENDIF MSWINDOWS}
 finalization
+  {$IFDEF MSWINDOWS}
   GSetThreadDescription := nil;
-{$ENDIF MSWINDOWS}
+  {$ENDIF MSWINDOWS}
+  ReleaseTracked;
 end.
