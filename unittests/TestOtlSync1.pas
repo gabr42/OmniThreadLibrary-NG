@@ -942,14 +942,15 @@ begin
       synch.WaitFor('start');
       Assert.IsTrue(wrTimeout = event.WaitFor(0));
       Assert.IsTrue(wrTimeout = event.WaitFor(100));
-      Assert.IsTrue(wrSignaled = event.WaitFor(1000));
+      synch.Signal('W:timedout');
+      Assert.IsTrue(wrSignaled = event.WaitFor(5000));
     end);
 
   synch.WaitFor('S:ready');
   synch.WaitFor('W:ready');
   synch.Signal('start');
-  Sleep(200);
-  Synch.Signal('S:signal');
+  synch.WaitFor('W:timedout', 5000); // event must not be set before both timeouts are checked
+  synch.Signal('S:signal');
 
   signal.Wait(INFINITE);
   wait.Wait(INFINITE);
