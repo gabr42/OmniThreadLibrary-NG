@@ -35,10 +35,14 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover
 ///   Creation date     : 2008-06-12
-///   Last modification : 2026-11-24
-///   Version           : 3.04
+///   Last modification : 2026-11-25
+///   Version           : 3.05
 ///</para><para>
 ///   History:
+///     3.05: 2026-11-25
+///       - Fixed: TOmniMessageQueue.OnMessage handler that was set in the main thread was
+///         only called in an alertable wait (never in a VCL/FMX message loop) or from
+///         DrainBackgroundObservers. It is now called via TThread.ForceQueue.
 ///     3.04: 2026-11-24
 ///       - Fixed: TOmniMessageQueue.OnMessage was never called on POSIX platforms.
 ///       - Fixed: If OnMessage handler detached itself, the remaining messages were lost.
@@ -202,6 +206,7 @@ type
     mqOnMessage    : TOmniMessageQueueMessageEvent;
   strict protected
     procedure AttachEventObserver;
+    procedure DispatchMessages;
     procedure SetOnMessage(const value: TOmniMessageQueueMessageEvent);
   public
     constructor Create(numMessages: integer; createEventObserver: boolean = true); reintroduce;
@@ -212,9 +217,8 @@ type
     function  GetNewMessageEvent: IOmniEvent;
     function  TryDequeue(var msg: TOmniMessage): boolean; reintroduce;
     property EventObserver: IOmniContainerEventObserver read mqEventObserver;
-    {:Callback invoked (on the thread that set OnMessage, or automatically
-      whenever that thread is an OTL task - see OtlBackgroundObserver.
-      CreateContainerBackgroundObserver) once per message as it is enqueued.
+    {:Callback invoked on the thread that set OnMessage, once per message. See
+      SetOnMessage for the conditions under which it is called.
       Assign nil to detach. Setting OnMessage does not replace TryDequeue -
       either drain the queue yourself, or assign a handler, not both.
       @since   2026-08-24
@@ -366,11 +370,22 @@ begin
   mqEventObserver.Activate;
 end; { TOmniMessageQueue.AttachEventObserver }
 
+{:Called by the observer in the thread that assigned the OnMessage handler.}
+procedure TOmniMessageQueue.DispatchMessages;
+var
+  msg: TOmniMessage;
+begin
+  while assigned(mqOnMessage) and TryDequeue(msg) do
+    mqOnMessage(Self, msg);
+end; { TOmniMessageQueue.DispatchMessages }
+
 {:Sets up (or tears down) delivery of OnMessage. The observer binds to
   whichever thread is current when a handler is first assigned - matching
-  v3's hidden-window binding, but via CreateContainerBackgroundObserver
-  instead (cross-platform; Windows: QueueUserAPC, POSIX: thread-local
-  registry). OTL task/worker threads drain background observers on every loop
+  v3's hidden-window binding. In the main thread, the handler is called via
+  TThread.ForceQueue (CreateContainerMainThreadObserver); a console program must
+  call CheckSynchronize. In other threads it is called via
+  CreateContainerBackgroundObserver (cross-platform; Windows: QueueUserAPC, POSIX:
+  thread-local registry). OTL task/worker threads drain background observers on every loop
   iteration (TOmniTaskExecutor.WaitForEvent), but a new message does not wake
   the task (not even with .MsgWait). If an idle worker must react immediately,
   use IOmniTask.RegisterWaitObject(queue.GetNewMessageEvent, ...) instead.
@@ -378,26 +393,29 @@ end; { TOmniMessageQueue.AttachEventObserver }
   OtlBackgroundObserver.DrainBackgroundObservers itself, or perform an
   alertable wait, for the callback to run.}
 procedure TOmniMessageQueue.SetOnMessage(const value: TOmniMessageQueueMessageEvent);
+var
+  mainThreadObserver: IOmniContainerMainThreadObserver;
 begin
   if (not assigned(mqOnMessage)) and assigned(value) then begin // set up observer
-    mqMsgObserver := CreateContainerBackgroundObserver(TThread.Current.ThreadID,
-      procedure
-      var
-        msg: TOmniMessage;
-      begin
-        while assigned(mqOnMessage) and TryDequeue(msg) do
-          mqOnMessage(Self, msg);
-      end);
+    if TThread.Current.ThreadID = MainThreadID then
+      mqMsgObserver := CreateContainerMainThreadObserver(DispatchMessages)
+    else begin
+      mqMsgObserver := CreateContainerBackgroundObserver(TThread.Current.ThreadID, DispatchMessages);
+      {$IFNDEF OTL_HasAPC}
+      RegisterBackgroundObserver(mqMsgObserver as IOmniContainerBackgroundObserver);
+      {$ENDIF}
+    end;
     ContainerSubject.Attach(mqMsgObserver, coiNotifyOnAllInserts);
-    {$IFNDEF OTL_HasAPC}
-    RegisterBackgroundObserver(mqMsgObserver as IOmniContainerBackgroundObserver);
-    {$ENDIF}
   end
   else if assigned(mqOnMessage) and (not assigned(value)) then begin // tear down observer
     ContainerSubject.Detach(mqMsgObserver, coiNotifyOnAllInserts);
+    if Supports(mqMsgObserver, IOmniContainerMainThreadObserver, mainThreadObserver) then
+      mainThreadObserver.Shutdown // callback may already be queued
     {$IFNDEF OTL_HasAPC}
-    UnregisterBackgroundObserver(mqMsgObserver as IOmniContainerBackgroundObserver);
+    else
+      UnregisterBackgroundObserver(mqMsgObserver as IOmniContainerBackgroundObserver)
     {$ENDIF}
+    ;
     mqMsgObserver := nil;
   end;
   mqOnMessage := value;

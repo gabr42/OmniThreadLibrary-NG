@@ -3,6 +3,7 @@ unit TestOtlComm;
 interface
 
 uses
+  System.SysUtils,
   DUnitX.TestFramework,
   TestOtlBase;
 
@@ -29,21 +30,52 @@ type
 
   [TestFixture]
   TestOmniMessageQueueOnMessage = class(TOtlTestBase)
+  strict private
+    procedure CheckFiresOnEnqueue;
+    procedure CheckDrainsAllQueuedMessagesInOrder;
+    procedure CheckNotCalledBeforeDrain;
+    procedure CheckNilDetaches;
+    procedure CheckDestroyWithActiveHandlerDoesNotRaise;
+    procedure CheckDetachFromHandler;
+    procedure CheckDestroyInAnotherThread;
+    procedure CheckPendingCallbackAfterDetach;
+    procedure Drain;
+    procedure RunInThread(const test: TProc);
   public
     [Test]
     procedure TestFiresOnEnqueue;
     [Test]
+    procedure TestFiresOnEnqueueInThread;
+    [Test]
     procedure TestDrainsAllQueuedMessagesInOrder;
+    [Test]
+    procedure TestDrainsAllQueuedMessagesInOrderInThread;
     [Test]
     procedure TestNotCalledBeforeDrain;
     [Test]
+    procedure TestNotCalledBeforeDrainInThread;
+    [Test]
     procedure TestNilDetaches;
+    [Test]
+    procedure TestNilDetachesInThread;
     [Test]
     procedure TestDestroyWithActiveHandlerDoesNotRaise;
     [Test]
+    procedure TestDestroyWithActiveHandlerDoesNotRaiseInThread;
+    [Test]
     procedure TestDetachFromHandler;
     [Test]
+    procedure TestDetachFromHandlerInThread;
+    [Test]
     procedure TestDestroyInAnotherThread;
+    [Test]
+    procedure TestDestroyInAnotherThreadInThread;
+    [Test]
+    procedure TestPendingCallbackAfterDetach;
+    [Test]
+    procedure TestPendingCallbackAfterDetachInThread;
+    [Test]
+    procedure TestDeliveredToMainThread;
   end;
 
   [TestFixture]
@@ -78,7 +110,7 @@ uses
   {$IFDEF MSWindows}
   Winapi.Windows,
   {$ENDIF}
-  System.SysUtils, System.Types, System.Classes, System.Threading,
+  System.Types, System.Classes, System.Threading,
   System.SyncObjs,
   OtlSync, OtlSync.Utils,
   OtlCommon, OtlComm, OtlBackgroundObserver, OtlTask, OtlTaskControl;
@@ -402,7 +434,7 @@ end;
 
 { TestOmniMessageQueueOnMessage }
 
-procedure TestOmniMessageQueueOnMessage.TestFiresOnEnqueue;
+procedure TestOmniMessageQueueOnMessage.CheckFiresOnEnqueue;
 begin
   var collector := TMessageCollector.Create;
   try
@@ -410,7 +442,7 @@ begin
     try
       mq.OnMessage := collector.HandleMessage;
       Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(42, 'hello')));
-      DrainBackgroundObservers;
+      Drain;
       Assert.AreEqual<integer>(1, collector.Count, 'handler should have fired once');
       Assert.AreEqual<integer>(42, collector.MsgIDs[0], 'MsgID');
       Assert.IsTrue(collector.Sender = mq, 'Sender should be the queue itself');
@@ -421,7 +453,7 @@ begin
   finally FreeAndNil(collector); end;
 end;
 
-procedure TestOmniMessageQueueOnMessage.TestDrainsAllQueuedMessagesInOrder;
+procedure TestOmniMessageQueueOnMessage.CheckDrainsAllQueuedMessagesInOrder;
 begin
   var collector := TMessageCollector.Create;
   try
@@ -429,12 +461,12 @@ begin
     try
       mq.OnMessage := collector.HandleMessage;
       // Multiple Enqueues before a single drain: Notify coalesces internally
-      // (one APC queued, not three), but the handler drains the whole queue
+      // (one callback queued, not three), but the handler drains the whole queue
       // in a loop, so all three must still be delivered, in FIFO order.
       Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
       Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(2, '2')));
       Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(3, '3')));
-      DrainBackgroundObservers;
+      Drain;
       Assert.AreEqual<integer>(3, collector.Count, 'all three messages should have been delivered');
       Assert.AreEqual<integer>(1, collector.MsgIDs[0], 'FIFO order #1');
       Assert.AreEqual<integer>(2, collector.MsgIDs[1], 'FIFO order #2');
@@ -443,7 +475,7 @@ begin
   finally FreeAndNil(collector); end;
 end;
 
-procedure TestOmniMessageQueueOnMessage.TestNotCalledBeforeDrain;
+procedure TestOmniMessageQueueOnMessage.CheckNotCalledBeforeDrain;
 begin
   var collector := TMessageCollector.Create;
   try
@@ -451,15 +483,15 @@ begin
     try
       mq.OnMessage := collector.HandleMessage;
       Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
-      // No DrainBackgroundObservers call: delivery goes through a queued APC
-      // (Windows) / pending flag (POSIX), not a synchronous call from Enqueue.
+      // No Drain call: delivery goes through TThread.ForceQueue (main thread), a queued APC
+      // (Windows) or pending flag (POSIX), not a synchronous call from Enqueue.
       Assert.AreEqual<integer>(0, collector.Count,
         'handler must not fire synchronously from Enqueue');
     finally FreeAndNil(mq); end;
   finally FreeAndNil(collector); end;
 end;
 
-procedure TestOmniMessageQueueOnMessage.TestNilDetaches;
+procedure TestOmniMessageQueueOnMessage.CheckNilDetaches;
 begin
   var collector := TMessageCollector.Create;
   try
@@ -468,7 +500,7 @@ begin
       mq.OnMessage := collector.HandleMessage;
       mq.OnMessage := nil;
       Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
-      DrainBackgroundObservers;
+      Drain;
       Assert.AreEqual<integer>(0, collector.Count, 'detached handler must not fire');
       // Message is still there — nobody drained it
       var msg: TOmniMessage;
@@ -478,7 +510,7 @@ begin
   finally FreeAndNil(collector); end;
 end;
 
-procedure TestOmniMessageQueueOnMessage.TestDestroyWithActiveHandlerDoesNotRaise;
+procedure TestOmniMessageQueueOnMessage.CheckDestroyWithActiveHandlerDoesNotRaise;
 // Regression: Destroy must detach OnMessage (observer := nil) before tearing
 // down the queue underneath it. Destroy does `OnMessage := nil` first for
 // exactly this reason - this test just confirms it doesn't raise/AV even
@@ -490,11 +522,13 @@ begin
     mq.OnMessage := collector.HandleMessage;
     Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
     FreeAndNil(mq); // must not raise
+    Drain;
+    Assert.AreEqual<integer>(0, collector.Count, 'handler must not fire');
   finally FreeAndNil(collector); end;
 end;
 
 // A handler that detaches itself changes the list of observers while it is being drained.
-procedure TestOmniMessageQueueOnMessage.TestDetachFromHandler;
+procedure TestOmniMessageQueueOnMessage.CheckDetachFromHandler;
 begin
   var collector := TMessageCollector.Create;
   try
@@ -507,7 +541,7 @@ begin
         Assert.IsTrue(mq1.Enqueue(TOmniMessage.Create(1, '1')));
         Assert.IsTrue(mq1.Enqueue(TOmniMessage.Create(2, '2')));
         Assert.IsTrue(mq2.Enqueue(TOmniMessage.Create(3, '3')));
-        DrainBackgroundObservers;
+        Drain;
         Assert.AreEqual<integer>(2, collector.Count, 'one message from each queue');
         Assert.AreEqual<integer>(1, collector.MsgIDs[0]);
         Assert.AreEqual<integer>(3, collector.MsgIDs[1]);
@@ -520,26 +554,187 @@ begin
 end;
 
 // Handler must not be called for a queue that was destroyed in another thread.
-procedure TestOmniMessageQueueOnMessage.TestDestroyInAnotherThread;
+procedure TestOmniMessageQueueOnMessage.CheckDestroyInAnotherThread;
 begin
   var collector := TMessageCollector.Create;
   try
     var mq := TOmniMessageQueue.Create(3);
     mq.OnMessage := collector.HandleMessage;
     Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
+    var destroyed := CreateOmniEvent(true, false);
     var thread := TThread.CreateAnonymousThread(
       procedure
       begin
         FreeAndNil(mq);
+        destroyed.SetEvent;
       end);
     thread.FreeOnTerminate := false;
     try
       thread.Start;
+      destroyed.WaitFor(INFINITE); // WaitFor in the main thread would execute queued callbacks
       thread.WaitFor;
     finally FreeAndNil(thread); end;
-    DrainBackgroundObservers;
+    Drain;
     Assert.AreEqual<integer>(0, collector.Count, 'handler must not fire');
   finally FreeAndNil(collector); end;
+end;
+
+// Callback that is already queued must not be executed after the handler is removed.
+procedure TestOmniMessageQueueOnMessage.CheckPendingCallbackAfterDetach;
+begin
+  var collector := TMessageCollector.Create;
+  try
+    var mq := TOmniMessageQueue.Create(3);
+    try
+      mq.OnMessage := collector.HandleMessage;
+      Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(1, '1')));
+      mq.OnMessage := nil;
+      Drain;
+      Assert.AreEqual<integer>(0, collector.Count, 'handler must not fire');
+      mq.OnMessage := collector.HandleMessage;
+      Assert.IsTrue(mq.Enqueue(TOmniMessage.Create(2, '2')));
+      Drain;
+      Assert.AreEqual<integer>(2, collector.Count, 'reattached handler should receive both messages');
+    finally FreeAndNil(mq); end;
+  finally FreeAndNil(collector); end;
+end;
+
+procedure TestOmniMessageQueueOnMessage.Drain;
+begin
+  if TThread.Current.ThreadID = MainThreadID then
+    CheckSynchronize
+  else
+    DrainBackgroundObservers;
+end;
+
+procedure TestOmniMessageQueueOnMessage.RunInThread(const test: TProc);
+begin
+  var errorMsg := '';
+  var thread := TThread.CreateAnonymousThread(
+    procedure
+    begin
+      try
+        test();
+      except
+        on E: Exception do
+          errorMsg := E.ClassName + ': ' + E.Message;
+      end;
+    end);
+  thread.FreeOnTerminate := false;
+  try
+    thread.Start;
+    thread.WaitFor;
+  finally FreeAndNil(thread); end;
+  Assert.AreEqual('', errorMsg);
+end;
+
+// Message is sent from another thread; main thread only executes queued callbacks.
+procedure TestOmniMessageQueueOnMessage.TestDeliveredToMainThread;
+begin
+  if TThread.Current.ThreadID <> MainThreadID then begin
+    Assert.Pass('Not running in the main thread');
+    Exit;
+  end;
+  var collector := TMessageCollector.Create;
+  try
+    var mq := TOmniMessageQueue.Create(3);
+    try
+      mq.OnMessage := collector.HandleMessage;
+      var thread := TThread.CreateAnonymousThread(
+        procedure
+        begin
+          mq.Enqueue(TOmniMessage.Create(42));
+        end);
+      thread.FreeOnTerminate := false;
+      try
+        thread.Start;
+        thread.WaitFor;
+      finally FreeAndNil(thread); end;
+      CheckSynchronize;
+      Assert.AreEqual<integer>(1, collector.Count, 'handler should have fired once');
+      Assert.AreEqual<integer>(42, collector.MsgIDs[0], 'MsgID');
+    finally FreeAndNil(mq); end;
+  finally FreeAndNil(collector); end;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestFiresOnEnqueue;
+begin
+  CheckFiresOnEnqueue;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestFiresOnEnqueueInThread;
+begin
+  RunInThread(CheckFiresOnEnqueue);
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestDrainsAllQueuedMessagesInOrder;
+begin
+  CheckDrainsAllQueuedMessagesInOrder;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestDrainsAllQueuedMessagesInOrderInThread;
+begin
+  RunInThread(CheckDrainsAllQueuedMessagesInOrder);
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestNotCalledBeforeDrain;
+begin
+  CheckNotCalledBeforeDrain;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestNotCalledBeforeDrainInThread;
+begin
+  RunInThread(CheckNotCalledBeforeDrain);
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestNilDetaches;
+begin
+  CheckNilDetaches;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestNilDetachesInThread;
+begin
+  RunInThread(CheckNilDetaches);
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestDestroyWithActiveHandlerDoesNotRaise;
+begin
+  CheckDestroyWithActiveHandlerDoesNotRaise;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestDestroyWithActiveHandlerDoesNotRaiseInThread;
+begin
+  RunInThread(CheckDestroyWithActiveHandlerDoesNotRaise);
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestDetachFromHandler;
+begin
+  CheckDetachFromHandler;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestDetachFromHandlerInThread;
+begin
+  RunInThread(CheckDetachFromHandler);
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestDestroyInAnotherThread;
+begin
+  CheckDestroyInAnotherThread;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestDestroyInAnotherThreadInThread;
+begin
+  RunInThread(CheckDestroyInAnotherThread);
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestPendingCallbackAfterDetach;
+begin
+  CheckPendingCallbackAfterDetach;
+end;
+
+procedure TestOmniMessageQueueOnMessage.TestPendingCallbackAfterDetachInThread;
+begin
+  RunInThread(CheckPendingCallbackAfterDetach);
 end;
 
 { TestOmniMessageQueueSize1 }

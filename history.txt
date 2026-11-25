@@ -36,6 +36,10 @@
 
 - Bug fixes:
   - TOmniMessageQueue.OnMessage was never called on POSIX platforms.
+  - TOmniMessageQueue.OnMessage handler that was set in the main thread was not called
+    from the message loop. It is now called via TThread.ForceQueue (a console program
+    must call CheckSynchronize). DrainBackgroundObservers or an alertable wait in the
+    main thread do not call it anymore.
   - TOmniMessageQueue: If OnMessage handler set OnMessage to nil, all messages that
     were still in the queue were lost.
   - POSIX: Task controllers owned by a thread that is not an OTL task were kept in

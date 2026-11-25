@@ -316,6 +316,11 @@ owns it:
   DrainBackgroundObservers` call added somewhere in that thread's own
   loop.
 
+- **Main thread owner**: don't use `CreateContainerBackgroundObserver`; its
+  callback is not called from a VCL/FMX message loop. Use
+  `CreateContainerMainThreadObserver` and call its `Shutdown` before the
+  queue is destroyed.
+
 `X:\gp\dvb\DVBDriver.Common.pas`'s only current owner
 (`TDVBMixerEngine`, `dvbMixerEngine.pas`) is itself an OTL task, so it
 needed no changes beyond `CreateObserver`/`DetachObserver` — don't
@@ -572,7 +577,11 @@ In OTL v3, `TOmniMessageQueue.OnMessage` posts a message to a hidden window.
 An `OnMessage` handler assigned in a worker is called immediately if the
 worker uses `.MsgWait`.
 
-In OTL NG, `OnMessage` uses a [background observer](#otlbackgroundobserver).
+In OTL NG, a handler assigned in the **main thread** is called via
+`TThread.ForceQueue`. VCL and FMX programs need no changes; a console program
+must call `CheckSynchronize`.
+
+In other threads, `OnMessage` uses a [background observer](#otlbackgroundobserver).
 Inserting a message into the queue does not wake the worker, with or without
 `.MsgWait`, on any platform. The handler is called the next time the worker
 wakes up for another reason (timer, message sent to the task, wait object ...).
