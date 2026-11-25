@@ -27,7 +27,10 @@ release notes for 3.08 and 3.09 first.
 ## Quick Checklist
 
 1. Remove `.Alertable` calls from task chains (`.MsgWait` is back, see
-   [.MsgWait Reinstated (Windows only)](#msgwait-reinstated-windows-only))
+   [.MsgWait Reinstated (Windows only)](#msgwait-reinstated-windows-only)).
+   A worker that used `.MsgWait` for `TOmniMessageQueue.OnMessage` must be
+   changed (see
+   [TOmniMessageQueue.OnMessage in a Worker](#tomnimessagequeueonmessage-in-a-worker))
 2. Replace `THandle`-based wait objects with `IOmniEvent`
 3. Remove `Parallel.ForkJoin` usage (no replacement; use `Parallel.ForEach` or
    `TTask`)
@@ -292,15 +295,19 @@ owns it:
 
 - **OTL task/worker owner** (the observer is created from code running
   on a task started via `CreateTask(...).Run`, e.g. inside a
-  `TOmniWorker` method): delivery is automatic and needs no extra
-  code. `TOmniTaskExecutor.WaitForEvent` (`OtlTaskControl.pas`) calls
+  `TOmniWorker` method): delivery needs no extra code, but a
+  notification **does not wake the task**. `TOmniTaskExecutor.WaitForEvent`
+  (`OtlTaskControl.pas`) calls
   `OtlBackgroundObserver.DrainBackgroundObservers` unconditionally on
   *every* task-loop iteration — regardless of whether the wait that
   just completed was alertable, timed out, or was satisfied by a
   handle/message — so any OTL task already drains its background
-  observers as a side effect of its own message loop. Latency is
-  bounded by how often the loop cycles (timers, comm-channel traffic,
-  etc.), not by anything you need to add.
+  observers as a side effect of its own message loop. Latency
+  depends only on how often the loop cycles (timers, comm-channel
+  traffic, etc.); in a task that is otherwise idle the callback is not
+  called until something else wakes the task. If that is not acceptable,
+  use a wait object instead (see
+  [TOmniMessageQueue.OnMessage in a Worker](#tomnimessagequeueonmessage-in-a-worker)).
 - **Plain, non-OTL `TThread` owner** (never calls into an OTL task
   loop): delivery is *not* automatic — v3's hidden window delivered to
   any window-message pump on the owner thread, but OTL NG's background
@@ -367,6 +374,10 @@ set exceeds this at runtime (comm channels + terminate events +
 `RegisterWaitObject` handles), `WaitForEvent` raises an exception rather
 than silently stalling. For larger wait sets, drop `.MsgWait` and route
 messages through a dedicated message pump.
+
+`.MsgWait` does **not** deliver `TOmniMessageQueue.OnMessage` anymore, as it
+no longer uses a hidden window (see
+[TOmniMessageQueue.OnMessage in a Worker](#tomnimessagequeueonmessage-in-a-worker)).
 
 ---
 
@@ -554,6 +565,50 @@ The default task loop no longer processes Windows messages. If your
 `TOmniWorker` relies on `WM_*` messages (e.g. `TTimer`, `SetTimer`, window
 hooks) chain `.MsgWait` on Windows or switch to OTL's own messaging
 (`task.Comm.Send`).
+
+### TOmniMessageQueue.OnMessage in a Worker
+
+In OTL v3, `TOmniMessageQueue.OnMessage` posts a message to a hidden window.
+An `OnMessage` handler assigned in a worker is called immediately if the
+worker uses `.MsgWait`.
+
+In OTL NG, `OnMessage` uses a [background observer](#otlbackgroundobserver).
+Inserting a message into the queue does not wake the worker, with or without
+`.MsgWait`, on any platform. The handler is called the next time the worker
+wakes up for another reason (timer, message sent to the task, wait object ...).
+In an idle worker this may never happen.
+
+If the worker must react immediately, replace `OnMessage` with a wait object.
+This works on all platforms, in OTL v3 too, and doesn't need `.MsgWait`:
+
+```pascal
+function TMyWorker.Initialize: boolean;
+begin
+  Result := inherited Initialize;
+  if Result then begin
+    FQueue := TOmniMessageQueue.Create(100);
+    Task.RegisterWaitObject(FQueue.GetNewMessageEvent, ProcessQueue);
+  end;
+end;
+
+procedure TMyWorker.Cleanup;
+begin
+  if assigned(FQueue) then
+    Task.UnregisterWaitObject(FQueue.GetNewMessageEvent);
+  FreeAndNil(FQueue);
+  inherited Cleanup;
+end;
+
+procedure TMyWorker.ProcessQueue;
+var
+  msg: TOmniMessage;
+begin
+  while FQueue.TryDequeue(msg) do // the event is auto-reset, process everything
+    HandleMessage(msg);
+end;
+```
+
+Wait objects can only be used in an `IOmniWorker` task.
 
 ### Unobserved Task Lifetime
 

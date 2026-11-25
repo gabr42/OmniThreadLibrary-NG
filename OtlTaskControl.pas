@@ -452,6 +452,9 @@ type
     // wait handles. If the task's wait set exceeds this at runtime the task loop
     // raises an exception rather than silently stalling. Keep the number of
     // comm channels + registered wait objects + terminate handles below 63.
+    //
+    // Does not wake the task for TOmniMessageQueue.OnMessage (as it did in v3); use
+    // RegisterWaitObject(queue.GetNewMessageEvent, ...) instead.
     function  MsgWait(wakeMask: DWORD = QS_ALLEVENTS): IOmniTaskControl;
     {$ENDIF MSWINDOWS}
     function  OnMessage(eventDispatcher: TObject): IOmniTaskControl; overload;
@@ -1113,6 +1116,9 @@ type
     // wait handles. If the task's wait set exceeds this at runtime the task loop
     // raises an exception rather than silently stalling. Keep the number of
     // comm channels + registered wait objects + terminate handles below 63.
+    //
+    // Does not wake the task for TOmniMessageQueue.OnMessage (as it did in v3); use
+    // RegisterWaitObject(queue.GetNewMessageEvent, ...) instead.
     function  MsgWait(wakeMask: DWORD = QS_ALLEVENTS): IOmniTaskControl;
     {$ENDIF MSWINDOWS}
     function  OnMessage(eventDispatcher: TObject): IOmniTaskControl; overload;

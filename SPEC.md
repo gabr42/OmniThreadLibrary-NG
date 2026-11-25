@@ -212,7 +212,7 @@ OmniThreadLibrary (OTL) is a mature Delphi threading library that has been Windo
 - [x] All wait objects are `IOmniEvent` (unified type)
 - [x] Remove Windows message processing from the task loop (`ProcessThreadMessages`)
 - [x] Timer dispatch remains polling-based (already platform-independent)
-- [x] Deprecated `MsgWait` and `Alertable` methods (now no-ops)
+- [x] Deprecated `MsgWait` and `Alertable` methods (now no-ops; `MsgWait` was later reinstated on Windows, see MIGRATION.md)
 - [x] Removed `Winapi.Messages` dependency from OtlTaskControl.pas
 - [x] All 61 unit tests pass
 
@@ -458,7 +458,7 @@ overload resolution in distant code.
 ### 5.3 Compiler hints and warnings audit ✅
 - [x] Build all units and test projects with hints and warnings enabled
 - [x] Review every hint and warning; fix or suppress with justification
-- [x] Only remaining warnings are OTL's own `Alertable`/`MsgWait` deprecations (intentional)
+- [x] Only remaining warnings are OTL's own `Alertable` deprecations (intentional)
 - [x] Known pre-existing warnings to investigate:
   - [x] `W1035: Return value of function 'Locked<T>.Initialize' might be undefined` (OtlSync.pas) — fixed with `Result := Default(T)` and else branches
   - [x] `H2077: Value assigned never used` (OtlSync.pas) — was a bug: `TPreSignalData.Create` parameter name collision causing self-assignment

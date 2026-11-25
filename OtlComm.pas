@@ -370,9 +370,11 @@ end; { TOmniMessageQueue.AttachEventObserver }
   whichever thread is current when a handler is first assigned - matching
   v3's hidden-window binding, but via CreateContainerBackgroundObserver
   instead (cross-platform; Windows: QueueUserAPC, POSIX: thread-local
-  registry). Delivery is automatic for OTL task/worker threads
-  (TOmniTaskExecutor.WaitForEvent drains background observers on every loop
-  iteration); a plain, non-OTL thread must call
+  registry). OTL task/worker threads drain background observers on every loop
+  iteration (TOmniTaskExecutor.WaitForEvent), but a new message does not wake
+  the task (not even with .MsgWait). If an idle worker must react immediately,
+  use IOmniTask.RegisterWaitObject(queue.GetNewMessageEvent, ...) instead.
+  A plain, non-OTL thread must call
   OtlBackgroundObserver.DrainBackgroundObservers itself, or perform an
   alertable wait, for the callback to run.}
 procedure TOmniMessageQueue.SetOnMessage(const value: TOmniMessageQueueMessageEvent);
