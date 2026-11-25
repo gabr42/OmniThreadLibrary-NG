@@ -20,7 +20,9 @@ type
     [Test]
     procedure TestTOmniValueArrayInt64Cast;
     [Test]
-    procedure TestWaitForGateLeakRace;
+    procedure TestWaitForGateAfterDestroy;
+    [Test]
+    procedure TestWaitForDestroyWhileSignalling;
     [Test]
     procedure TestTOmniValueUInt64HighBitRoundTrip;
     [Test]
@@ -71,62 +73,105 @@ begin
   arrOut := ov.CastTo<TArray<Int64>>;
 end;
 
-procedure TestBugfixes.TestWaitForGateLeakRace;
-// Regression for commit ac3f364 (OtlSync.pas v3.02).
-//
-// TSynchroClient.EnterGate checked FController, called FController.FGate.Acquire
-// which could block. While blocked, TWaitFor.Destroy could run Deref (nilling
-// FController). When GetGate subsequently read FController it returned nil, so
-// the finally block skipped releasing the lock — leaked forever, and the next
-// SetEvent on the same synchro object would hang in EnterGate.
-//
-// The fix saves the gate reference to FAcquiredGate before acquiring, so
-// GetGate returns it regardless of FController state.
-//
-// Reproduction: one thread cycles SetEvent/ResetEvent on an IOmniEvent (each
-// goes through TOmniSynchroObject.PerformObservableAction, which enters the
-// observer's gate). Another thread repeatedly creates and destroys a TWaitFor
-// observing that event. The races between Destroy→Deref and EnterGate→Acquire
-// hit the bug. Before the fix this stress run deadlocks within a few thousand
-// iterations; with the fix it completes cleanly.
-const
-  CIterations  = 20000;
-  CTimeout_ms  = 30000;
-var
-  event      : IOmniEvent;
-  wfDone     : IOmniEvent;
-  wfThread   : TThread;
-  i          : integer;
-begin
-  event := CreateOmniEvent(true, false);
-  wfDone := CreateOmniEvent(true, false);
+type
+  TWaitForWithClient = class(TWaitFor); // access to protected SynchClient
 
-  wfThread := TThread.CreateAnonymousThread(
-    procedure
-    var
-      k: integer;
-      wf: TWaitFor;
-    begin
-      try
-        for k := 1 to CIterations do begin
-          wf := TWaitFor.Create([event]);
-          FreeAndNil(wf);
-        end;
-      finally wfDone.SetEvent; end;
-    end);
-  wfThread.FreeOnTerminate := false;
-  wfThread.Start;
+procedure TestBugfixes.TestWaitForGateAfterDestroy;
+// Regression for OtlSync.pas v3.13.
+//
+// PerformObservableAction takes a snapshot of observers and then enters their gates.
+// If TWaitFor was destroyed in between, EnterGate did nothing but GetGate returned the
+// gate from some previous signal. PerformObservableAction then released a lock that it
+// did not own. (POSIX: EMonitorLockException, Windows: corrupted critical section.)
+var
+  gate    : IOmniCriticalSection;
+  lock    : IOmniCriticalSection;
+  observer: IOmniSynchroObserver;
+  waiter  : TWaitForWithClient;
+begin
+  lock := CreateOmniCriticalSection;
+  waiter := TWaitForWithClient.Create([CreateOmniEvent(true, false)], lock);
   try
-    for i := 1 to CIterations do begin
-      event.SetEvent;
-      event.Reset;
-    end;
-    Assert.AreEqual(wrSignaled, wfDone.WaitFor(CTimeout_ms),
-      'TWaitFor create/destroy thread deadlocked — gate-leak regression');
-  finally
-    wfThread.WaitFor;
-    wfThread.Free;
+    observer := waiter.SynchClient;
+    observer.EnterGate;
+    observer.GetGate(gate);
+    Assert.IsTrue(gate = lock, 'wrong gate');
+    Assert.AreEqual<integer>(1, lock.LockCount, 'gate not entered');
+    gate.Release;
+    Assert.AreEqual<integer>(0, lock.LockCount, 'gate not released');
+    gate := nil;
+  finally FreeAndNil(waiter); end;
+
+  observer.EnterGate;
+  observer.GetGate(gate);
+  Assert.AreEqual<integer>(Ord(assigned(gate)), lock.LockCount,
+    'GetGate must return the gate if and only if EnterGate has entered it');
+  if assigned(gate) then
+    gate.Release;
+  Assert.AreEqual<integer>(0, lock.LockCount, 'gate not released after destroy');
+end;
+
+procedure TestBugfixes.TestWaitForDestroyWhileSignalling;
+// Stress test for two bugs in TWaitFor.TSynchroClient:
+// - Commit ac3f364 (OtlSync.pas v3.02): If TWaitFor was destroyed while a signalling
+//   thread was entering its gate, the gate was never released. This test then hangs.
+// - OtlSync.pas v3.13: see TestWaitForGateAfterDestroy. This test then fails on POSIX;
+//   on Windows, releasing a critical section that is not owned is not detected.
+// Countdown event has no kernel handle, so the waiter registers itself as an observer
+// on all platforms. It only does that while it waits with a non-zero timeout.
+const
+  CNumSignallers = 3;
+  CTestTime_ms   = 2000;
+var
+  countdown : IOmniCountdownEvent;
+  errorMsg  : string;
+  i         : integer;
+  lock      : IOmniCriticalSection;
+  signallers: array [1..CNumSignallers] of TThread;
+  stop      : boolean;
+  stopwatch : TStopwatch;
+  waiter    : TWaitFor;
+begin
+  countdown := CreateOmniCountdownEvent(1, 0);
+  lock := CreateOmniCriticalSection;
+  errorMsg := '';
+  stop := false;
+  for i := 1 to CNumSignallers do begin
+    signallers[i] := TThread.CreateAnonymousThread(
+      procedure
+      begin
+        try
+          while not stop do
+            countdown.Reset;
+        except
+          on E: Exception do begin
+            lock.Acquire;
+            try
+              errorMsg := E.ClassName + ': ' + E.Message;
+            finally lock.Release; end;
+          end;
+        end;
+      end);
+    signallers[i].FreeOnTerminate := false;
   end;
+  try
+    for i := 1 to CNumSignallers do
+      signallers[i].Start;
+    stopwatch := TStopwatch.StartNew;
+    while stopwatch.ElapsedMilliseconds < CTestTime_ms do begin
+      waiter := TWaitFor.Create([countdown as IOmniSynchro]);
+      try
+        waiter.WaitAny(1); // with 0 ms, the observer is not registered
+      finally FreeAndNil(waiter); end;
+    end;
+  finally
+    stop := true;
+    for i := 1 to CNumSignallers do begin
+      signallers[i].WaitFor;
+      FreeAndNil(signallers[i]);
+    end;
+  end;
+  Assert.AreEqual('', errorMsg);
 end;
 
 procedure TestBugfixes.TestTOmniValueUInt64HighBitRoundTrip;

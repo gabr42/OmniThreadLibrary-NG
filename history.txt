@@ -35,6 +35,9 @@
     SetThreadDescription Windows API.
 
 - Bug fixes:
+  - If TWaitFor was destroyed while one of its synchronization objects was being
+    signalled, the signalling thread could release a lock that it did not own (POSIX:
+    EMonitorLockException, Windows: corrupted critical section).
   - TOmniMessageQueue.OnMessage was never called on POSIX platforms.
   - TOmniMessageQueue.OnMessage handler that was set in the main thread was not called
     from the message loop. It is now called via TThread.ForceQueue (a console program

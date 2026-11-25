@@ -151,7 +151,9 @@ in thread-pool tests. Three fixes landed:
    via `Deref`, making `GetGate` return nil and the finally block
    skip the release. Fix: `EnterGate` saves the gate reference to
    `FAcquiredGate` before acquiring, so `GetGate` / `LeaveGate` work
-   regardless of `FController` state.
+   regardless of `FController` state. (OtlSync.pas v3.13, 2026-11-25:
+   `FAcquiredGate` could be stale and caused a release of a lock that was
+   not owned; `TSynchroClient` now holds a fixed reference to the gate.)
 
 3. **UAF in TOmniContainerSubject.Notify** (commit 0f801d0): `Notify`
    took a snapshot of observers under the read lock, then released the

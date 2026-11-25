@@ -35,10 +35,15 @@
 ///     Blog            : http://thedelphigeek.com
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
-///   Last modification : 2026-10-09
-///   Version           : 3.12
+///   Last modification : 2026-11-25
+///   Version           : 3.13
 ///</para><para>
 ///   History:
+///     3.13: 2026-11-25
+///       - Fixed: If TWaitFor was destroyed while one of its synchronization objects was
+///         being signalled, PerformObservableAction could release a gate that it did not
+///         enter (POSIX: EMonitorLockException, Windows: corrupted critical section).
+///         TSynchroClient now holds a reference to the gate, which never changes.
 ///     3.12: 2026-10-09
 ///       - When compiled for C++Builder (BCB is defined), the generated header declares
 ///         IOmniCriticalSection.Release and IOmniResourceCount.Release as Leave, because
@@ -805,8 +810,8 @@ type
     end; { ISynchroClientEx }
     TSynchroClient = class(TInterfacedObject, IOmniSynchroObserver, ISynchroClientEx)
     strict private
-      FController  : TWaitFor;
-      FAcquiredGate: IOmniCriticalSection;
+      FController: TWaitFor;             // accessed only inside FGate
+      FGate      : IOmniCriticalSection; // never changes; TWaitFor can be destroyed while its gate is in use
       procedure EnterGate;
       procedure LeaveGate;
       procedure GetGate(out gate: IOmniCriticalSection);
@@ -2483,28 +2488,23 @@ end; { TOmniLockManager<K>.Unlock }
 constructor TWaitFor.TSynchroClient.Create(AController: TWaitFor);
 begin
   FController := AController;
+  FGate := AController.FGate;
   FController.FSynchClient := Self;
 end; { TWaitFor.TSynchroClient.Create }
 
 procedure TWaitFor.TSynchroClient.EnterGate;
 begin
-  if assigned(FController) then begin
-    FAcquiredGate := FController.FGate;
-    FAcquiredGate.Acquire;
-  end;
+  FGate.Acquire;
 end; { TWaitFor.TSynchroClient.EnterGate }
 
 procedure TWaitFor.TSynchroClient.LeaveGate;
 begin
-  if assigned(FAcquiredGate) then begin
-    FAcquiredGate.Release;
-    FAcquiredGate := nil;
-  end;
+  FGate.Release;
 end; { TWaitFor.TSynchroClient.LeaveGate }
 
 procedure TWaitFor.TSynchroClient.GetGate(out gate: IOmniCriticalSection);
 begin
-  gate := FAcquiredGate;
+  gate := FGate;
 end; { TWaitFor.TSynchroClient.GetGate }
 
 procedure TWaitFor.TSynchroClient.Deref;
