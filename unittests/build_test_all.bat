@@ -32,11 +32,12 @@ cd /d "%~dp0" || exit /b 1
 set "DELPHI_ROOT=C:\Program Files (x86)\Embarcadero\Studio\37.0"
 set "DELPHI_BIN=%DELPHI_ROOT%\bin"
 set "DELPHI_BIN64=%DELPHI_ROOT%\bin64"
-set "ADB=C:\Users\Public\Documents\Embarcadero\Studio\37.0\CatalogRepository\AndroidSDK-37.0.59082.6021\platform-tools\adb.exe"
+set "ADB=C:\Users\Public\Documents\Embarcadero\Studio\37.0\CatalogRepository\AndroidSDK-37.0.60952.8797\platform-tools\adb.exe"
 set "SRC_PATHS=..;../FastMM4"
 set "NS_WIN=System;System.Win;Winapi;Vcl"
 set "NS_LIN=System;Data;Xml"
-set "LINK_STAGE=C:\tmp_otl_link\Linux64\Debug"
+set "LINUX_SDK=%USERPROFILE%\Documents\Embarcadero\Studio\SDKs\ubuntu24.04.sdk"
+set "LINUX_LIBS=%LINUX_SDK%\usr\lib\x86_64-linux-gnu;%LINUX_SDK%\lib\x86_64-linux-gnu;%LINUX_SDK%\usr\lib\gcc\x86_64-linux-gnu\13;%DELPHI_ROOT%\lib\linux64\debug;%DELPHI_ROOT%\lib\linux64\release"
 
 set "WIN32_RC=skip"
 set "WIN64_RC=skip"
@@ -71,39 +72,34 @@ set "WIN64_RC=!errorlevel!"
 
 rem ------------------------------------------------------------
 echo.
-echo ==== [3/5] Linux64: compile + WSL-link + run ====
-rem dcclinux64's bundled ld-linux.exe cannot resolve Linux system
-rem libraries, so the final link step is performed by WSL's native ld
-rem via linkit.sh. The compile itself may exit non-zero because of
-rem that link failure -- we only care that the .o files exist.
-"%DELPHI_BIN%\dcclinux64.exe" ConsoleTestRunner.dpr -B "-U%SRC_PATHS%" "-NS%NS_LIN%" -DDEBUG -CC -E"./Linux64/Debug" -NU"./Linux64/Debug"
-if not exist ".\Linux64\Debug\ConsoleTestRunner.o" (
+echo ==== [3/5] Linux64: compile + run in WSL ====
+rem Links against the Linux SDK that was imported with Delphi's SDK Manager.
+if not exist "%LINUX_SDK%" (
+  set "LINUX_RC=sdk-missing"
+  goto :after_linux
+)
+"%DELPHI_BIN%\dcclinux64.exe" ConsoleTestRunner.dpr -B "-U%SRC_PATHS%" "-NS%NS_LIN%" -DDEBUG -CC -E"./Linux64/Debug" -NU"./Linux64/Debug" "--syslibroot:%LINUX_SDK%" "--libpath:%LINUX_LIBS%"
+if errorlevel 1 (
   set "LINUX_RC=compile-fail"
   goto :after_linux
 )
-if not exist "%LINK_STAGE%" (
-  set "LINUX_RC=stage-missing"
-  goto :after_linux
-)
-copy /y ".\Linux64\Debug\*.o" "%LINK_STAGE%\" >nul
+rem WSL may not see the drive with the sources, so pass the program through stdin.
+wsl --cd / -- bash -c "cat > /tmp/OtlConsoleTestRunner && chmod +x /tmp/OtlConsoleTestRunner" < ".\Linux64\Debug\ConsoleTestRunner"
 if errorlevel 1 (
-  set "LINUX_RC=stage-copy-fail"
+  set "LINUX_RC=copy-fail"
   goto :after_linux
 )
-wsl -- bash /mnt/c/tmp_otl_link/linkit.sh
-if errorlevel 1 (
-  set "LINUX_RC=link-fail"
-  goto :after_linux
-)
-wsl /mnt/c/tmp_otl_link/Linux64/Debug/ConsoleTestRunner %*
+wsl --cd / -- /tmp/OtlConsoleTestRunner %*
 set "LINUX_RC=!errorlevel!"
 :after_linux
 
 rem ------------------------------------------------------------
 echo.
 echo ==== [4/5] Android64: build + deploy + run ====
+rem rsvars.bat does not set errorlevel; it would report a failure of the previous stage.
+set "BDS="
 call "%DELPHI_BIN%\rsvars.bat" >nul
-if errorlevel 1 (
+if not defined BDS (
   set "ANDROID_RC=env-fail"
   goto :after_android
 )
