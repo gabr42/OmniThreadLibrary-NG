@@ -24,6 +24,10 @@ type
     [Test]
     procedure TestWaitForDestroyWhileSignalling;
     [Test]
+    procedure TestEventReleasedWhileSignalling;
+    [Test]
+    procedure TestResourceCountReleasedWhileAllocating;
+    [Test]
     procedure TestTOmniValueUInt64HighBitRoundTrip;
     [Test]
     procedure TestPipelineClosureCapturePerStage;
@@ -172,6 +176,114 @@ begin
     end;
   end;
   Assert.AreEqual('', errorMsg);
+end;
+
+type
+  // Releases the signalled object from BeforeSignal, as if another thread did that.
+  TReleasingObserver = class(TInterfacedObject, IOmniSynchroObserver)
+  strict private
+    FLog    : TStrings; // not owned
+    FRelease: TProc;
+  public
+    constructor Create(log: TStrings; const release: TProc);
+    procedure AfterSignal(const Signaller: TObject; var Data: TObject);
+    procedure BeforeSignal(const Signaller: TObject; var Data: TObject);
+    procedure DereferenceSynchObj(const SynchObj: TObject; AllowInterface: boolean);
+    procedure EnterGate;
+    procedure GetGate(out gate: IOmniCriticalSection);
+    procedure LeaveGate;
+  end;
+
+constructor TReleasingObserver.Create(log: TStrings; const release: TProc);
+begin
+  inherited Create;
+  FLog := log;
+  FRelease := release;
+end;
+
+procedure TReleasingObserver.AfterSignal(const Signaller: TObject; var Data: TObject);
+begin
+  FLog.Add('after');
+end;
+
+procedure TReleasingObserver.BeforeSignal(const Signaller: TObject; var Data: TObject);
+begin
+  FLog.Add('before');
+  FRelease();
+end;
+
+procedure TReleasingObserver.DereferenceSynchObj(const SynchObj: TObject;
+  AllowInterface: boolean);
+begin
+  FLog.Add('destroy');
+end;
+
+procedure TReleasingObserver.EnterGate;
+begin
+end;
+
+procedure TReleasingObserver.GetGate(out gate: IOmniCriticalSection);
+begin
+  gate := nil;
+end;
+
+procedure TReleasingObserver.LeaveGate;
+begin
+end;
+
+// Separate procedures, so that hidden interface variables are released on exit.
+procedure CreateObservedEvent(var event: IOmniEvent; log: TStrings; const release: TProc);
+begin
+  event := CreateOmniEvent(true, false);
+  (event as IOmniSynchro).AddObserver(TReleasingObserver.Create(log, release));
+end;
+
+procedure CreateObservedResourceCount(var resCount: IOmniResourceCount; log: TStrings;
+  const release: TProc);
+begin
+  resCount := CreateResourceCount(1);
+  (resCount as IOmniSynchroObject).Synchro.AddObserver(TReleasingObserver.Create(log, release));
+end;
+
+procedure TestBugfixes.TestEventReleasedWhileSignalling;
+// Regression for OtlSync.pas v3.14.
+//
+// A thread that waits for an event can release the last reference to the event as soon
+// as it is signalled, while SetEvent is still executing in another thread. SetEvent then
+// wrote to the destroyed object.
+var
+  event: IOmniEvent;
+  log  : TStringList;
+begin
+  log := TStringList.Create;
+  try
+    CreateObservedEvent(event, log,
+      procedure
+      begin
+        event := nil;
+      end);
+    event.SetEvent;
+    Assert.AreEqual('before,after,destroy', log.CommaText);
+  finally FreeAndNil(log); end;
+end;
+
+procedure TestBugfixes.TestResourceCountReleasedWhileAllocating;
+// Regression for OtlSync.pas v3.14. Same as TestEventReleasedWhileSignalling, but for
+// TOmniResourceCount. (Owner of Parallel.For destroyed it before Allocate returned.)
+var
+  log     : TStringList;
+  resCount: IOmniResourceCount;
+begin
+  log := TStringList.Create;
+  try
+    CreateObservedResourceCount(resCount, log,
+      procedure
+      begin
+        resCount := nil;
+      end);
+    Assert.AreEqual<cardinal>(0, resCount.Allocate);
+    Assert.AreEqual('before,after,destroy', log.CommaText);
+  finally FreeAndNil(log); end;
 end;
 
 procedure TestBugfixes.TestTOmniValueUInt64HighBitRoundTrip;

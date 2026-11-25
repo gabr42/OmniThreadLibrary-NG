@@ -36,9 +36,15 @@
 ///   Contributors      : GJ, Lee_Nover, dottor_jeckill, Sean B. Durkin, VyPu, Claude AI
 ///   Creation date     : 2009-03-30
 ///   Last modification : 2026-11-25
-///   Version           : 3.13
+///   Version           : 3.14
 ///</para><para>
 ///   History:
+///     3.14: 2026-11-25
+///       - Fixed: A thread that waited for an IOmniEvent, IOmniCountdownEvent, or
+///         IOmniResourceCount could release the last reference to it while the signalling
+///         thread was still inside SetEvent/Allocate, which then accessed a destroyed
+///         object (for example, at the end of Parallel.For). The object now keeps itself
+///         alive until the call completes.
 ///     3.13: 2026-11-25
 ///       - Fixed: If TWaitFor was destroyed while one of its synchronization objects was
 ///         being signalled, PerformObservableAction could release a gate that it did not
@@ -1693,10 +1699,14 @@ end; { TOmniResourceCount.Release }
 function TOmniResourceCount.TryAllocate(var resourceCount: cardinal;
   timeout_ms: cardinal): boolean;
 var
+  keepAlive   : IInterface;
   startTime_ms: int64;
   waitResult  : TWaitResult;
   waitTime_ms : int64;
 begin
+  // When the count drops to 0, another thread can release the last reference to this
+  // instance before this thread leaves orcLock.Release or orcZero.SetEvent.
+  keepAlive := Self;
   Result := false;
   startTime_ms := Time.Timestamp_ms;
   orcLock.Acquire;
@@ -3303,11 +3313,14 @@ procedure TOmniSynchroObject.PerformObservableAction(Action: TProc; DoLock: bool
 var
   count        : integer;
   iObserver    : integer;
+  keepAlive    : IInterface;
   localData    : TArray<TObject>;
   localGates   : TArray<IOmniCriticalSection>;
   observersCopy: TArray<IOmniSynchroObserver>;
   spinGuard    : IInterface;
 begin
+  // Action can wake up a thread that releases the last reference to this instance.
+  keepAlive := Self;
   // Lock-free fast path: when no observers are attached, skip spin-lock
   // acquire entirely. A racy-stale read of 0 is safe — slow-path waiters
   // re-test state after AddObserver, so any observer that transitions
@@ -3323,7 +3336,8 @@ begin
     count := FObservers.Count;
     if count = 0 then begin
       Action;
-      Exit; // spinGuard released automatically
+      spinGuard := nil; // must be released before keepAlive
+      Exit;
     end;
     SetLength(observersCopy, count);
     for iObserver := 0 to count - 1 do

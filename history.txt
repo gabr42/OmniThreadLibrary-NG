@@ -35,6 +35,9 @@
     SetThreadDescription Windows API.
 
 - Bug fixes:
+  - A thread that waited for an IOmniEvent, IOmniCountdownEvent, or IOmniResourceCount
+    could destroy it while the signalling thread was still using it. This could corrupt
+    memory or crash the program, for example at the end of Parallel.For.
   - If TWaitFor was destroyed while one of its synchronization objects was being
     signalled, the signalling thread could release a lock that it did not own (POSIX:
     EMonitorLockException, Windows: corrupted critical section).
